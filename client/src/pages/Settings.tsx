@@ -17,7 +17,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
-import { getSlackChannels, type SlackChannel } from "@/lib/api";
+import { 
+  getSlackChannels, 
+  getSlackChannelPreferences, 
+  saveSlackChannelPreferences, 
+  type SlackChannel 
+} from "@/lib/api";
 import { ExternalLink, Calendar, AlertCircle, MessageSquare, RefreshCw } from "lucide-react";
 import WorkingHoursModal from "@/components/modals/WorkingHoursModal";
 import { useLocation } from "wouter";
@@ -53,10 +58,10 @@ export default function Settings() {
   
   // Fetch Google auth URL
   const { data: googleAuthData, isLoading: isLoadingGoogleAuth } = useQuery({
-    queryKey: ['/api/auth/google/url'],
+    queryKey: ['/api/auth/google/calendar/url'],
     queryFn: async () => {
       try {
-        const res = await apiRequest('GET', '/api/auth/google/url');
+        const res = await apiRequest('GET', '/api/auth/google/calendar/url');
         return res.json();
       } catch (error) {
         console.error("Error fetching Google auth URL:", error);
@@ -135,13 +140,55 @@ export default function Settings() {
     },
     enabled: false // Don't fetch on component mount
   });
+  
+  // Fetch channel preferences
+  const { data: channelPreferences, refetch: refetchChannelPreferences } = useQuery({
+    queryKey: ['/api/slack/channels/preferences'],
+    queryFn: async () => {
+      if (!isSlackConnected) return { channelIds: [] };
+      try {
+        return await getSlackChannelPreferences();
+      } catch (error) {
+        console.error("Error fetching channel preferences:", error);
+        return { channelIds: [] };
+      }
+    },
+    enabled: isSlackConnected
+  });
+  
+  // Save channel preferences mutation
+  const saveChannelsMutation = useMutation({
+    mutationFn: (channelIds: string[]) => saveSlackChannelPreferences(channelIds),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/slack/channels/preferences'] });
+      toast({
+        title: "Channels saved",
+        description: `You've selected ${selectedChannels.length} channels for task detection.`,
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to save channel preferences.",
+        variant: "destructive",
+      });
+    }
+  });
 
   // Fetch channels when Slack is connected
   useEffect(() => {
     if (isSlackConnected) {
       refetchChannels();
+      refetchChannelPreferences();
     }
-  }, [isSlackConnected, refetchChannels]);
+  }, [isSlackConnected, refetchChannels, refetchChannelPreferences]);
+  
+  // Set selected channels from preferences when they're loaded
+  useEffect(() => {
+    if (channelPreferences?.channelIds) {
+      setSelectedChannels(channelPreferences.channelIds);
+    }
+  }, [channelPreferences]);
   
   // Handle channel selection
   const handleChannelToggle = (channelId: string) => {
@@ -156,13 +203,8 @@ export default function Settings() {
   const handleSaveChannelPreferences = () => {
     if (selectedChannels.length === 0) return;
     
-    toast({
-      title: "Channels saved",
-      description: `You've selected ${selectedChannels.length} channels for task detection.`,
-    });
-    
-    // Here we would typically save these preferences to user settings
-    // but for now we'll just keep them in state for the current session
+    // Save channel preferences to the server
+    saveChannelsMutation.mutate(selectedChannels);
   };
   
   // Check URL parameters for Google Auth feedback

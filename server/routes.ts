@@ -6,8 +6,10 @@ import { z } from "zod";
 import { insertTaskSchema, insertUserSchema, insertWorkingHoursSchema } from "@shared/schema";
 import { detectTasks, sendSlackMessage, listUserChannels, type SlackChannel } from "./utils/slack";
 import { 
-  getAuthUrl, 
+  getCalendarAuthUrl, 
+  getLoginAuthUrl,
   getTokens, 
+  getUserProfile,
   createCalendarEvent, 
   updateCalendarEvent, 
   deleteCalendarEvent, 
@@ -131,10 +133,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
   
   // Google OAuth routes
-  app.get('/api/auth/google/url', requireAuth, (req, res) => {
+  // 1. Connect calendar for existing user
+  app.get('/api/auth/google/calendar/url', requireAuth, (req, res) => {
     try {
-      const redirectUrl = `${req.protocol}://${req.get('host')}/api/auth/google/callback`;
-      const authUrl = getAuthUrl(redirectUrl);
+      const redirectUrl = `${req.protocol}://${req.get('host')}/api/auth/google/calendar/callback`;
+      const authUrl = getCalendarAuthUrl(redirectUrl);
       res.json({ url: authUrl });
     } catch (error) {
       console.error(error);
@@ -142,7 +145,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
-  app.get('/api/auth/google/callback', async (req, res) => {
+  app.get('/api/auth/google/calendar/callback', async (req, res) => {
     if (!req.session.userId) {
       return res.redirect('/#/login?error=not_authenticated');
     }
@@ -152,7 +155,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         code: z.string()
       }).parse(req.query);
       
-      const redirectUrl = `${req.protocol}://${req.get('host')}/api/auth/google/callback`;
+      const redirectUrl = `${req.protocol}://${req.get('host')}/api/auth/google/calendar/callback`;
       const tokens = await getTokens(code, redirectUrl);
       
       if (!tokens.refresh_token) {
@@ -166,6 +169,93 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error(error);
       res.redirect('/#/settings?error=google_auth_failed');
+    }
+  });
+  
+  // 2. Login/signup with Google
+  app.get('/api/auth/google/login/url', (req, res) => {
+    try {
+      const redirectUrl = `${req.protocol}://${req.get('host')}/api/auth/google/login/callback`;
+      const authUrl = getLoginAuthUrl(redirectUrl);
+      res.json({ url: authUrl });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ message: 'Failed to generate Google auth URL' });
+    }
+  });
+  
+  app.get('/api/auth/google/login/callback', async (req, res) => {
+    try {
+      const { code } = z.object({
+        code: z.string()
+      }).parse(req.query);
+      
+      const redirectUrl = `${req.protocol}://${req.get('host')}/api/auth/google/login/callback`;
+      const tokens = await getTokens(code, redirectUrl);
+      
+      if (!tokens.access_token) {
+        return res.redirect('/#/login?error=auth_failed');
+      }
+      
+      // Get user profile
+      const userProfile = await getUserProfile(tokens.access_token);
+      
+      if (!userProfile.emailAddresses || userProfile.emailAddresses.length === 0) {
+        return res.redirect('/#/login?error=no_email');
+      }
+      
+      const email = userProfile.emailAddresses[0].value;
+      const name = userProfile.names && userProfile.names.length > 0 
+        ? userProfile.names[0].displayName 
+        : email.split('@')[0];
+      
+      // Check if user with this email exists
+      let user = await storage.getUserByUsername(email);
+      
+      // If user doesn't exist, create them
+      if (!user) {
+        // Generate a random password - user won't need this since they'll log in with Google
+        const randomPassword = Math.random().toString(36).slice(-8);
+        
+        user = await storage.createUser({
+          username: email,
+          email,
+          password: randomPassword,
+          slackUserId: null,
+          slackWorkspace: null,
+          googleRefreshToken: tokens.refresh_token || null
+        });
+        
+        // Create default working hours for new user
+        await storage.createWorkingHours({
+          userId: user.id,
+          monday: true,
+          tuesday: true,
+          wednesday: true,
+          thursday: true,
+          friday: true,
+          saturday: false,
+          sunday: false,
+          startTime: '09:00',
+          endTime: '17:00',
+          breakStartTime: '12:00',
+          breakEndTime: '13:00',
+          focusTimeEnabled: true,
+          focusTimeDuration: '01:00',
+          focusTimePreference: 'morning',
+        });
+      } else if (tokens.refresh_token) {
+        // Update existing user with refresh token if we got one
+        await storage.updateUserGoogleToken(user.id, tokens.refresh_token);
+      }
+      
+      // Log the user in
+      req.session.userId = user.id;
+      
+      res.redirect('/#/dashboard');
+    } catch (error) {
+      console.error(error);
+      res.redirect('/#/login?error=google_auth_failed');
     }
   });
   
@@ -208,6 +298,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
+  app.post('/api/slack/channels/preferences', requireAuth, async (req, res) => {
+    try {
+      const user = await storage.getUser(req.session.userId!);
+      
+      if (!user || !user.slackUserId) {
+        return res.status(400).json({ message: 'Slack integration not configured' });
+      }
+      
+      // Validate request body
+      const { channelIds } = req.body;
+      if (!Array.isArray(channelIds)) {
+        return res.status(400).json({ message: 'channelIds must be an array' });
+      }
+      
+      // Here you would normally save these to a database table
+      // For now, we'll store them in the session
+      req.session.slackChannelIds = channelIds;
+      await req.session.save();
+      
+      res.json({ success: true, channelIds });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ message: 'Failed to save channel preferences' });
+    }
+  });
+  
+  app.get('/api/slack/channels/preferences', requireAuth, async (req, res) => {
+    try {
+      const user = await storage.getUser(req.session.userId!);
+      
+      if (!user || !user.slackUserId) {
+        return res.status(400).json({ message: 'Slack integration not configured' });
+      }
+      
+      // Return channel IDs from session, or empty array if none stored
+      const channelIds = req.session.slackChannelIds || [];
+      res.json({ channelIds });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ message: 'Failed to get channel preferences' });
+    }
+  });
+  
   app.get('/api/slack/detect-tasks', requireAuth, async (req, res) => {
     try {
       const user = await storage.getUser(req.session.userId!);
@@ -223,6 +356,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         channelIds = Array.isArray(req.query.channels) 
           ? req.query.channels as string[] 
           : [req.query.channels as string];
+      } else if (req.session.slackChannelIds && req.session.slackChannelIds.length > 0) {
+        // Use stored channel preferences if available
+        channelIds = req.session.slackChannelIds;
       } else if (process.env.SLACK_CHANNEL_ID) {
         // Fallback to default channel if no channels specified
         channelIds = [process.env.SLACK_CHANNEL_ID];

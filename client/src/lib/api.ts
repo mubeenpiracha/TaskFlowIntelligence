@@ -32,8 +32,13 @@ export const getMe = async (): Promise<User> => {
 };
 
 // Google OAuth API
-export const getGoogleAuthUrl = async (): Promise<{ url: string }> => {
-  const res = await apiRequest('GET', '/api/auth/google/url');
+export const getGoogleCalendarAuthUrl = async (): Promise<{ url: string }> => {
+  const res = await apiRequest('GET', '/api/auth/google/calendar/url');
+  return res.json();
+};
+
+export const getGoogleLoginUrl = async (): Promise<{ url: string }> => {
+  const res = await apiRequest('GET', '/api/auth/google/login/url');
   return res.json();
 };
 
@@ -45,6 +50,16 @@ export const connectSlack = async (slackUserId: string, workspace: string): Prom
 
 export const getSlackChannels = async (): Promise<SlackChannel[]> => {
   const res = await apiRequest('GET', '/api/slack/channels');
+  return res.json();
+};
+
+export const getSlackChannelPreferences = async (): Promise<{channelIds: string[]}> => {
+  const res = await apiRequest('GET', '/api/slack/channels/preferences');
+  return res.json();
+};
+
+export const saveSlackChannelPreferences = async (channelIds: string[]): Promise<{success: boolean, channelIds: string[]}> => {
+  const res = await apiRequest('POST', '/api/slack/channels/preferences', { channelIds });
   return res.json();
 };
 

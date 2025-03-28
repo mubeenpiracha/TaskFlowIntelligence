@@ -1,7 +1,8 @@
 import { google } from 'googleapis';
 
-// Google Calendar API scopes
-const SCOPES = ['https://www.googleapis.com/auth/calendar'];
+// Google API scopes
+const CALENDAR_SCOPES = ['https://www.googleapis.com/auth/calendar'];
+const AUTH_SCOPES = ['https://www.googleapis.com/auth/userinfo.email', 'https://www.googleapis.com/auth/userinfo.profile'];
 
 /**
  * Creates an OAuth2 client for Google API authentication
@@ -24,16 +25,31 @@ function createOAuth2Client(redirectUrl: string) {
 }
 
 /**
- * Generates a URL for Google OAuth2 authentication
+ * Generates a URL for Google OAuth2 authentication for calendar access
  * @param redirectUrl - OAuth2 redirect URL
  * @returns Auth URL to redirect the user to
  */
-function getAuthUrl(redirectUrl: string) {
+function getCalendarAuthUrl(redirectUrl: string) {
   const oauth2Client = createOAuth2Client(redirectUrl);
   
   return oauth2Client.generateAuthUrl({
     access_type: 'offline',
-    scope: SCOPES,
+    scope: CALENDAR_SCOPES,
+    prompt: 'consent' // Force to get refresh token every time
+  });
+}
+
+/**
+ * Generates a URL for Google OAuth2 authentication for user login
+ * @param redirectUrl - OAuth2 redirect URL
+ * @returns Auth URL to redirect the user to
+ */
+function getLoginAuthUrl(redirectUrl: string) {
+  const oauth2Client = createOAuth2Client(redirectUrl);
+  
+  return oauth2Client.generateAuthUrl({
+    access_type: 'offline',
+    scope: AUTH_SCOPES,
     prompt: 'consent' // Force to get refresh token every time
   });
 }
@@ -175,9 +191,37 @@ async function listCalendarEvents(refreshToken: string, timeMin: string, timeMax
   }
 }
 
+/**
+ * Gets user profile information using an access token
+ * @param accessToken - Google OAuth2 access token
+ * @returns User profile information
+ */
+async function getUserProfile(accessToken: string) {
+  const oauth2Client = createOAuth2Client('');
+  oauth2Client.setCredentials({
+    access_token: accessToken
+  });
+  
+  const people = google.people({ version: 'v1', auth: oauth2Client });
+  
+  try {
+    const response = await people.people.get({
+      resourceName: 'people/me',
+      personFields: 'names,emailAddresses,photos'
+    });
+    
+    return response.data;
+  } catch (error) {
+    console.error('Error getting user profile:', error);
+    throw error;
+  }
+}
+
 export {
-  getAuthUrl,
+  getCalendarAuthUrl,
+  getLoginAuthUrl,
   getTokens,
+  getUserProfile,
   createCalendarEvent,
   updateCalendarEvent,
   deleteCalendarEvent,
