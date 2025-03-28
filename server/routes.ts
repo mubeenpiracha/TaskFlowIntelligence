@@ -1,0 +1,531 @@
+import type { Express, Request, Response } from "express";
+import { createServer, type Server } from "http";
+import session from "express-session";
+import { storage } from "./storage";
+import { z } from "zod";
+import { insertTaskSchema, insertUserSchema, insertWorkingHoursSchema } from "@shared/schema";
+import { detectTasks, sendSlackMessage, listUserChannels, type SlackChannel } from "./utils/slack";
+import { 
+  getAuthUrl, 
+  getTokens, 
+  createCalendarEvent, 
+  updateCalendarEvent, 
+  deleteCalendarEvent, 
+  listCalendarEvents 
+} from "./utils/google";
+
+// Create a store for sessions
+import createMemoryStore from 'memorystore';
+const MemoryStore = createMemoryStore(session);
+
+export async function registerRoutes(app: Express): Promise<Server> {
+  // Session middleware
+  app.use(session({
+    secret: process.env.SESSION_SECRET || 'taskflow-secret-key',
+    resave: false,
+    saveUninitialized: false,
+    cookie: { secure: process.env.NODE_ENV === 'production', maxAge: 86400000 }, // 1 day
+    store: new MemoryStore({
+      checkPeriod: 86400000 // prune expired entries every 24h
+    })
+  }));
+
+  // Auth middleware
+  const requireAuth = (req: Request, res: Response, next: Function) => {
+    if (!req.session.userId) {
+      return res.status(401).json({ message: 'Unauthorized' });
+    }
+    next();
+  };
+
+  // Auth routes
+  app.post('/api/auth/register', async (req, res) => {
+    try {
+      const userData = insertUserSchema.parse(req.body);
+      const existingUser = await storage.getUserByUsername(userData.username);
+      
+      if (existingUser) {
+        return res.status(400).json({ message: 'Username already exists' });
+      }
+      
+      const user = await storage.createUser(userData);
+      
+      // Create default working hours for new user
+      await storage.createWorkingHours({
+        userId: user.id,
+        monday: true,
+        tuesday: true,
+        wednesday: true,
+        thursday: true,
+        friday: true,
+        saturday: false,
+        sunday: false,
+        startTime: '09:00',
+        endTime: '17:00',
+        breakStartTime: '12:00',
+        breakEndTime: '13:00',
+        focusTimeEnabled: true,
+        focusTimeDuration: '01:00',
+        focusTimePreference: 'morning',
+      });
+      
+      // Set user in session
+      req.session.userId = user.id;
+      
+      // Remove password from response
+      const { password, ...userWithoutPassword } = user;
+      res.status(201).json(userWithoutPassword);
+    } catch (error) {
+      console.error(error);
+      res.status(400).json({ message: 'Invalid user data' });
+    }
+  });
+  
+  app.post('/api/auth/login', async (req, res) => {
+    try {
+      const { username, password } = z.object({
+        username: z.string(),
+        password: z.string()
+      }).parse(req.body);
+      
+      const user = await storage.getUserByUsername(username);
+      
+      if (!user || user.password !== password) {
+        return res.status(401).json({ message: 'Invalid credentials' });
+      }
+      
+      // Set user in session
+      req.session.userId = user.id;
+      
+      // Remove password from response
+      const { password: _, ...userWithoutPassword } = user;
+      res.json(userWithoutPassword);
+    } catch (error) {
+      console.error(error);
+      res.status(400).json({ message: 'Invalid credentials' });
+    }
+  });
+  
+  app.post('/api/auth/logout', (req, res) => {
+    req.session.destroy(() => {
+      res.status(200).json({ message: 'Logged out successfully' });
+    });
+  });
+  
+  app.get('/api/auth/me', requireAuth, async (req, res) => {
+    try {
+      const user = await storage.getUser(req.session.userId!);
+      
+      if (!user) {
+        req.session.destroy(() => {});
+        return res.status(404).json({ message: 'User not found' });
+      }
+      
+      // Remove password from response
+      const { password, ...userWithoutPassword } = user;
+      res.json(userWithoutPassword);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ message: 'Server error' });
+    }
+  });
+  
+  // Google OAuth routes
+  app.get('/api/auth/google/url', requireAuth, (req, res) => {
+    try {
+      const redirectUrl = `${req.protocol}://${req.get('host')}/api/auth/google/callback`;
+      const authUrl = getAuthUrl(redirectUrl);
+      res.json({ url: authUrl });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ message: 'Failed to generate Google auth URL' });
+    }
+  });
+  
+  app.get('/api/auth/google/callback', async (req, res) => {
+    if (!req.session.userId) {
+      return res.redirect('/#/login?error=not_authenticated');
+    }
+    
+    try {
+      const { code } = z.object({
+        code: z.string()
+      }).parse(req.query);
+      
+      const redirectUrl = `${req.protocol}://${req.get('host')}/api/auth/google/callback`;
+      const tokens = await getTokens(code, redirectUrl);
+      
+      if (!tokens.refresh_token) {
+        return res.redirect('/#/settings?error=no_refresh_token');
+      }
+      
+      // Store refresh token in user record
+      await storage.updateUserGoogleToken(req.session.userId, tokens.refresh_token);
+      
+      res.redirect('/#/settings?google_connected=true');
+    } catch (error) {
+      console.error(error);
+      res.redirect('/#/settings?error=google_auth_failed');
+    }
+  });
+  
+  // Slack integration routes
+  app.post('/api/slack/connect', requireAuth, async (req, res) => {
+    try {
+      const { slackUserId, workspace } = z.object({
+        slackUserId: z.string(),
+        workspace: z.string()
+      }).parse(req.body);
+      
+      const user = await storage.updateUserSlackInfo(req.session.userId!, slackUserId, workspace);
+      
+      if (!user) {
+        return res.status(404).json({ message: 'User not found' });
+      }
+      
+      // Remove password from response
+      const { password, ...userWithoutPassword } = user;
+      res.json(userWithoutPassword);
+    } catch (error) {
+      console.error(error);
+      res.status(400).json({ message: 'Invalid slack data' });
+    }
+  });
+  
+  app.get('/api/slack/channels', requireAuth, async (req, res) => {
+    try {
+      const user = await storage.getUser(req.session.userId!);
+      
+      if (!user || !user.slackUserId) {
+        return res.status(400).json({ message: 'Slack integration not configured' });
+      }
+      
+      const channels = await listUserChannels();
+      res.json(channels);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ message: 'Failed to list Slack channels' });
+    }
+  });
+  
+  app.get('/api/slack/detect-tasks', requireAuth, async (req, res) => {
+    try {
+      const user = await storage.getUser(req.session.userId!);
+      
+      if (!user || !user.slackUserId) {
+        return res.status(400).json({ message: 'Slack integration not configured' });
+      }
+      
+      // Get channel IDs from query parameters, or default to stored preferences
+      let channelIds: string[] = [];
+      
+      if (req.query.channels) {
+        channelIds = Array.isArray(req.query.channels) 
+          ? req.query.channels as string[] 
+          : [req.query.channels as string];
+      } else if (process.env.SLACK_CHANNEL_ID) {
+        // Fallback to default channel if no channels specified
+        channelIds = [process.env.SLACK_CHANNEL_ID];
+      }
+      
+      if (channelIds.length === 0) {
+        return res.status(400).json({ message: 'No Slack channels specified for task detection' });
+      }
+      
+      const tasks = await detectTasks(channelIds, user.slackUserId);
+      res.json(tasks);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ message: 'Failed to detect tasks from Slack' });
+    }
+  });
+  
+  // Working hours routes
+  app.get('/api/working-hours', requireAuth, async (req, res) => {
+    try {
+      const workingHours = await storage.getWorkingHours(req.session.userId!);
+      
+      if (!workingHours) {
+        return res.status(404).json({ message: 'Working hours not found' });
+      }
+      
+      res.json(workingHours);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ message: 'Server error' });
+    }
+  });
+  
+  app.patch('/api/working-hours', requireAuth, async (req, res) => {
+    try {
+      const workingHoursData = insertWorkingHoursSchema.partial().parse(req.body);
+      const existingWorkingHours = await storage.getWorkingHours(req.session.userId!);
+      
+      if (!existingWorkingHours) {
+        return res.status(404).json({ message: 'Working hours not found' });
+      }
+      
+      const updatedWorkingHours = await storage.updateWorkingHours(existingWorkingHours.id, workingHoursData);
+      res.json(updatedWorkingHours);
+    } catch (error) {
+      console.error(error);
+      res.status(400).json({ message: 'Invalid working hours data' });
+    }
+  });
+  
+  // Task routes
+  app.get('/api/tasks', requireAuth, async (req, res) => {
+    try {
+      const tasks = await storage.getTasksByUser(req.session.userId!);
+      res.json(tasks);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ message: 'Server error' });
+    }
+  });
+  
+  app.get('/api/tasks/today', requireAuth, async (req, res) => {
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const tasks = await storage.getTasksByDate(req.session.userId!, today);
+      res.json(tasks);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ message: 'Server error' });
+    }
+  });
+  
+  app.get('/api/tasks/:date', requireAuth, async (req, res) => {
+    try {
+      const { date } = z.object({
+        date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/)
+      }).parse(req.params);
+      
+      const tasks = await storage.getTasksByDate(req.session.userId!, date);
+      res.json(tasks);
+    } catch (error) {
+      console.error(error);
+      res.status(400).json({ message: 'Invalid date format' });
+    }
+  });
+  
+  app.post('/api/tasks', requireAuth, async (req, res) => {
+    try {
+      const taskData = insertTaskSchema
+        .omit({ userId: true })
+        .parse(req.body);
+      
+      const user = await storage.getUser(req.session.userId!);
+      
+      if (!user) {
+        return res.status(404).json({ message: 'User not found' });
+      }
+      
+      const task = await storage.createTask({
+        ...taskData,
+        userId: req.session.userId!
+      });
+      
+      // If user has Google Calendar integrated, create calendar event
+      if (user.googleRefreshToken && task.dueDate && task.dueTime && task.timeRequired) {
+        try {
+          // Parse time required into hours and minutes
+          const [hours, minutes] = task.timeRequired.split(':').map(Number);
+          const durationMs = (hours * 60 + minutes) * 60 * 1000;
+          
+          // Create start time from due date and time
+          const startTime = new Date(`${task.dueDate}T${task.dueTime}`);
+          const endTime = new Date(startTime.getTime() + durationMs);
+          
+          const event = await createCalendarEvent(user.googleRefreshToken, {
+            summary: task.title,
+            description: task.description,
+            start: {
+              dateTime: startTime.toISOString(),
+              timeZone: 'UTC'
+            },
+            end: {
+              dateTime: endTime.toISOString(),
+              timeZone: 'UTC'
+            }
+          });
+          
+          // Update task with Google Calendar event ID
+          await storage.updateTask(task.id, {
+            googleEventId: event.id
+          });
+        } catch (error) {
+          console.error('Failed to create Google Calendar event:', error);
+        }
+      }
+      
+      res.status(201).json(task);
+    } catch (error) {
+      console.error(error);
+      res.status(400).json({ message: 'Invalid task data' });
+    }
+  });
+  
+  app.patch('/api/tasks/:id', requireAuth, async (req, res) => {
+    try {
+      const { id } = z.object({
+        id: z.string().transform(Number)
+      }).parse(req.params);
+      
+      const taskData = insertTaskSchema
+        .omit({ userId: true })
+        .partial()
+        .parse(req.body);
+      
+      const task = await storage.getTask(id);
+      
+      if (!task) {
+        return res.status(404).json({ message: 'Task not found' });
+      }
+      
+      if (task.userId !== req.session.userId) {
+        return res.status(403).json({ message: 'Not authorized to update this task' });
+      }
+      
+      const updatedTask = await storage.updateTask(id, taskData);
+      
+      // Update Google Calendar event if it exists
+      const user = await storage.getUser(req.session.userId!);
+      if (user && user.googleRefreshToken && updatedTask?.googleEventId && 
+          (taskData.title || taskData.description || taskData.dueDate || taskData.dueTime || taskData.timeRequired)) {
+        try {
+          const eventUpdate: any = {};
+          
+          if (taskData.title) {
+            eventUpdate.summary = taskData.title;
+          }
+          
+          if (taskData.description) {
+            eventUpdate.description = taskData.description;
+          }
+          
+          if ((taskData.dueDate || taskData.dueTime) && updatedTask.dueDate && updatedTask.dueTime) {
+            // Parse time required into hours and minutes
+            const [hours, minutes] = (updatedTask.timeRequired || '01:00').split(':').map(Number);
+            const durationMs = (hours * 60 + minutes) * 60 * 1000;
+            
+            // Create start time from due date and time
+            const startTime = new Date(`${updatedTask.dueDate}T${updatedTask.dueTime}`);
+            const endTime = new Date(startTime.getTime() + durationMs);
+            
+            eventUpdate.start = {
+              dateTime: startTime.toISOString(),
+              timeZone: 'UTC'
+            };
+            
+            eventUpdate.end = {
+              dateTime: endTime.toISOString(),
+              timeZone: 'UTC'
+            };
+          }
+          
+          if (Object.keys(eventUpdate).length > 0) {
+            await updateCalendarEvent(user.googleRefreshToken, updatedTask.googleEventId, eventUpdate);
+          }
+        } catch (error) {
+          console.error('Failed to update Google Calendar event:', error);
+        }
+      }
+      
+      res.json(updatedTask);
+    } catch (error) {
+      console.error(error);
+      res.status(400).json({ message: 'Invalid task data' });
+    }
+  });
+  
+  app.delete('/api/tasks/:id', requireAuth, async (req, res) => {
+    try {
+      const { id } = z.object({
+        id: z.string().transform(Number)
+      }).parse(req.params);
+      
+      const task = await storage.getTask(id);
+      
+      if (!task) {
+        return res.status(404).json({ message: 'Task not found' });
+      }
+      
+      if (task.userId !== req.session.userId) {
+        return res.status(403).json({ message: 'Not authorized to delete this task' });
+      }
+      
+      // Delete from Google Calendar if it exists
+      if (task.googleEventId) {
+        const user = await storage.getUser(req.session.userId!);
+        if (user && user.googleRefreshToken) {
+          try {
+            await deleteCalendarEvent(user.googleRefreshToken, task.googleEventId);
+          } catch (error) {
+            console.error('Failed to delete Google Calendar event:', error);
+          }
+        }
+      }
+      
+      await storage.deleteTask(id);
+      res.status(204).send();
+    } catch (error) {
+      console.error(error);
+      res.status(400).json({ message: 'Invalid task ID' });
+    }
+  });
+  
+  app.post('/api/tasks/:id/complete', requireAuth, async (req, res) => {
+    try {
+      const { id } = z.object({
+        id: z.string().transform(Number)
+      }).parse(req.params);
+      
+      const { completed } = z.object({
+        completed: z.boolean()
+      }).parse(req.body);
+      
+      const task = await storage.getTask(id);
+      
+      if (!task) {
+        return res.status(404).json({ message: 'Task not found' });
+      }
+      
+      if (task.userId !== req.session.userId) {
+        return res.status(403).json({ message: 'Not authorized to update this task' });
+      }
+      
+      const updatedTask = await storage.markTaskComplete(id, completed);
+      res.json(updatedTask);
+    } catch (error) {
+      console.error(error);
+      res.status(400).json({ message: 'Invalid request' });
+    }
+  });
+  
+  // Calendar routes
+  app.get('/api/calendar/events', requireAuth, async (req, res) => {
+    try {
+      const { start, end } = z.object({
+        start: z.string(),
+        end: z.string()
+      }).parse(req.query);
+      
+      const user = await storage.getUser(req.session.userId!);
+      
+      if (!user || !user.googleRefreshToken) {
+        return res.status(400).json({ message: 'Google Calendar not connected' });
+      }
+      
+      const events = await listCalendarEvents(user.googleRefreshToken, start, end);
+      res.json(events);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ message: 'Failed to fetch calendar events' });
+    }
+  });
+
+  const httpServer = createServer(app);
+
+  return httpServer;
+}

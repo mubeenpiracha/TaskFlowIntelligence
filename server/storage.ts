@@ -1,0 +1,165 @@
+import { 
+  users, type User, type InsertUser, 
+  workingHours, type WorkingHours, type InsertWorkingHours,
+  tasks, type Task, type InsertTask
+} from "@shared/schema";
+
+export interface IStorage {
+  // User operations
+  getUser(id: number): Promise<User | undefined>;
+  getUserByUsername(username: string): Promise<User | undefined>;
+  createUser(user: InsertUser): Promise<User>;
+  updateUserGoogleToken(id: number, token: string): Promise<User | undefined>;
+  updateUserSlackInfo(id: number, slackUserId: string, workspace: string): Promise<User | undefined>;
+
+  // Working hours operations
+  getWorkingHours(userId: number): Promise<WorkingHours | undefined>;
+  createWorkingHours(workingHours: InsertWorkingHours): Promise<WorkingHours>;
+  updateWorkingHours(id: number, workingHours: Partial<InsertWorkingHours>): Promise<WorkingHours | undefined>;
+
+  // Task operations
+  getTask(id: number): Promise<Task | undefined>;
+  getTasksByUser(userId: number): Promise<Task[]>;
+  getTasksByDate(userId: number, date: string): Promise<Task[]>;
+  getTasksBySlackMessageId(messageId: string): Promise<Task | undefined>;
+  createTask(task: InsertTask): Promise<Task>;
+  updateTask(id: number, task: Partial<InsertTask>): Promise<Task | undefined>;
+  deleteTask(id: number): Promise<boolean>;
+  markTaskComplete(id: number, completed: boolean): Promise<Task | undefined>;
+}
+
+export class MemStorage implements IStorage {
+  private users: Map<number, User>;
+  private workingHours: Map<number, WorkingHours>;
+  private tasks: Map<number, Task>;
+  private currentUserId: number;
+  private currentWorkingHoursId: number;
+  private currentTaskId: number;
+
+  constructor() {
+    this.users = new Map();
+    this.workingHours = new Map();
+    this.tasks = new Map();
+    this.currentUserId = 1;
+    this.currentWorkingHoursId = 1;
+    this.currentTaskId = 1;
+  }
+
+  // User operations
+  async getUser(id: number): Promise<User | undefined> {
+    return this.users.get(id);
+  }
+
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    return Array.from(this.users.values()).find(
+      (user) => user.username === username,
+    );
+  }
+
+  async createUser(insertUser: InsertUser): Promise<User> {
+    const id = this.currentUserId++;
+    const user: User = { ...insertUser, id };
+    this.users.set(id, user);
+    return user;
+  }
+
+  async updateUserGoogleToken(id: number, token: string): Promise<User | undefined> {
+    const user = this.users.get(id);
+    if (!user) return undefined;
+    
+    const updatedUser = { ...user, googleRefreshToken: token };
+    this.users.set(id, updatedUser);
+    return updatedUser;
+  }
+
+  async updateUserSlackInfo(id: number, slackUserId: string, workspace: string): Promise<User | undefined> {
+    const user = this.users.get(id);
+    if (!user) return undefined;
+    
+    const updatedUser = { ...user, slackUserId, slackWorkspace: workspace };
+    this.users.set(id, updatedUser);
+    return updatedUser;
+  }
+
+  // Working hours operations
+  async getWorkingHours(userId: number): Promise<WorkingHours | undefined> {
+    return Array.from(this.workingHours.values()).find(
+      (wh) => wh.userId === userId,
+    );
+  }
+
+  async createWorkingHours(insertWorkingHours: InsertWorkingHours): Promise<WorkingHours> {
+    const id = this.currentWorkingHoursId++;
+    const workingHoursRecord: WorkingHours = { ...insertWorkingHours, id };
+    this.workingHours.set(id, workingHoursRecord);
+    return workingHoursRecord;
+  }
+
+  async updateWorkingHours(id: number, workingHoursUpdate: Partial<InsertWorkingHours>): Promise<WorkingHours | undefined> {
+    const workingHoursRecord = this.workingHours.get(id);
+    if (!workingHoursRecord) return undefined;
+    
+    const updatedWorkingHours = { ...workingHoursRecord, ...workingHoursUpdate };
+    this.workingHours.set(id, updatedWorkingHours);
+    return updatedWorkingHours;
+  }
+
+  // Task operations
+  async getTask(id: number): Promise<Task | undefined> {
+    return this.tasks.get(id);
+  }
+
+  async getTasksByUser(userId: number): Promise<Task[]> {
+    return Array.from(this.tasks.values()).filter(
+      (task) => task.userId === userId,
+    );
+  }
+
+  async getTasksByDate(userId: number, date: string): Promise<Task[]> {
+    return Array.from(this.tasks.values()).filter(
+      (task) => task.userId === userId && task.dueDate === date,
+    );
+  }
+
+  async getTasksBySlackMessageId(messageId: string): Promise<Task | undefined> {
+    return Array.from(this.tasks.values()).find(
+      (task) => task.slackMessageId === messageId,
+    );
+  }
+
+  async createTask(insertTask: InsertTask): Promise<Task> {
+    const id = this.currentTaskId++;
+    const now = new Date();
+    const task: Task = { 
+      ...insertTask, 
+      id, 
+      createdAt: now 
+    };
+    this.tasks.set(id, task);
+    return task;
+  }
+
+  async updateTask(id: number, taskUpdate: Partial<InsertTask>): Promise<Task | undefined> {
+    const task = this.tasks.get(id);
+    if (!task) return undefined;
+    
+    const updatedTask = { ...task, ...taskUpdate };
+    this.tasks.set(id, updatedTask);
+    return updatedTask;
+  }
+
+  async deleteTask(id: number): Promise<boolean> {
+    return this.tasks.delete(id);
+  }
+
+  async markTaskComplete(id: number, completed: boolean): Promise<Task | undefined> {
+    const task = this.tasks.get(id);
+    if (!task) return undefined;
+    
+    const updatedTask = { ...task, completed };
+    this.tasks.set(id, updatedTask);
+    return updatedTask;
+  }
+}
+
+export const storage = new MemStorage();

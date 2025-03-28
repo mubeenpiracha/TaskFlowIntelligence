@@ -1,0 +1,115 @@
+import { apiRequest } from "./queryClient";
+import { User, Task, WorkingHours } from "@shared/schema";
+
+// Slack channel interface from the backend
+export interface SlackChannel {
+  id: string;
+  name: string;
+  is_member: boolean;
+  is_private: boolean;
+  is_channel: boolean;
+  num_members?: number;
+}
+
+// Auth API
+export const login = async (username: string, password: string) => {
+  const res = await apiRequest('POST', '/api/auth/login', { username, password });
+  return res.json();
+};
+
+export const register = async (username: string, password: string, email: string) => {
+  const res = await apiRequest('POST', '/api/register', { username, password, email });
+  return res.json();
+};
+
+export const logout = async () => {
+  await apiRequest('POST', '/api/auth/logout');
+};
+
+export const getMe = async (): Promise<User> => {
+  const res = await apiRequest('GET', '/api/auth/me');
+  return res.json();
+};
+
+// Google OAuth API
+export const getGoogleAuthUrl = async (): Promise<{ url: string }> => {
+  const res = await apiRequest('GET', '/api/auth/google/url');
+  return res.json();
+};
+
+// Slack API
+export const connectSlack = async (slackUserId: string, workspace: string): Promise<User> => {
+  const res = await apiRequest('POST', '/api/slack/connect', { slackUserId, workspace });
+  return res.json();
+};
+
+export const getSlackChannels = async (): Promise<SlackChannel[]> => {
+  const res = await apiRequest('GET', '/api/slack/channels');
+  return res.json();
+};
+
+export const detectSlackTasks = async (channelIds?: string[]) => {
+  let url = '/api/slack/detect-tasks';
+  
+  // Add channel IDs to query params if provided
+  if (channelIds && channelIds.length > 0) {
+    const params = new URLSearchParams();
+    channelIds.forEach(id => params.append('channels', id));
+    url += `?${params.toString()}`;
+  }
+  
+  const res = await apiRequest('GET', url);
+  return res.json();
+};
+
+// Working Hours API
+export const getWorkingHours = async (): Promise<WorkingHours> => {
+  const res = await apiRequest('GET', '/api/working-hours');
+  return res.json();
+};
+
+export const updateWorkingHours = async (workingHours: Partial<WorkingHours>): Promise<WorkingHours> => {
+  const res = await apiRequest('PATCH', '/api/working-hours', workingHours);
+  return res.json();
+};
+
+// Tasks API
+export const getTasks = async (): Promise<Task[]> => {
+  const res = await apiRequest('GET', '/api/tasks');
+  return res.json();
+};
+
+export const getTasksToday = async (): Promise<Task[]> => {
+  const res = await apiRequest('GET', '/api/tasks/today');
+  return res.json();
+};
+
+export const getTasksByDate = async (date: string): Promise<Task[]> => {
+  const res = await apiRequest('GET', `/api/tasks/${date}`);
+  return res.json();
+};
+
+export const createTask = async (task: Omit<Task, 'id' | 'userId' | 'createdAt'>): Promise<Task> => {
+  const res = await apiRequest('POST', '/api/tasks', task);
+  return res.json();
+};
+
+export const updateTask = async (id: number, task: Partial<Task>): Promise<Task> => {
+  const res = await apiRequest('PATCH', `/api/tasks/${id}`, task);
+  return res.json();
+};
+
+export const deleteTask = async (id: number): Promise<void> => {
+  await apiRequest('DELETE', `/api/tasks/${id}`);
+};
+
+export const completeTask = async (id: number, completed: boolean): Promise<Task> => {
+  const res = await apiRequest('POST', `/api/tasks/${id}/complete`, { completed });
+  return res.json();
+};
+
+// Calendar API
+export const getCalendarEvents = async (start: string, end: string) => {
+  const res = await apiRequest('GET', `/api/calendar/events?start=${start}&end=${end}`);
+  return res.json();
+};
