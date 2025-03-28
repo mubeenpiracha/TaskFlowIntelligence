@@ -2,7 +2,11 @@ import { google } from 'googleapis';
 
 // Google API scopes
 const CALENDAR_SCOPES = ['https://www.googleapis.com/auth/calendar'];
-const AUTH_SCOPES = ['https://www.googleapis.com/auth/userinfo.email', 'https://www.googleapis.com/auth/userinfo.profile'];
+const AUTH_SCOPES = [
+  'https://www.googleapis.com/auth/userinfo.email', 
+  'https://www.googleapis.com/auth/userinfo.profile',
+  'https://www.googleapis.com/auth/people.readonly'  // Add explicit People API scope
+];
 
 /**
  * Creates an OAuth2 client for Google API authentication

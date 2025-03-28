@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,12 +10,31 @@ import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { getGoogleLoginUrl } from "@/lib/api";
 import { Separator } from "@/components/ui/separator";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { AlertCircle } from "lucide-react";
 
 export default function Login() {
   const [, setLocation] = useLocation();
+  const [searchParams] = useLocation();
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Check for error in URL
+  useEffect(() => {
+    if (searchParams.includes('error=people_api_not_enabled')) {
+      setErrorMessage('Google People API not enabled. Please enable it in your Google Cloud Console and try again.');
+    } else if (searchParams.includes('error=profile_fetch_failed')) {
+      setErrorMessage('Failed to fetch your Google profile. Please try again.');
+    } else if (searchParams.includes('error=auth_failed')) {
+      setErrorMessage('Google authentication failed. Please try again.');
+    } else if (searchParams.includes('error=no_email')) {
+      setErrorMessage('No email address found in your Google account. Email is required.');
+    } else if (searchParams.includes('error=google_auth_failed')) {
+      setErrorMessage('Google authentication failed. Please try again.');
+    }
+  }, [searchParams]);
 
   // Fetch Google login URL
   const { data: googleLoginData } = useQuery({
@@ -121,6 +140,28 @@ export default function Login() {
             </CardDescription>
           </CardHeader>
           <CardContent>
+            {errorMessage && (
+              <Alert variant="destructive" className="mb-4">
+                <AlertCircle className="h-4 w-4" />
+                <AlertTitle>Error</AlertTitle>
+                <AlertDescription>
+                  {errorMessage}
+                  {errorMessage.includes('People API') && (
+                    <div className="mt-2">
+                      <p className="text-xs mt-1">
+                        To enable the People API: 
+                      </p>
+                      <ol className="text-xs list-decimal pl-4 mt-1">
+                        <li>Go to the <a href="https://console.cloud.google.com/apis/library/people.googleapis.com" target="_blank" rel="noopener noreferrer" className="underline">Google Cloud Console</a></li>
+                        <li>Make sure your project is selected</li>
+                        <li>Click "Enable" on the People API page</li>
+                        <li>Try signing in again</li>
+                      </ol>
+                    </div>
+                  )}
+                </AlertDescription>
+              </Alert>
+            )}
             <Tabs defaultValue="login" className="w-full">
               <TabsList className="grid w-full grid-cols-2">
                 <TabsTrigger value="login">Login</TabsTrigger>
