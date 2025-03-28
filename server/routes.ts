@@ -15,6 +15,7 @@ import {
   deleteCalendarEvent, 
   listCalendarEvents 
 } from "./utils/google";
+import { GOOGLE_LOGIN_REDIRECT_URL, GOOGLE_CALENDAR_REDIRECT_URL } from './config';
 
 // Create a store for sessions
 import createMemoryStore from 'memorystore';
@@ -136,8 +137,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // 1. Connect calendar for existing user
   app.get('/api/auth/google/calendar/url', requireAuth, (req, res) => {
     try {
-      const redirectUrl = `${req.protocol}://${req.get('host')}/api/auth/google/calendar/callback`;
-      const authUrl = getCalendarAuthUrl(redirectUrl);
+      // Use fixed redirect URL from config
+      const authUrl = getCalendarAuthUrl(GOOGLE_CALENDAR_REDIRECT_URL);
       res.json({ url: authUrl });
     } catch (error) {
       console.error(error);
@@ -155,8 +156,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         code: z.string()
       }).parse(req.query);
       
-      const redirectUrl = `${req.protocol}://${req.get('host')}/api/auth/google/calendar/callback`;
-      const tokens = await getTokens(code, redirectUrl);
+      // Use fixed redirect URL from config
+      const tokens = await getTokens(code, GOOGLE_CALENDAR_REDIRECT_URL);
       
       if (!tokens.refresh_token) {
         return res.redirect('/#/settings?error=no_refresh_token');
@@ -175,8 +176,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // 2. Login/signup with Google
   app.get('/api/auth/google/login/url', (req, res) => {
     try {
-      const redirectUrl = `${req.protocol}://${req.get('host')}/api/auth/google/login/callback`;
-      const authUrl = getLoginAuthUrl(redirectUrl);
+      // Use fixed redirect URL from config
+      const authUrl = getLoginAuthUrl(GOOGLE_LOGIN_REDIRECT_URL);
       res.json({ url: authUrl });
     } catch (error) {
       console.error(error);
@@ -190,8 +191,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         code: z.string()
       }).parse(req.query);
       
-      const redirectUrl = `${req.protocol}://${req.get('host')}/api/auth/google/login/callback`;
-      const tokens = await getTokens(code, redirectUrl);
+      // Use fixed redirect URL from config
+      const tokens = await getTokens(code, GOOGLE_LOGIN_REDIRECT_URL);
       
       if (!tokens.access_token) {
         return res.redirect('/#/login?error=auth_failed');
