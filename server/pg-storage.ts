@@ -34,10 +34,33 @@ export class PgStorage implements IStorage {
     return result[0];
   }
   
+  async disconnectUserGoogleCalendar(id: number): Promise<User | undefined> {
+    const result = await db
+      .update(users)
+      .set({ googleRefreshToken: null })
+      .where(eq(users.id, id))
+      .returning();
+    return result[0];
+  }
+  
   async updateUserSlackInfo(id: number, slackUserId: string, workspace: string, accessToken: string | null): Promise<User | undefined> {
     const result = await db
       .update(users)
       .set({ slackUserId, slackWorkspace: workspace, slackAccessToken: accessToken })
+      .where(eq(users.id, id))
+      .returning();
+    return result[0];
+  }
+  
+  async disconnectUserSlack(id: number): Promise<User | undefined> {
+    const result = await db
+      .update(users)
+      .set({ 
+        slackUserId: null, 
+        slackWorkspace: null, 
+        slackAccessToken: null,
+        slackChannelPreferences: null 
+      })
       .where(eq(users.id, id))
       .returning();
     return result[0];

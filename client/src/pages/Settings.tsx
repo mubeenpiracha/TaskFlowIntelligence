@@ -22,9 +22,11 @@ import {
   getSlackChannelPreferences, 
   saveSlackChannelPreferences, 
   getSlackAuthUrl,
+  disconnectSlack,
+  disconnectGoogleCalendar,
   type SlackChannel 
 } from "@/lib/api";
-import { ExternalLink, Calendar, AlertCircle, MessageSquare, RefreshCw } from "lucide-react";
+import { ExternalLink, Calendar, AlertCircle, MessageSquare, RefreshCw, LogOut } from "lucide-react";
 import WorkingHoursModal from "@/components/modals/WorkingHoursModal";
 import { useLocation } from "wouter";
 
@@ -95,6 +97,52 @@ export default function Settings() {
       toast({
         title: "Error",
         description: "Failed to connect Slack account.",
+        variant: "destructive",
+      });
+    }
+  });
+  
+  // Disconnect Slack mutation
+  const disconnectSlackMutation = useMutation({
+    mutationFn: async () => {
+      return await disconnectSlack();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/auth/me'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/slack/channels'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/slack/channels/preferences'] });
+      
+      toast({
+        title: "Slack disconnected",
+        description: "Your Slack account has been disconnected successfully.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to disconnect Slack account.",
+        variant: "destructive",
+      });
+    }
+  });
+  
+  // Disconnect Google Calendar mutation
+  const disconnectGoogleCalendarMutation = useMutation({
+    mutationFn: async () => {
+      return await disconnectGoogleCalendar();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['/api/auth/me'] });
+      
+      toast({
+        title: "Google Calendar disconnected",
+        description: "Your Google Calendar has been disconnected successfully.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to disconnect Google Calendar.",
         variant: "destructive",
       });
     }
@@ -365,6 +413,20 @@ export default function Settings() {
                         <span className="text-gray-700">{user?.slackUserId}</span>
                       </div>
                     </div>
+                    
+                    {/* Disconnect button */}
+                    <Button 
+                      onClick={() => disconnectSlackMutation.mutate()}
+                      variant="outline"
+                      className="w-full border-red-300 text-red-600 hover:bg-red-50 hover:text-red-700"
+                      disabled={disconnectSlackMutation.isPending}
+                    >
+                      {disconnectSlackMutation.isPending ? (
+                        <><RefreshCw className="mr-2 h-4 w-4 animate-spin" /> Disconnecting...</>
+                      ) : (
+                        'Disconnect Slack'
+                      )}
+                    </Button>
                   </div>
                 )}
                 
@@ -439,18 +501,33 @@ export default function Settings() {
                       <div className="h-3 w-3 bg-[#2EB67D] rounded-full"></div>
                       <span className="text-sm">Google Calendar connected successfully</span>
                     </div>
-                    <Button
-                      onClick={handleConnectGoogle}
-                      className="w-full text-sm"
-                      variant="outline"
-                      size="sm"
-                      disabled={!googleAuthData?.url}
-                    >
-                      <RefreshCw className="mr-2 h-3 w-3" />
-                      Reconnect Google Calendar
-                    </Button>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Button
+                        onClick={handleConnectGoogle}
+                        className="text-sm"
+                        variant="outline"
+                        size="sm"
+                        disabled={!googleAuthData?.url}
+                      >
+                        <RefreshCw className="mr-2 h-3 w-3" />
+                        Reconnect
+                      </Button>
+                      <Button
+                        onClick={() => disconnectGoogleCalendarMutation.mutate()}
+                        className="text-sm text-red-600 border-red-300 hover:bg-red-50 hover:text-red-700"
+                        variant="outline"
+                        size="sm"
+                        disabled={disconnectGoogleCalendarMutation.isPending}
+                      >
+                        {disconnectGoogleCalendarMutation.isPending ? (
+                          <><RefreshCw className="mr-1 h-3 w-3 animate-spin" /> Disconnecting...</>
+                        ) : (
+                          'Disconnect'
+                        )}
+                      </Button>
+                    </div>
                     <p className="text-xs text-gray-500">
-                      If you're having issues with calendar integration, click above to reconnect.
+                      If you're having issues with calendar integration, you can reconnect or disconnect it entirely.
                     </p>
                   </div>
                 )}

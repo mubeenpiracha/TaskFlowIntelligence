@@ -65,6 +65,11 @@ export const getGoogleLoginUrl = async (): Promise<{ url: string }> => {
   return res.json();
 };
 
+export const disconnectGoogleCalendar = async (): Promise<{ message: string, user: User }> => {
+  const res = await apiRequest('POST', '/api/auth/google/disconnect');
+  return res.json();
+};
+
 // Slack API
 export const getSlackAuthUrl = async (): Promise<{ url: string }> => {
   const res = await apiRequest('GET', '/api/auth/slack/url');
@@ -73,6 +78,11 @@ export const getSlackAuthUrl = async (): Promise<{ url: string }> => {
 
 export const connectSlack = async (slackUserId: string, workspace: string): Promise<User> => {
   const res = await apiRequest('POST', '/api/slack/connect', { slackUserId, workspace });
+  return res.json();
+};
+
+export const disconnectSlack = async (): Promise<{ message: string, user: User }> => {
+  const res = await apiRequest('POST', '/api/auth/slack/disconnect');
   return res.json();
 };
 

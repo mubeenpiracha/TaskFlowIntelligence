@@ -316,6 +316,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
+  // Disconnect Google Calendar integration
+  app.post('/api/auth/google/disconnect', requireAuth, async (req, res) => {
+    try {
+      const user = await storage.disconnectUserGoogleCalendar(req.session.userId!);
+      if (!user) {
+        return res.status(404).json({ message: 'User not found' });
+      }
+      
+      const { password, ...userData } = user;
+      res.json({ message: 'Google Calendar disconnected successfully', user: userData });
+    } catch (error) {
+      console.error('Error disconnecting Google Calendar:', error);
+      res.status(500).json({ message: 'Server error' });
+    }
+  });
+  
+  // Disconnect Slack integration
+  app.post('/api/auth/slack/disconnect', requireAuth, async (req, res) => {
+    try {
+      const user = await storage.disconnectUserSlack(req.session.userId!);
+      if (!user) {
+        return res.status(404).json({ message: 'User not found' });
+      }
+      
+      const { password, ...userData } = user;
+      res.json({ message: 'Slack disconnected successfully', user: userData });
+    } catch (error) {
+      console.error('Error disconnecting Slack:', error);
+      res.status(500).json({ message: 'Server error' });
+    }
+  });
+  
   // Slack integration routes
   app.post('/api/slack/connect', requireAuth, async (req, res) => {
     try {

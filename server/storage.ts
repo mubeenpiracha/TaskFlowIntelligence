@@ -13,7 +13,9 @@ export interface IStorage {
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
   updateUserGoogleToken(id: number, token: string): Promise<User | undefined>;
+  disconnectUserGoogleCalendar(id: number): Promise<User | undefined>;
   updateUserSlackInfo(id: number, slackUserId: string, workspace: string, accessToken: string | null): Promise<User | undefined>;
+  disconnectUserSlack(id: number): Promise<User | undefined>;
   updateUserSlackChannelPreferences(id: number, channelPreferences: string): Promise<User | undefined>;
 
   // Working hours operations
@@ -84,6 +86,15 @@ export class MemStorage implements IStorage {
     this.users.set(id, updatedUser);
     return updatedUser;
   }
+  
+  async disconnectUserGoogleCalendar(id: number): Promise<User | undefined> {
+    const user = this.users.get(id);
+    if (!user) return undefined;
+    
+    const updatedUser = { ...user, googleRefreshToken: null };
+    this.users.set(id, updatedUser);
+    return updatedUser;
+  }
 
   async updateUserSlackInfo(id: number, slackUserId: string, workspace: string, accessToken: string | null): Promise<User | undefined> {
     const user = this.users.get(id);
@@ -94,6 +105,21 @@ export class MemStorage implements IStorage {
       slackUserId, 
       slackWorkspace: workspace,
       slackAccessToken: accessToken
+    };
+    this.users.set(id, updatedUser);
+    return updatedUser;
+  }
+  
+  async disconnectUserSlack(id: number): Promise<User | undefined> {
+    const user = this.users.get(id);
+    if (!user) return undefined;
+    
+    const updatedUser = { 
+      ...user, 
+      slackUserId: null, 
+      slackWorkspace: null,
+      slackAccessToken: null,
+      slackChannelPreferences: null
     };
     this.users.set(id, updatedUser);
     return updatedUser;
