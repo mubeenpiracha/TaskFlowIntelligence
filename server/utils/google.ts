@@ -4,8 +4,8 @@ import { google } from 'googleapis';
 const CALENDAR_SCOPES = ['https://www.googleapis.com/auth/calendar'];
 const AUTH_SCOPES = [
   'https://www.googleapis.com/auth/userinfo.email', 
-  'https://www.googleapis.com/auth/userinfo.profile',
-  'https://www.googleapis.com/auth/people.readonly'  // Add explicit People API scope
+  'https://www.googleapis.com/auth/userinfo.profile'
+  // The people.readonly scope is not needed - userinfo scopes are sufficient
 ];
 
 /**

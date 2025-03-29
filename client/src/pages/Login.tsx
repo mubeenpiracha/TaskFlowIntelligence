@@ -23,9 +23,7 @@ export default function Login() {
 
   // Check for error in URL
   useEffect(() => {
-    if (searchParams.includes('error=people_api_not_enabled')) {
-      setErrorMessage('Google People API not enabled. Please enable it in your Google Cloud Console and try again.');
-    } else if (searchParams.includes('error=profile_fetch_failed')) {
+    if (searchParams.includes('error=profile_fetch_failed')) {
       setErrorMessage('Failed to fetch your Google profile. Please try again.');
     } else if (searchParams.includes('error=auth_failed')) {
       setErrorMessage('Google authentication failed. Please try again.');
@@ -146,19 +144,7 @@ export default function Login() {
                 <AlertTitle>Error</AlertTitle>
                 <AlertDescription>
                   {errorMessage}
-                  {errorMessage.includes('People API') && (
-                    <div className="mt-2">
-                      <p className="text-xs mt-1">
-                        To enable the People API: 
-                      </p>
-                      <ol className="text-xs list-decimal pl-4 mt-1">
-                        <li>Go to the <a href="https://console.cloud.google.com/apis/library/people.googleapis.com" target="_blank" rel="noopener noreferrer" className="underline">Google Cloud Console</a></li>
-                        <li>Make sure your project is selected</li>
-                        <li>Click "Enable" on the People API page</li>
-                        <li>Try signing in again</li>
-                      </ol>
-                    </div>
-                  )}
+
                 </AlertDescription>
               </Alert>
             )}
