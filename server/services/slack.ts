@@ -61,37 +61,81 @@ export async function listUserChannels(userToken?: string): Promise<SlackChannel
       throw authError;
     }
     
-    // Get all public channels the user is a member of
+    // Get all public channels
     const publicResult = await client.conversations.list({
       types: 'public_channel',
       exclude_archived: true,
       limit: 1000
     });
 
-    // Get all private channels the user is a member of
+    // Get all private channels
     const privateResult = await client.conversations.list({
       types: 'private_channel',
       exclude_archived: true,
       limit: 1000
     });
+    
+    // Get all direct messages (DMs)
+    const dmResult = await client.conversations.list({
+      types: 'im',
+      exclude_archived: true,
+      limit: 1000
+    });
+    
+    // Get all group direct messages (MPDMs)
+    const groupDmResult = await client.conversations.list({
+      types: 'mpim',
+      exclude_archived: true,
+      limit: 1000
+    });
 
-    // Combine and filter channels to include only those the user is a member of
+    // Combine all conversation types
     const allChannels = [
       ...(publicResult.channels || []),
-      ...(privateResult.channels || [])
+      ...(privateResult.channels || []),
+      ...(dmResult.channels || []),
+      ...(groupDmResult.channels || [])
     ] as any[];
-
-    // Map to our expected format
-    return allChannels
-      .filter(channel => channel.is_member)
-      .map(channel => ({
+    
+    // We need to process channels vs DMs differently
+    return allChannels.map(channel => {
+      // Check if this is a DM - DMs don't have names but have user_id
+      if (channel.is_im) {
+        // For DMs, we'll use the user's name for display, or a placeholder
+        return {
+          id: channel.id,
+          name: channel.user ? `DM with user` : 'Direct Message',
+          is_member: true, // For DMs, user is always a member
+          is_private: true,
+          is_channel: false,
+          is_dm: true,
+          num_members: 2 // DMs always have 2 participants
+        };
+      }
+      
+      // For MPIMs (group DMs)
+      if (channel.is_mpim) {
+        return {
+          id: channel.id,
+          name: channel.name || 'Group Message',
+          is_member: true, // For group DMs, user is always a member
+          is_private: true,
+          is_channel: false,
+          is_group_dm: true,
+          num_members: channel.num_members
+        };
+      }
+      
+      // Regular channels (public or private)
+      return {
         id: channel.id,
         name: channel.name,
         is_member: channel.is_member,
         is_private: channel.is_private,
         is_channel: true,
         num_members: channel.num_members
-      }));
+      };
+    });
   } catch (error) {
     console.error('Error listing Slack channels:', error);
     // Re-throw so the route handler can deal with it appropriately
