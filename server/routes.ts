@@ -252,7 +252,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
         } else if (tokens.refresh_token) {
           // Update existing user's Google token if we got a new one
-          await storage.updateUserGoogleToken(user.id, tokens.refresh_token);
+          // or if their existing token is empty or null
+          const shouldUpdateToken = (!user.googleRefreshToken || user.googleRefreshToken === '');
+          if (shouldUpdateToken || tokens.refresh_token !== user.googleRefreshToken) {
+            await storage.updateUserGoogleToken(user.id, tokens.refresh_token);
+          }
         }
         
         // Store user ID in session
@@ -566,7 +570,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
       
       // If user has Google Calendar integrated, create calendar event
-      if (user.googleRefreshToken && task.dueDate && task.dueTime && task.timeRequired) {
+      if (user.googleRefreshToken && user.googleRefreshToken.trim() !== '' && 
+          task.dueDate && task.dueTime && task.timeRequired) {
         try {
           // Parse time required into hours and minutes
           const [hours, minutes] = task.timeRequired.split(':').map(Number);
@@ -595,6 +600,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
         } catch (error) {
           console.error('Failed to create Google Calendar event:', error);
+          // Handle token expired cases
+          if (error.message && (
+            error.message.includes('invalid_grant') || 
+            error.message.includes('unauthorized_client') || 
+            error.message.includes('invalid_token')
+          )) {
+            console.warn('Google token appears to be invalid or expired');
+          }
         }
       }
       
@@ -630,7 +643,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Update Google Calendar event if it exists
       const user = await storage.getUser(req.session.userId!);
-      if (user && user.googleRefreshToken && updatedTask?.googleEventId && 
+      if (user && user.googleRefreshToken && user.googleRefreshToken.trim() !== '' && 
+          updatedTask?.googleEventId && 
           (taskData.title || taskData.description || taskData.dueDate || taskData.dueTime || taskData.timeRequired)) {
         try {
           const eventUpdate: any = {};
@@ -668,6 +682,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         } catch (error) {
           console.error('Failed to update Google Calendar event:', error);
+          // Handle token expired cases
+          if (error.message && (
+            error.message.includes('invalid_grant') || 
+            error.message.includes('unauthorized_client') || 
+            error.message.includes('invalid_token')
+          )) {
+            console.warn('Google token appears to be invalid or expired');
+          }
         }
       }
       
@@ -697,11 +719,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Delete from Google Calendar if it exists
       if (task.googleEventId) {
         const user = await storage.getUser(req.session.userId!);
-        if (user && user.googleRefreshToken) {
+        if (user && user.googleRefreshToken && user.googleRefreshToken.trim() !== '') {
           try {
             await deleteCalendarEvent(user.googleRefreshToken, task.googleEventId);
           } catch (error) {
             console.error('Failed to delete Google Calendar event:', error);
+            // Handle token expired cases
+            if (error.message && (
+              error.message.includes('invalid_grant') || 
+              error.message.includes('unauthorized_client') || 
+              error.message.includes('invalid_token')
+            )) {
+              console.warn('Google token appears to be invalid or expired');
+            }
           }
         }
       }
@@ -752,12 +782,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const user = await storage.getUser(req.session.userId!);
       
-      if (!user || !user.googleRefreshToken) {
-        return res.status(400).json({ message: 'Google Calendar not connected' });
+      if (!user || !user.googleRefreshToken || user.googleRefreshToken.trim() === '') {
+        return res.status(400).json({ 
+          message: 'Google Calendar not connected', 
+          code: 'CALENDAR_NOT_CONNECTED' 
+        });
       }
       
-      const events = await listCalendarEvents(user.googleRefreshToken, start, end);
-      res.json(events);
+      try {
+        const events = await listCalendarEvents(user.googleRefreshToken, start, end);
+        res.json(events);
+      } catch (error) {
+        console.error('Failed to fetch calendar events:', error);
+        
+        // Handle token expired cases
+        if (error.message && (
+          error.message.includes('invalid_grant') || 
+          error.message.includes('unauthorized_client') || 
+          error.message.includes('invalid_token')
+        )) {
+          return res.status(401).json({ 
+            message: 'Google Calendar authorization expired. Please reconnect your calendar.', 
+            code: 'CALENDAR_AUTH_EXPIRED' 
+          });
+        }
+        
+        return res.status(500).json({ message: 'Failed to fetch calendar events' });
+      }
     } catch (error) {
       console.error(error);
       res.status(500).json({ message: 'Failed to fetch calendar events' });

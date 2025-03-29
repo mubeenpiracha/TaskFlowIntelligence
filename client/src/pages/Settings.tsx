@@ -417,9 +417,24 @@ export default function Settings() {
                     Connect Google Calendar
                   </Button>
                 ) : (
-                  <div className="flex items-center space-x-2 p-2 bg-green-50 text-green-800 rounded-md">
-                    <div className="h-3 w-3 bg-[#2EB67D] rounded-full"></div>
-                    <span className="text-sm">Google Calendar connected successfully</span>
+                  <div className="space-y-3">
+                    <div className="flex items-center space-x-2 p-2 bg-green-50 text-green-800 rounded-md">
+                      <div className="h-3 w-3 bg-[#2EB67D] rounded-full"></div>
+                      <span className="text-sm">Google Calendar connected successfully</span>
+                    </div>
+                    <Button
+                      onClick={handleConnectGoogle}
+                      className="w-full text-sm"
+                      variant="outline"
+                      size="sm"
+                      disabled={!googleAuthData?.url}
+                    >
+                      <RefreshCw className="mr-2 h-3 w-3" />
+                      Reconnect Google Calendar
+                    </Button>
+                    <p className="text-xs text-gray-500">
+                      If you're having issues with calendar integration, click above to reconnect.
+                    </p>
                   </div>
                 )}
                 
