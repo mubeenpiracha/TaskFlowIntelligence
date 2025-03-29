@@ -79,19 +79,21 @@ export async function exchangeCodeForToken(code: string): Promise<{
       has_user_token: !!response.authed_user?.access_token,
       has_bot_token: !!response.access_token,
       has_team: !!response.team,
+      scopes: response.scope,
+      user_scopes: response.authed_user?.scope
     }, null, 2));
     
     if (!response.ok || !response.authed_user?.id || !response.team?.id) {
       throw new Error('Invalid response from Slack OAuth');
     }
     
-    // Get the user token if available, or fallback to workspace/bot token
-    // Prioritize the user token over the bot token
-    const accessToken = response.authed_user?.access_token || response.access_token;
-    
-    if (!accessToken) {
-      throw new Error('No access token provided in Slack OAuth response');
+    // We MUST have a user token (xoxp-) for this application to work properly
+    if (!response.authed_user?.access_token) {
+      throw new Error('User token not provided in Slack OAuth response. This app requires user-level permissions.');
     }
+    
+    // Use the user token, not the bot token
+    const accessToken = response.authed_user.access_token;
     
     // Return the tokens and user information
     return {

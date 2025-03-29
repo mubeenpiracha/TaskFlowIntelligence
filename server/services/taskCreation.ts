@@ -234,7 +234,7 @@ export async function createTaskFromSlackMessage(
       dueTime,
       completed: false,
       slackMessageId: message.ts,
-      slackChannelId: message.channelId || message.channel || null,
+      slackChannelId: message.channelId || null,
       googleEventId: null
     };
     

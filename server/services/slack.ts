@@ -2,10 +2,11 @@ import { WebClient } from '@slack/web-api';
 import type { ConversationsHistoryResponse } from '@slack/web-api';
 
 if (!process.env.SLACK_BOT_TOKEN) {
-  console.warn("SLACK_BOT_TOKEN environment variable is not set - Slack integration will not work");
+  console.warn("SLACK_BOT_TOKEN environment variable is not set - Slack bot operations will not work");
 }
 
-// Initialize the Slack WebClient with the bot token
+// Initialize the Slack WebClient with the bot token for bot-only operations
+// This will be used as a fallback when user token is not available
 const slack = new WebClient(process.env.SLACK_BOT_TOKEN || '');
 
 export interface SlackChannel {
@@ -32,11 +33,16 @@ export interface SlackMessage {
 
 /**
  * Lists all channels that the authenticated user is a member of
- * @param userToken - Optional user token to use instead of bot token
+ * @param userToken - User token (xoxp-) to use for listing channels
  * @returns Promise with list of channels
  */
 export async function listUserChannels(userToken?: string): Promise<SlackChannel[]> {
-  // Use user token if provided, otherwise fall back to bot token
+  // For this operation, we strongly prefer to use a user token
+  // Bot token is very limited and can only see channels the bot was invited to
+  if (!userToken) {
+    console.warn('No user token provided for listUserChannels. This may result in incomplete channel list.');
+  }
+  
   const token = userToken || process.env.SLACK_BOT_TOKEN;
   
   if (!token || token.trim() === '') {
@@ -45,15 +51,14 @@ export async function listUserChannels(userToken?: string): Promise<SlackChannel
   }
   
   // Create a client with the appropriate token
-  const client = userToken ? new WebClient(userToken) : slack;
+  const client = new WebClient(token);
   
   try {
-    // First test if the token is valid with a simpler method
+    // Validate the token first
     try {
-      // This is a lightweight call to test authentication
-      await client.auth.test();
+      const authTest = await client.auth.test();
+      console.log('Using Slack token for user:', authTest.user, 'user_id:', authTest.user_id);
     } catch (authError: any) {
-      // If we get invalid_auth, the token is not valid
       if (authError.data && authError.data.error === 'invalid_auth') {
         console.error('Slack token is invalid or expired:', authError.data.error);
         throw new Error('SLACK_AUTH_ERROR: Your Slack token is invalid or expired. Please reconnect your Slack account.');
@@ -61,35 +66,30 @@ export async function listUserChannels(userToken?: string): Promise<SlackChannel
       throw authError;
     }
     
-    // Get all public channels the user is a member of
-    const publicResult = await client.conversations.list({
-      types: 'public_channel',
+    // If we have a user token, we can get all types of conversations
+    const conversationTypes = userToken
+      ? 'public_channel,private_channel,mpim,im' // User token can access all types
+      : 'public_channel'; // Bot token without user context is very limited
+    
+    // Get conversations the user is a member of
+    const result = await client.users.conversations({
+      types: conversationTypes,
       exclude_archived: true,
       limit: 1000
     });
-
-    // Get all private channels the user is a member of
-    const privateResult = await client.conversations.list({
-      types: 'private_channel',
-      exclude_archived: true,
-      limit: 1000
-    });
-
-    // Combine and filter channels to include only those the user is a member of
-    const allChannels = [
-      ...(publicResult.channels || []),
-      ...(privateResult.channels || [])
-    ] as any[];
-
+    
     // Map to our expected format
-    return allChannels
-      .filter(channel => channel.is_member)
-      .map(channel => ({
+    return (result.channels || [])
+      .filter((channel: any) => {
+        // Filter out non-channel results if needed
+        return channel.is_channel !== false && channel.is_im !== true;
+      })
+      .map((channel: any) => ({
         id: channel.id,
-        name: channel.name,
-        is_member: channel.is_member,
-        is_private: channel.is_private,
-        is_channel: true,
+        name: channel.name || `DM with ${channel.user || 'Unknown'}`,
+        is_member: true, // users.conversations only returns channels the user is a member of
+        is_private: channel.is_private || false,
+        is_channel: channel.is_channel !== false,
         num_members: channel.num_members
       }));
   } catch (error) {
