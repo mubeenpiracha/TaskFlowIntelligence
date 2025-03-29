@@ -15,7 +15,11 @@ import {
   deleteCalendarEvent, 
   listCalendarEvents 
 } from "./services/google";
-import { GOOGLE_LOGIN_REDIRECT_URL, GOOGLE_CALENDAR_REDIRECT_URL } from './config';
+import { 
+  getSlackAuthUrl,
+  exchangeCodeForToken
+} from "./services/slackOAuth";
+import { GOOGLE_LOGIN_REDIRECT_URL, GOOGLE_CALENDAR_REDIRECT_URL, SLACK_OAUTH_REDIRECT_URL } from './config';
 import { getChannelPreferences, saveChannelPreferences } from './services/channelPreferences';
 import { createTaskFromSlackMessage, sendTaskConfirmation } from './services/taskCreation';
 
@@ -140,7 +144,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/auth/google/calendar/url', requireAuth, (req, res) => {
     try {
       // Use fixed redirect URL from config
-      const authUrl = getCalendarAuthUrl(GOOGLE_CALENDAR_REDIRECT_URL);
+      const authUrl = getCalendarAuthUrl();
       res.json({ url: authUrl });
     } catch (error) {
       console.error(error);
@@ -179,7 +183,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/auth/google/login/url', (req, res) => {
     try {
       // Use fixed redirect URL from config
-      const authUrl = getLoginAuthUrl(GOOGLE_LOGIN_REDIRECT_URL);
+      const authUrl = getLoginAuthUrl();
       res.json({ url: authUrl });
     } catch (error) {
       console.error(error);
@@ -225,7 +229,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             password: randomPassword,
             slackUserId: null,
             slackWorkspace: null,
-            googleRefreshToken: tokens.refresh_token || null
+            googleRefreshToken: tokens.refresh_token || undefined
           });
           
           // Create default working hours for new user
@@ -269,6 +273,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error(error);
       res.redirect('/#/login?error=google_auth_failed');
+    }
+  });
+  
+  // Slack OAuth routes
+  app.get('/api/auth/slack/url', (req, res) => {
+    try {
+      const authUrl = getSlackAuthUrl();
+      res.json({ url: authUrl });
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ message: 'Failed to generate Slack auth URL' });
+    }
+  });
+
+  app.get('/api/auth/slack/callback', async (req, res) => {
+    try {
+      const { code } = z.object({
+        code: z.string()
+      }).parse(req.query);
+      
+      if (!req.session.userId) {
+        return res.redirect('/#/login?error=not_authenticated');
+      }
+      
+      const { accessToken, userId, teamId, teamName } = await exchangeCodeForToken(code);
+      
+      // Store the Slack user ID and workspace in the user record
+      await storage.updateUserSlackInfo(req.session.userId, userId, teamName);
+      
+      // Create default empty channel preferences
+      await saveChannelPreferences(req.session.userId, []);
+      
+      res.redirect('/#/settings?slack_connected=true');
+    } catch (error) {
+      console.error('Error in Slack OAuth:', error);
+      res.redirect('/#/settings?error=slack_auth_failed');
     }
   });
   

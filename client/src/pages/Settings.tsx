@@ -21,6 +21,7 @@ import {
   getSlackChannels, 
   getSlackChannelPreferences, 
   saveSlackChannelPreferences, 
+  getSlackAuthUrl,
   type SlackChannel 
 } from "@/lib/api";
 import { ExternalLink, Calendar, AlertCircle, MessageSquare, RefreshCw } from "lucide-react";
@@ -99,10 +100,26 @@ export default function Settings() {
     }
   });
   
+  // Fetch Slack OAuth URL
+  const { data: slackAuthData } = useQuery({
+    queryKey: ['/api/auth/slack/url'],
+    queryFn: async () => {
+      const data = await getSlackAuthUrl();
+      return data;
+    }
+  });
+
   // Handle Slack connection
-  const handleConnectSlack = (e: React.FormEvent) => {
-    e.preventDefault();
-    connectSlackMutation.mutate();
+  const handleConnectSlack = () => {
+    if (slackAuthData?.url) {
+      window.location.href = slackAuthData.url;
+    } else {
+      toast({
+        title: "Error",
+        description: "Could not get Slack authorization URL.",
+        variant: "destructive",
+      });
+    }
   };
   
   // Handle Google Calendar connection
@@ -258,49 +275,47 @@ export default function Settings() {
                 <Skeleton className="h-10 w-full" />
               </div>
             ) : (
-              <form onSubmit={handleConnectSlack} className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="slack-user-id">Slack User ID</Label>
-                  <Input
-                    id="slack-user-id"
-                    placeholder="e.g. U01ABCDEFGH"
-                    value={slackUserId}
-                    onChange={(e) => setSlackUserId(e.target.value)}
-                    disabled={isSlackConnected}
-                  />
-                  <p className="text-xs text-gray-500">
-                    Your Slack User ID starts with "U" and can be found in your profile
-                  </p>
-                </div>
+              <div className="space-y-4">
+                <p className="text-sm text-gray-600">
+                  By connecting your Slack account, TaskFlow will be able to:
+                </p>
+                <ul className="text-sm text-gray-600 list-disc pl-5 space-y-1">
+                  <li>Access your Slack channels and messages</li>
+                  <li>Detect potential tasks from messages mentioning you</li>
+                  <li>Send confirmation messages when tasks are created</li>
+                </ul>
                 
-                <div className="space-y-2">
-                  <Label htmlFor="slack-workspace">Slack Workspace</Label>
-                  <Input
-                    id="slack-workspace"
-                    placeholder="e.g. my-company"
-                    value={slackWorkspace}
-                    onChange={(e) => setSlackWorkspace(e.target.value)}
-                    disabled={isSlackConnected}
-                  />
-                </div>
-                
-                {!isSlackConnected && (
+                {!isSlackConnected ? (
                   <Button 
-                    type="submit" 
+                    onClick={handleConnectSlack}
                     className="w-full bg-[#4A154B] hover:bg-[#4A154B]/90"
-                    disabled={connectSlackMutation.isPending || !slackUserId || !slackWorkspace}
+                    disabled={!slackAuthData?.url}
                   >
-                    {connectSlackMutation.isPending ? "Connecting..." : "Connect Slack"}
+                    <ExternalLink className="mr-2 h-4 w-4" />
+                    Connect with Slack
                   </Button>
-                )}
-                
-                {isSlackConnected && (
+                ) : (
                   <div className="flex items-center space-x-2 p-2 bg-green-50 text-green-800 rounded-md">
                     <div className="h-3 w-3 bg-[#2EB67D] rounded-full"></div>
                     <span className="text-sm">Slack connected successfully</span>
                   </div>
                 )}
-              </form>
+                
+                {/* Check for Slack OAuth feedback */}
+                {location.includes('slack_connected=true') && (
+                  <div className="flex items-center space-x-2 p-2 bg-green-50 text-green-800 rounded-md">
+                    <div className="h-3 w-3 bg-[#2EB67D] rounded-full"></div>
+                    <span className="text-sm">Slack connected successfully</span>
+                  </div>
+                )}
+                
+                {location.includes('error=slack_auth_failed') && (
+                  <div className="flex items-center space-x-2 p-2 bg-red-50 text-red-800 rounded-md">
+                    <AlertCircle className="h-4 w-4" />
+                    <span className="text-sm">Failed to connect Slack. Please try again.</span>
+                  </div>
+                )}
+              </div>
             )}
           </CardContent>
         </Card>

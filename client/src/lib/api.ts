@@ -66,6 +66,11 @@ export const getGoogleLoginUrl = async (): Promise<{ url: string }> => {
 };
 
 // Slack API
+export const getSlackAuthUrl = async (): Promise<{ url: string }> => {
+  const res = await apiRequest('GET', '/api/auth/slack/url');
+  return res.json();
+};
+
 export const connectSlack = async (slackUserId: string, workspace: string): Promise<User> => {
   const res = await apiRequest('POST', '/api/slack/connect', { slackUserId, workspace });
   return res.json();

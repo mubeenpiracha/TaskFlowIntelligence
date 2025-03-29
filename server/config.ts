@@ -9,6 +9,7 @@ export const BASE_URL =
 // OAuth redirect URLs
 export const GOOGLE_LOGIN_REDIRECT_URL = `${BASE_URL}/api/auth/google/login/callback`;
 export const GOOGLE_CALENDAR_REDIRECT_URL = `${BASE_URL}/api/auth/google/calendar/callback`;
+export const SLACK_OAUTH_REDIRECT_URL = `${BASE_URL}/api/auth/slack/callback`;
 
 // Other configuration settings
 export const SESSION_SECRET =
