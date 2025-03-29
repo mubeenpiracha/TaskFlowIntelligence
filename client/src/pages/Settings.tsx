@@ -310,6 +310,17 @@ export default function Settings() {
                   <li>Send confirmation messages when tasks are created</li>
                 </ul>
                 
+                <div className="mt-2 p-3 border rounded-md bg-purple-50 text-purple-800 text-sm">
+                  <p className="font-medium mb-2">Important: Required Slack App Permissions</p>
+                  <p className="mb-2">Your Slack app needs these scopes to function properly:</p>
+                  <ul className="list-disc pl-5 space-y-1 text-xs">
+                    <li>channels:read, groups:read, im:read, mpim:read</li>
+                    <li>channels:history, groups:history, im:history, mpim:history</li>
+                    <li>users:read, chat:write</li>
+                  </ul>
+                  <p className="mt-2 text-xs">These permissions must be configured in your Slack app settings.</p>
+                </div>
+                
                 {!isSlackConnected ? (
                   <Button 
                     onClick={handleConnectSlack}
@@ -389,6 +400,12 @@ export default function Settings() {
                   <li>Check your availability for scheduling</li>
                   <li>Update or delete task-related events</li>
                 </ul>
+                
+                <div className="mt-2 p-3 border rounded-md bg-amber-50 text-amber-800 text-sm">
+                  <p className="font-medium mb-2">Important: Calendar Connection</p>
+                  <p className="mb-1">The Google Calendar connection is separate from your login. Even if you used Google to log in, you must explicitly connect your calendar here to enable scheduling features.</p>
+                  <p className="text-xs mt-2">When prompted by Google, make sure to allow the Calendar permissions to enable all features.</p>
+                </div>
                 
                 {!isGoogleConnected ? (
                   <Button 
@@ -472,8 +489,24 @@ export default function Settings() {
                       ))}
                     </div>
                   ) : (
-                    <div className="text-center py-6 border rounded-md bg-gray-50">
-                      <p className="text-gray-500">No channels available or you are not a member of any channels.</p>
+                    <div className="space-y-4">
+                      <div className="text-center py-6 border rounded-md bg-gray-50">
+                        <p className="text-gray-500">No channels available or you are not a member of any channels.</p>
+                      </div>
+                      
+                      <div className="p-4 border border-red-200 rounded-md bg-red-50 text-red-800">
+                        <h4 className="font-medium flex items-center mb-2">
+                          <AlertCircle className="h-4 w-4 mr-2" />
+                          Authentication Error
+                        </h4>
+                        <p className="text-sm mb-2">We're having trouble accessing your Slack channels. This may be due to:</p>
+                        <ul className="list-disc pl-5 text-sm space-y-1">
+                          <li>Missing required Slack app permissions</li>
+                          <li>Bot token expired or invalid</li>
+                          <li>Bot not added to your workspace</li>
+                        </ul>
+                        <p className="text-sm mt-2">Please verify that your Slack app is configured with all the required scopes mentioned above.</p>
+                      </div>
                     </div>
                   )}
                   

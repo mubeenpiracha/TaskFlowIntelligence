@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Plus } from "lucide-react";
+import { Plus, Calendar, AlertTriangle, MessageSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiRequest } from "@/lib/queryClient";
@@ -9,9 +9,20 @@ import TaskCard from "@/components/TaskCard";
 import SlackMessageCard from "@/components/SlackMessageCard";
 import TaskDetailModal from "@/components/modals/TaskDetailModal";
 import CalendarView from "@/components/CalendarView";
+import { Link } from "wouter";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 
 export default function Dashboard() {
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
+
+  // Fetch current user data
+  const { data: user } = useQuery({
+    queryKey: ['/api/user/me'],
+    queryFn: async () => {
+      const res = await apiRequest('GET', '/api/user/me');
+      return res.json();
+    }
+  });
   
   // Fetch today's tasks
   const { data: todayTasks, isLoading: isLoadingTasks } = useQuery({
@@ -40,7 +51,29 @@ export default function Dashboard() {
     <>
       <div className="flex justify-between items-center mb-8">
         <h1 className="text-2xl font-semibold text-[#1D1C1D]">Dashboard</h1>
-        <div>
+        <div className="flex space-x-2">
+          {user && !user.googleRefreshToken && (
+            <Link href="/settings">
+              <Button
+                variant="outline"
+                className="flex items-center bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100"
+              >
+                <Calendar className="mr-2 h-4 w-4" />
+                Connect Calendar
+              </Button>
+            </Link>
+          )}
+          {user && !user.slackUserId && (
+            <Link href="/settings">
+              <Button
+                variant="outline"
+                className="flex items-center bg-purple-50 text-purple-800 border-purple-200 hover:bg-purple-100"
+              >
+                <MessageSquare className="mr-2 h-4 w-4" />
+                Connect Slack
+              </Button>
+            </Link>
+          )}
           <Button 
             className="bg-[#2EB67D] hover:bg-opacity-90 text-white"
             onClick={() => setIsTaskModalOpen(true)}
@@ -50,6 +83,41 @@ export default function Dashboard() {
           </Button>
         </div>
       </div>
+      
+      {user && !user.googleRefreshToken && (
+        <Alert className="mb-6 bg-amber-50 text-amber-800 border-amber-200">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>Calendar Not Connected</AlertTitle>
+          <AlertDescription>
+            Your Google Calendar is not connected. Tasks will not be automatically scheduled until you connect your calendar.
+            <div className="mt-2">
+              <Link href="/settings">
+                <Button size="sm" variant="outline" className="bg-white border-amber-300 text-amber-800 hover:bg-amber-100">
+                  Connect Calendar
+                </Button>
+              </Link>
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
+      
+      {user && !user.slackUserId && (
+        <Alert className="mb-6 bg-purple-50 text-purple-800 border-purple-200">
+          <MessageSquare className="h-4 w-4" />
+          <AlertTitle>Slack Not Connected</AlertTitle>
+          <AlertDescription>
+            Your Slack account is not connected. Task detection from Slack messages won't work until you connect Slack.
+            <div className="mt-2">
+              <Link href="/settings">
+                <Button size="sm" variant="outline" className="bg-white border-purple-300 text-purple-800 hover:bg-purple-100">
+                  Connect Slack
+                </Button>
+              </Link>
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
+      
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Tasks Pending */}
