@@ -229,21 +229,46 @@ export default function Settings() {
   const isGoogleAuthSuccess = location.includes('google_connected=true');
   const isGoogleAuthError = location.includes('error=google_auth_failed') || location.includes('error=no_refresh_token');
   
-  // Show toast for Google Auth feedback on component mount
-  useState(() => {
+  // Show toast for Google Auth feedback on component mount and handle OAuth callbacks
+  useEffect(() => {
+    // Handle Google auth feedback
     if (isGoogleAuthSuccess) {
       toast({
         title: "Google Calendar connected",
         description: "Your Google Calendar has been connected successfully.",
       });
+      // Clear the URL parameters after showing the toast
+      window.history.replaceState({}, document.title, '/#/settings');
     } else if (isGoogleAuthError) {
       toast({
         title: "Google Calendar connection failed",
         description: "There was an error connecting your Google Calendar.",
         variant: "destructive",
       });
+      // Clear the URL parameters after showing the toast
+      window.history.replaceState({}, document.title, '/#/settings');
     }
-  });
+    
+    // Handle Slack OAuth callback
+    if (location.includes('slack_connected=true')) {
+      toast({
+        title: "Slack connected",
+        description: "Your Slack account has been connected successfully.",
+      });
+      
+      // Force a data refresh to get updated user info
+      queryClient.invalidateQueries({ queryKey: ['/api/auth/me'] });
+      
+      // Wait a moment for the query to complete and then refresh the page to show current data
+      setTimeout(() => {
+        window.history.replaceState({}, document.title, '/#/settings');
+        // Only refresh if needed
+        if (!isSlackConnected) {
+          window.location.reload();
+        }
+      }, 1000);
+    }
+  }, [location, isGoogleAuthSuccess, isGoogleAuthError, toast, queryClient, isSlackConnected]);
   
   return (
     <>
@@ -295,17 +320,34 @@ export default function Settings() {
                     Connect with Slack
                   </Button>
                 ) : (
-                  <div className="flex items-center space-x-2 p-2 bg-green-50 text-green-800 rounded-md">
-                    <div className="h-3 w-3 bg-[#2EB67D] rounded-full"></div>
-                    <span className="text-sm">Slack connected successfully</span>
+                  <div className="space-y-4">
+                    <div className="flex items-center space-x-2 p-2 bg-green-50 text-green-800 rounded-md">
+                      <div className="h-3 w-3 bg-[#2EB67D] rounded-full"></div>
+                      <span className="text-sm">Slack connected successfully</span>
+                    </div>
+                    
+                    {/* Show Slack ID and Workspace info */}
+                    <div className="space-y-2 text-sm p-3 border rounded-md bg-gray-50">
+                      <div className="flex justify-between">
+                        <span className="font-medium">Workspace:</span>
+                        <span className="text-gray-700">{user?.slackWorkspace}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="font-medium">Slack User ID:</span>
+                        <span className="text-gray-700">{user?.slackUserId}</span>
+                      </div>
+                    </div>
                   </div>
                 )}
                 
                 {/* Check for Slack OAuth feedback */}
-                {location.includes('slack_connected=true') && (
-                  <div className="flex items-center space-x-2 p-2 bg-green-50 text-green-800 rounded-md">
-                    <div className="h-3 w-3 bg-[#2EB67D] rounded-full"></div>
-                    <span className="text-sm">Slack connected successfully</span>
+                {location.includes('slack_connected=true') && !isSlackConnected && (
+                  <div className="p-2 mb-2 bg-blue-50 text-blue-800 rounded-md">
+                    <div className="flex items-center mb-2">
+                      <div className="h-3 w-3 bg-blue-500 rounded-full mr-2"></div>
+                      <span className="font-medium">Slack connected!</span>
+                    </div>
+                    <p className="text-sm">Refresh the page to view your Slack connection details.</p>
                   </div>
                 )}
                 
