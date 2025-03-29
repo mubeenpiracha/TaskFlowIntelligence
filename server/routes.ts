@@ -1,4 +1,4 @@
-import type { Express, Request, Response } from "express";
+import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import session from "express-session";
 import { storage } from "./storage";
@@ -16,6 +16,7 @@ import {
   listCalendarEvents 
 } from "./utils/google";
 import { GOOGLE_LOGIN_REDIRECT_URL, GOOGLE_CALENDAR_REDIRECT_URL } from './config';
+import { getChannelPreferences, saveChannelPreferences } from './services/channelPreferences';
 
 // Create a store for sessions
 import createMemoryStore from 'memorystore';
@@ -325,10 +326,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: 'channelIds must be an array' });
       }
       
-      // Here you would normally save these to a database table
-      // For now, we'll store them in the session
-      req.session.slackChannelIds = channelIds;
-      await req.session.save();
+      // Store channel preferences using service function
+      await saveChannelPreferences(req.session.userId!, channelIds);
       
       res.json({ success: true, channelIds });
     } catch (error) {
@@ -345,8 +344,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ message: 'Slack integration not configured' });
       }
       
-      // Return channel IDs from session, or empty array if none stored
-      const channelIds = req.session.slackChannelIds || [];
+      // Get channel IDs using service function
+      const channelIds = await getChannelPreferences(req.session.userId!);
+      
       res.json({ channelIds });
     } catch (error) {
       console.error(error);
@@ -366,19 +366,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       let channelIds: string[] = [];
       
       if (req.query.channels) {
+        // Use channels from query params if provided
         channelIds = Array.isArray(req.query.channels) 
           ? req.query.channels as string[] 
           : [req.query.channels as string];
-      } else if (req.session.slackChannelIds && req.session.slackChannelIds.length > 0) {
-        // Use stored channel preferences if available
-        channelIds = req.session.slackChannelIds;
-      } else if (process.env.SLACK_CHANNEL_ID) {
-        // Fallback to default channel if no channels specified
-        channelIds = [process.env.SLACK_CHANNEL_ID];
-      }
-      
-      if (channelIds.length === 0) {
-        return res.status(400).json({ message: 'No Slack channels specified for task detection' });
+      } else {
+        // Otherwise, use the channel preferences service to get the user's preferences
+        channelIds = await getChannelPreferences(req.session.userId!);
+        
+        // If no channels are selected, we'll return a specific error message
+        // that will prompt the frontend to direct the user to the channel selection UI
+        if (channelIds.length === 0) {
+          return res.status(400).json({ 
+            message: 'No Slack channels selected for monitoring',
+            code: 'NO_CHANNELS_SELECTED'
+          });
+        }
       }
       
       const tasks = await detectTasks(channelIds, user.slackUserId);

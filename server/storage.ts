@@ -4,6 +4,9 @@ import {
   tasks, type Task, type InsertTask
 } from "@shared/schema";
 
+// Re-export the types for external use
+export type { User, InsertUser, WorkingHours, InsertWorkingHours, Task, InsertTask };
+
 export interface IStorage {
   // User operations
   getUser(id: number): Promise<User | undefined>;
@@ -11,6 +14,7 @@ export interface IStorage {
   createUser(user: InsertUser): Promise<User>;
   updateUserGoogleToken(id: number, token: string): Promise<User | undefined>;
   updateUserSlackInfo(id: number, slackUserId: string, workspace: string): Promise<User | undefined>;
+  updateUserSlackChannelPreferences(id: number, channelPreferences: string): Promise<User | undefined>;
 
   // Working hours operations
   getWorkingHours(userId: number): Promise<WorkingHours | undefined>;
@@ -58,7 +62,15 @@ export class MemStorage implements IStorage {
 
   async createUser(insertUser: InsertUser): Promise<User> {
     const id = this.currentUserId++;
-    const user: User = { ...insertUser, id };
+    // Ensure nullable fields are set to null if undefined
+    const user: User = { 
+      ...insertUser, 
+      id,
+      slackUserId: insertUser.slackUserId ?? null,
+      googleRefreshToken: insertUser.googleRefreshToken ?? null,
+      slackWorkspace: insertUser.slackWorkspace ?? null,
+      slackChannelPreferences: insertUser.slackChannelPreferences ?? null
+    };
     this.users.set(id, user);
     return user;
   }
@@ -81,6 +93,15 @@ export class MemStorage implements IStorage {
     return updatedUser;
   }
 
+  async updateUserSlackChannelPreferences(id: number, channelPreferences: string): Promise<User | undefined> {
+    const user = this.users.get(id);
+    if (!user) return undefined;
+    
+    const updatedUser = { ...user, slackChannelPreferences: channelPreferences };
+    this.users.set(id, updatedUser);
+    return updatedUser;
+  }
+
   // Working hours operations
   async getWorkingHours(userId: number): Promise<WorkingHours | undefined> {
     return Array.from(this.workingHours.values()).find(
@@ -90,7 +111,25 @@ export class MemStorage implements IStorage {
 
   async createWorkingHours(insertWorkingHours: InsertWorkingHours): Promise<WorkingHours> {
     const id = this.currentWorkingHoursId++;
-    const workingHoursRecord: WorkingHours = { ...insertWorkingHours, id };
+    // Ensure nullable fields are set properly
+    const workingHoursRecord: WorkingHours = { 
+      ...insertWorkingHours, 
+      id,
+      monday: insertWorkingHours.monday ?? true,
+      tuesday: insertWorkingHours.tuesday ?? true,
+      wednesday: insertWorkingHours.wednesday ?? true,
+      thursday: insertWorkingHours.thursday ?? true,
+      friday: insertWorkingHours.friday ?? true,
+      saturday: insertWorkingHours.saturday ?? false,
+      sunday: insertWorkingHours.sunday ?? false,
+      startTime: insertWorkingHours.startTime ?? '09:00',
+      endTime: insertWorkingHours.endTime ?? '17:00',
+      breakStartTime: insertWorkingHours.breakStartTime ?? null,
+      breakEndTime: insertWorkingHours.breakEndTime ?? null,
+      focusTimeEnabled: insertWorkingHours.focusTimeEnabled ?? null,
+      focusTimeDuration: insertWorkingHours.focusTimeDuration ?? null,
+      focusTimePreference: insertWorkingHours.focusTimePreference ?? null
+    };
     this.workingHours.set(id, workingHoursRecord);
     return workingHoursRecord;
   }
@@ -130,10 +169,20 @@ export class MemStorage implements IStorage {
   async createTask(insertTask: InsertTask): Promise<Task> {
     const id = this.currentTaskId++;
     const now = new Date();
+    // Ensure nullable fields are set properly
     const task: Task = { 
       ...insertTask, 
       id, 
-      createdAt: now 
+      createdAt: now,
+      description: insertTask.description ?? null,
+      priority: insertTask.priority ?? 'medium',
+      timeRequired: insertTask.timeRequired ?? '01:00',
+      dueDate: insertTask.dueDate ?? null,
+      dueTime: insertTask.dueTime ?? null,
+      completed: insertTask.completed ?? false,
+      slackMessageId: insertTask.slackMessageId ?? null,
+      slackChannelId: insertTask.slackChannelId ?? null,
+      googleEventId: insertTask.googleEventId ?? null
     };
     this.tasks.set(id, task);
     return task;
@@ -162,4 +211,7 @@ export class MemStorage implements IStorage {
   }
 }
 
-export const storage = new MemStorage();
+import { PgStorage } from './pg-storage';
+
+// Use PostgreSQL storage when DATABASE_URL is set, otherwise fall back to in-memory storage
+export const storage = process.env.DATABASE_URL ? new PgStorage() : new MemStorage();
