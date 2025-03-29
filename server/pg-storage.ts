@@ -34,10 +34,10 @@ export class PgStorage implements IStorage {
     return result[0];
   }
   
-  async updateUserSlackInfo(id: number, slackUserId: string, workspace: string): Promise<User | undefined> {
+  async updateUserSlackInfo(id: number, slackUserId: string, workspace: string, accessToken: string | null): Promise<User | undefined> {
     const result = await db
       .update(users)
-      .set({ slackUserId, slackWorkspace: workspace })
+      .set({ slackUserId, slackWorkspace: workspace, slackAccessToken: accessToken })
       .where(eq(users.id, id))
       .returning();
     return result[0];

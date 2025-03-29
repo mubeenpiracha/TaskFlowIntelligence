@@ -291,13 +291,20 @@ export async function createTaskFromSlackMessage(
 }
 
 /**
- * Sends a confirmation message back to the Slack channel
+ * Sends a confirmation message back to the Slack channel or as a direct message to the user
  * about a task that was created from a message
  * @param task - The task that was created
- * @param channelId - The Slack channel ID to reply to
+ * @param channelId - The Slack channel ID to reply to, or the user ID to DM
+ * @param userToken - Optional user token to use instead of bot token
+ * @param sendAsDM - Whether to send as a direct message to the user instead of in the channel
  * @returns The timestamp of the sent message
  */
-export async function sendTaskConfirmation(task: Task, channelId: string): Promise<string | undefined> {
+export async function sendTaskConfirmation(
+  task: Task, 
+  channelId: string, 
+  userToken?: string,
+  sendAsDM: boolean = true
+): Promise<string | undefined> {
   try {
     // Format the message nicely with task details
     const blocks = [
@@ -347,11 +354,20 @@ export async function sendTaskConfirmation(task: Task, channelId: string): Promi
       }
     ];
     
+    // Get the user ID if available (for sending a DM)
+    const user = await storage.getUser(task.userId);
+    
+    // If sendAsDM is true and we have a Slack user ID, send as DM
+    const targetId = sendAsDM && user?.slackUserId 
+      ? user.slackUserId  // Send to user's DM
+      : channelId;        // Send to original channel
+    
     // Send the confirmation message
     return await sendMessage(
-      channelId,
+      targetId,
       `Task created: ${task.title}`,
-      blocks
+      blocks,
+      userToken
     );
   } catch (error) {
     console.error('Error sending task confirmation to Slack:', error);

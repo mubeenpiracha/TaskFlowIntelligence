@@ -13,7 +13,7 @@ export interface IStorage {
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
   updateUserGoogleToken(id: number, token: string): Promise<User | undefined>;
-  updateUserSlackInfo(id: number, slackUserId: string, workspace: string): Promise<User | undefined>;
+  updateUserSlackInfo(id: number, slackUserId: string, workspace: string, accessToken: string | null): Promise<User | undefined>;
   updateUserSlackChannelPreferences(id: number, channelPreferences: string): Promise<User | undefined>;
 
   // Working hours operations
@@ -67,6 +67,7 @@ export class MemStorage implements IStorage {
       ...insertUser, 
       id,
       slackUserId: insertUser.slackUserId ?? null,
+      slackAccessToken: insertUser.slackAccessToken ?? null,
       googleRefreshToken: insertUser.googleRefreshToken ?? null,
       slackWorkspace: insertUser.slackWorkspace ?? null,
       slackChannelPreferences: insertUser.slackChannelPreferences ?? null
@@ -84,11 +85,16 @@ export class MemStorage implements IStorage {
     return updatedUser;
   }
 
-  async updateUserSlackInfo(id: number, slackUserId: string, workspace: string): Promise<User | undefined> {
+  async updateUserSlackInfo(id: number, slackUserId: string, workspace: string, accessToken: string | null): Promise<User | undefined> {
     const user = this.users.get(id);
     if (!user) return undefined;
     
-    const updatedUser = { ...user, slackUserId, slackWorkspace: workspace };
+    const updatedUser = { 
+      ...user, 
+      slackUserId, 
+      slackWorkspace: workspace,
+      slackAccessToken: accessToken
+    };
     this.users.set(id, updatedUser);
     return updatedUser;
   }

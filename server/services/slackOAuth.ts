@@ -9,14 +9,18 @@ if (!process.env.SLACK_CLIENT_ID || !process.env.SLACK_CLIENT_SECRET) {
 // For OAuth flow, we don't need the bot token initially
 const slackWebClient = new WebClient();
 
-// Scopes needed for the application
+// Scopes needed for the application - user level permissions
 const SCOPES = [
   'channels:read',
   'groups:read',
   'channels:history',
   'groups:history',
   'users:read',
-  'chat:write'
+  'chat:write',
+  'im:history',   // For direct messages
+  'mpim:history', // For group direct messages
+  'im:read',      // For listing direct messages
+  'mpim:read'     // For listing group direct messages
 ];
 
 /**
@@ -34,7 +38,8 @@ export function getSlackAuthUrl(state?: string): string {
   const params = new URLSearchParams({
     client_id: clientId,
     scope: SCOPES.join(','),
-    redirect_uri: SLACK_OAUTH_REDIRECT_URL
+    redirect_uri: SLACK_OAUTH_REDIRECT_URL,
+    user_scope: SCOPES.join(',')  // Add user-level scopes as well to get user token
   });
   
   if (state) {
@@ -68,13 +73,29 @@ export async function exchangeCodeForToken(code: string): Promise<{
       redirect_uri: SLACK_OAUTH_REDIRECT_URL
     });
     
-    if (!response.ok || !response.access_token || !response.authed_user?.id || !response.team?.id) {
+    console.log('Slack OAuth response:', JSON.stringify({
+      ok: response.ok,
+      has_authed_user: !!response.authed_user,
+      has_user_token: !!response.authed_user?.access_token,
+      has_bot_token: !!response.access_token,
+      has_team: !!response.team,
+    }, null, 2));
+    
+    if (!response.ok || !response.authed_user?.id || !response.team?.id) {
       throw new Error('Invalid response from Slack OAuth');
+    }
+    
+    // Get the user token if available, or fallback to workspace/bot token
+    // Prioritize the user token over the bot token
+    const accessToken = response.authed_user?.access_token || response.access_token;
+    
+    if (!accessToken) {
+      throw new Error('No access token provided in Slack OAuth response');
     }
     
     // Return the tokens and user information
     return {
-      accessToken: response.access_token,
+      accessToken: accessToken,
       userId: response.authed_user.id,
       teamId: response.team.id,
       teamName: response.team.name || response.team.id

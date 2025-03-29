@@ -303,8 +303,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const { accessToken, userId, teamId, teamName } = await exchangeCodeForToken(code);
       
-      // Store the Slack user ID and workspace in the user record
-      await storage.updateUserSlackInfo(req.session.userId, userId, teamName);
+      // Store the Slack user ID, access token, and workspace in the user record
+      await storage.updateUserSlackInfo(req.session.userId, userId, teamName, accessToken);
       
       // Create default empty channel preferences
       await saveChannelPreferences(req.session.userId, []);
@@ -324,7 +324,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         workspace: z.string()
       }).parse(req.body);
       
-      const user = await storage.updateUserSlackInfo(req.session.userId!, slackUserId, workspace);
+      const user = await storage.updateUserSlackInfo(req.session.userId!, slackUserId, workspace, null);
       
       if (!user) {
         return res.status(404).json({ message: 'User not found' });
@@ -351,7 +351,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       try {
-        const channels = await listUserChannels();
+        // Use the user's token if available, otherwise fall back to bot token
+        const channels = await listUserChannels(user.slackAccessToken || undefined);
         res.json(channels);
       } catch (error: any) {
         // Handle specific Slack authentication errors
@@ -447,7 +448,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
-      const tasks = await detectTasks(channelIds, user.slackUserId);
+      const tasks = await detectTasks(channelIds, user.slackUserId, user.slackAccessToken || undefined);
       res.json(tasks);
     } catch (error) {
       console.error(error);
@@ -491,10 +492,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Create a task from the Slack message
       const task = await createTaskFromSlackMessage(message, req.session.userId!);
       
-      // If the message has a channel ID, send a confirmation message to that channel
-      if (message.channelId) {
-        await sendTaskConfirmation(task, message.channelId);
-      }
+      // Always send a confirmation message as a DM to the user
+      await sendTaskConfirmation(
+        task, 
+        message.channelId || '', 
+        user.slackAccessToken || undefined,
+        true // Force sending as DM
+      );
       
       res.status(201).json(task);
     } catch (error) {

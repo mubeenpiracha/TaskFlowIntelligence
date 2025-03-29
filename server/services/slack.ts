@@ -31,44 +31,51 @@ export interface SlackMessage {
 }
 
 /**
- * Lists all channels that the authenticated user (bot) is a member of
+ * Lists all channels that the authenticated user is a member of
+ * @param userToken - Optional user token to use instead of bot token
  * @returns Promise with list of channels
  */
-export async function listUserChannels(): Promise<SlackChannel[]> {
-  if (!process.env.SLACK_BOT_TOKEN || process.env.SLACK_BOT_TOKEN.trim() === '') {
-    console.error('SLACK_BOT_TOKEN is missing or empty');
-    throw new Error('Slack Bot Token is missing or empty. Please check your environment variables.');
+export async function listUserChannels(userToken?: string): Promise<SlackChannel[]> {
+  // Use user token if provided, otherwise fall back to bot token
+  const token = userToken || process.env.SLACK_BOT_TOKEN;
+  
+  if (!token || token.trim() === '') {
+    console.error('Slack token is missing or empty');
+    throw new Error('Slack token is missing or empty. Please check your environment variables or user credentials.');
   }
+  
+  // Create a client with the appropriate token
+  const client = userToken ? new WebClient(userToken) : slack;
   
   try {
     // First test if the token is valid with a simpler method
     try {
       // This is a lightweight call to test authentication
-      await slack.auth.test();
+      await client.auth.test();
     } catch (authError: any) {
       // If we get invalid_auth, the token is not valid
       if (authError.data && authError.data.error === 'invalid_auth') {
-        console.error('Slack Bot Token is invalid or expired:', authError.data.error);
-        throw new Error('SLACK_AUTH_ERROR: Your Slack Bot Token is invalid or expired. Please check your token or generate a new one.');
+        console.error('Slack token is invalid or expired:', authError.data.error);
+        throw new Error('SLACK_AUTH_ERROR: Your Slack token is invalid or expired. Please reconnect your Slack account.');
       }
       throw authError;
     }
     
-    // Get all public channels the bot is a member of
-    const publicResult = await slack.conversations.list({
+    // Get all public channels the user is a member of
+    const publicResult = await client.conversations.list({
       types: 'public_channel',
       exclude_archived: true,
       limit: 1000
     });
 
-    // Get all private channels the bot is a member of
-    const privateResult = await slack.conversations.list({
+    // Get all private channels the user is a member of
+    const privateResult = await client.conversations.list({
       types: 'private_channel',
       exclude_archived: true,
       limit: 1000
     });
 
-    // Combine and filter channels to include only those the bot is a member of
+    // Combine and filter channels to include only those the user is a member of
     const allChannels = [
       ...(publicResult.channels || []),
       ...(privateResult.channels || [])
@@ -95,11 +102,15 @@ export async function listUserChannels(): Promise<SlackChannel[]> {
 /**
  * Gets user info from Slack
  * @param userId - Slack user ID
+ * @param userToken - Optional user token to use instead of bot token
  * @returns Promise with user information
  */
-export async function getUserInfo(userId: string) {
+export async function getUserInfo(userId: string, userToken?: string) {
+  // Create a client with the appropriate token
+  const client = userToken ? new WebClient(userToken) : slack;
+  
   try {
-    const result = await slack.users.info({ user: userId });
+    const result = await client.users.info({ user: userId });
     return result.user;
   } catch (error) {
     console.error('Error getting user info:', error);
@@ -111,15 +122,20 @@ export async function getUserInfo(userId: string) {
  * Reads the history of messages in a channel
  * @param channelId - Channel ID to read message history from
  * @param messageLimit - Maximum number of messages to retrieve
+ * @param userToken - Optional user token to use instead of bot token
  * @returns Promise resolving to the messages
  */
 export async function readChannelHistory(
   channelId: string,
-  messageLimit: number = 100
+  messageLimit: number = 100,
+  userToken?: string
 ): Promise<SlackMessage[]> {
+  // Create a client with the appropriate token
+  const client = userToken ? new WebClient(userToken) : slack;
+  
   try {
     // Get messages
-    const result = await slack.conversations.history({
+    const result = await client.conversations.history({
       channel: channelId,
       limit: messageLimit,
     });
@@ -128,7 +144,7 @@ export async function readChannelHistory(
     const messages = await Promise.all((result.messages || []).map(async (message: any) => {
       let userProfile = null;
       if (message.user) {
-        const userInfo = await getUserInfo(message.user);
+        const userInfo = await getUserInfo(message.user, userToken);
         userProfile = userInfo?.profile;
       }
 
@@ -193,18 +209,19 @@ function isLikelyTask(message: string, userId: string): boolean {
  * Detects potential tasks in Slack messages across multiple channels
  * @param channelIds - Array of channel IDs to analyze
  * @param userId - User ID to look for mentions of
+ * @param userToken - Optional user token to use instead of bot token
  * @returns Promise with detected task messages, merged from all channels
  */
-export async function detectTasks(channelIds: string[], userId: string): Promise<SlackMessage[]> {
+export async function detectTasks(channelIds: string[], userId: string, userToken?: string): Promise<SlackMessage[]> {
   try {
     // Get channel names for better context
-    const allChannels = await listUserChannels();
+    const allChannels = await listUserChannels(userToken);
     const channelMap = new Map<string, string>();
     allChannels.forEach(channel => channelMap.set(channel.id, channel.name));
     
     // Process all channels in parallel
     const channelPromises = channelIds.map(async (channelId) => {
-      const messages = await readChannelHistory(channelId);
+      const messages = await readChannelHistory(channelId, 100, userToken);
       
       // Filter messages to those that likely contain tasks
       const taskMessages = messages.filter(msg => isLikelyTask(msg.text, userId));
@@ -230,15 +247,20 @@ export async function detectTasks(channelIds: string[], userId: string): Promise
  * @param channelId - Channel ID to send message to
  * @param text - Message text
  * @param blocks - Optional structured message blocks
+ * @param userToken - Optional user token to use instead of bot token
  * @returns Promise resolving to the message timestamp
  */
 export async function sendMessage(
   channelId: string,
   text: string,
-  blocks?: any[]
+  blocks?: any[],
+  userToken?: string
 ) {
+  // Create a client with the appropriate token
+  const client = userToken ? new WebClient(userToken) : slack;
+  
   try {
-    const response = await slack.chat.postMessage({
+    const response = await client.chat.postMessage({
       channel: channelId,
       text,
       blocks,
