@@ -11,7 +11,7 @@ import type { Task, InsertTask } from '@shared/schema';
  * @param messageText - The message text to parse
  * @returns Extracted task title
  */
-function extractTaskTitle(messageText: string): string {
+export function extractTaskTitle(messageText: string): string {
   // Remove any user mentions like <@U12345678>
   let cleanText = messageText.replace(/<@[A-Z0-9]+>/g, '').trim();
   
@@ -29,7 +29,7 @@ function extractTaskTitle(messageText: string): string {
  * @param messageText - The message text to analyze
  * @returns Object with extracted date or null if none found
  */
-function extractDueDate(messageText: string): { dueDate: string, dueTime: string } | null {
+export function extractDueDate(messageText: string): { dueDate: string, dueTime: string } | null {
   // This is a simplified implementation
   // Look for patterns like "by tomorrow", "due Friday", etc.
   const text = messageText.toLowerCase();
@@ -103,7 +103,7 @@ function extractDueDate(messageText: string): { dueDate: string, dueTime: string
  * @param messageText - The message text to analyze
  * @returns Priority level (high, medium, low)
  */
-function determinePriority(messageText: string): 'high' | 'medium' | 'low' {
+export function determinePriority(messageText: string): 'high' | 'medium' | 'low' {
   const text = messageText.toLowerCase();
   
   // Check for high priority indicators
@@ -141,7 +141,7 @@ function determinePriority(messageText: string): 'high' | 'medium' | 'low' {
  * @param messageText - The message text to analyze
  * @returns Estimated time required in HH:MM format
  */
-function estimateTimeRequired(messageText: string): string {
+export function estimateTimeRequired(messageText: string): string {
   const text = messageText.toLowerCase();
   
   // Check for explicit time mentions (e.g., "takes 30 minutes", "2 hours")

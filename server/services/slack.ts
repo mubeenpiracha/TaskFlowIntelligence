@@ -1,5 +1,6 @@
 import { WebClient } from '@slack/web-api';
 import type { ConversationsHistoryResponse } from '@slack/web-api';
+import { extractTaskTitle, extractDueDate, determinePriority, estimateTimeRequired } from './taskCreation';
 
 if (!process.env.SLACK_BOT_TOKEN) {
   console.warn("SLACK_BOT_TOKEN environment variable is not set - Slack bot operations will not work");
@@ -272,5 +273,184 @@ export async function sendMessage(
   } catch (error) {
     console.error('Error sending Slack message:', error);
     throw error;
+  }
+}
+
+/**
+ * Sends an interactive message to a user with task details and action buttons
+ * @param slackUserId - Slack user ID to send the DM to
+ * @param message - The detected Slack message that contains a potential task
+ * @param userToken - Optional user token to use instead of bot token
+ * @returns Promise resolving to the message timestamp
+ */
+export async function sendTaskDetectionDM(
+  slackUserId: string,
+  message: SlackMessage,
+  userToken?: string
+): Promise<string | undefined> {
+  try {
+    // Extract initial task information
+    const extractedTitle = extractTaskTitle(message.text);
+    const extractedDueDate = extractDueDate(message.text);
+    const initialPriority = determinePriority(message.text);
+    const initialTimeRequired = estimateTimeRequired(message.text);
+    
+    // Get channel name for context
+    const channelReference = message.channelName 
+      ? `#${message.channelName}` 
+      : (message.channelId ? `<#${message.channelId}>` : 'a channel');
+    
+    // Format the message with task details and interactive components
+    const blocks = [
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `:mag: *I detected a potential task for you*\n\nI found this message in ${channelReference} that might be a task you need to handle.`
+        }
+      },
+      {
+        type: "divider"
+      },
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `>${message.text.replace(/\n/g, '\n>')}`
+        }
+      },
+      {
+        type: "divider"
+      },
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: "*Would you like me to create a task from this message?*"
+        }
+      },
+      {
+        type: "actions",
+        elements: [
+          {
+            type: "button",
+            text: {
+              type: "plain_text",
+              text: "Yes, create task",
+              emoji: true
+            },
+            style: "primary",
+            value: JSON.stringify({
+              action: "create_task",
+              ts: message.ts,
+              text: message.text,
+              user: message.user,
+              channelId: message.channelId,
+              channelName: message.channelName,
+              title: extractedTitle,
+              priority: initialPriority,
+              timeRequired: initialTimeRequired,
+              dueDate: extractedDueDate?.dueDate,
+              dueTime: extractedDueDate?.dueTime
+            }),
+            action_id: "create_task"
+          },
+          {
+            type: "button",
+            text: {
+              type: "plain_text",
+              text: "No, ignore",
+              emoji: true
+            },
+            value: JSON.stringify({
+              action: "ignore_task",
+              ts: message.ts
+            }),
+            action_id: "ignore_task"
+          }
+        ]
+      },
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: "*Task details*"
+        }
+      },
+      {
+        type: "section",
+        fields: [
+          {
+            type: "mrkdwn",
+            text: `*Title*\n${extractedTitle}`
+          },
+          {
+            type: "mrkdwn",
+            text: `*Priority*\n${
+              initialPriority === 'high' ? ':red_circle: High' :
+              initialPriority === 'medium' ? ':large_yellow_circle: Medium' :
+              ':large_green_circle: Low'
+            }`
+          },
+          {
+            type: "mrkdwn",
+            text: `*Due*\n${extractedDueDate ? 
+              `${extractedDueDate.dueDate}${extractedDueDate.dueTime ? ` at ${extractedDueDate.dueTime}` : ''}` : 
+              'No due date detected'}`
+          },
+          {
+            type: "mrkdwn",
+            text: `*Estimated time*\n${initialTimeRequired}`
+          }
+        ]
+      },
+      {
+        type: "actions",
+        elements: [
+          {
+            type: "button",
+            text: {
+              type: "plain_text",
+              text: "Edit details",
+              emoji: true
+            },
+            value: JSON.stringify({
+              action: "edit_task",
+              ts: message.ts,
+              text: message.text,
+              user: message.user,
+              channelId: message.channelId,
+              channelName: message.channelName,
+              title: extractedTitle,
+              priority: initialPriority,
+              timeRequired: initialTimeRequired,
+              dueDate: extractedDueDate?.dueDate,
+              dueTime: extractedDueDate?.dueTime
+            }),
+            action_id: "edit_task_details"
+          }
+        ]
+      },
+      {
+        type: "context",
+        elements: [
+          {
+            type: "mrkdwn",
+            text: "Tasks you create will be added to your TaskFlow dashboard and scheduled in your calendar if connected."
+          }
+        ]
+      }
+    ];
+    
+    // Send the DM
+    return await sendMessage(
+      slackUserId,
+      `Task detected: ${extractedTitle}`,
+      blocks,
+      userToken
+    );
+  } catch (error) {
+    console.error('Error sending task detection DM to Slack:', error);
+    return undefined;
   }
 }

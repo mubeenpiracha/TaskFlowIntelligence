@@ -20,6 +20,11 @@ export class PgStorage implements IStorage {
     return result[0];
   }
   
+  async getUserBySlackUserId(slackUserId: string): Promise<User | undefined> {
+    const result = await db.select().from(users).where(eq(users.slackUserId, slackUserId));
+    return result[0];
+  }
+  
   async createUser(user: InsertUser): Promise<User> {
     const result = await db.insert(users).values(user).returning();
     return result[0];

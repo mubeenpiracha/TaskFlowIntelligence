@@ -11,6 +11,7 @@ export interface IStorage {
   // User operations
   getUser(id: number): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
+  getUserBySlackUserId(slackUserId: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
   updateUserGoogleToken(id: number, token: string): Promise<User | undefined>;
   disconnectUserGoogleCalendar(id: number): Promise<User | undefined>;
@@ -59,6 +60,12 @@ export class MemStorage implements IStorage {
   async getUserByUsername(username: string): Promise<User | undefined> {
     return Array.from(this.users.values()).find(
       (user) => user.username === username,
+    );
+  }
+  
+  async getUserBySlackUserId(slackUserId: string): Promise<User | undefined> {
+    return Array.from(this.users.values()).find(
+      (user) => user.slackUserId === slackUserId,
     );
   }
 

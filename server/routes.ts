@@ -1,10 +1,10 @@
-import type { Express, Request, Response, NextFunction } from "express";
+import express, { type Express, type Request, type Response, type NextFunction } from "express";
 import { createServer, type Server } from "http";
 import session from "express-session";
 import { storage } from "./storage";
 import { z } from "zod";
 import { insertTaskSchema, insertUserSchema, insertWorkingHoursSchema } from "@shared/schema";
-import { detectTasks, sendMessage, listUserChannels, type SlackChannel, type SlackMessage } from "./services/slack";
+import { detectTasks, sendMessage, listUserChannels, sendTaskDetectionDM, type SlackChannel, type SlackMessage } from "./services/slack";
 import { 
   getCalendarAuthUrl, 
   getLoginAuthUrl,
@@ -480,11 +480,142 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
+      // Detect potential tasks
       const tasks = await detectTasks(channelIds, user.slackUserId, user.slackAccessToken || undefined);
+      
+      // Flag to determine if we should automatically send DMs for detected tasks
+      const sendDMs = req.query.sendDMs === 'true';
+      
+      // If requested, send interactive DMs for each detected task
+      if (sendDMs) {
+        // Process each detected task
+        await Promise.all(tasks.map(async (task) => {
+          try {
+            // Check if this task was already processed (has a task record)
+            const existingTask = await storage.getTasksBySlackMessageId(task.ts);
+            if (!existingTask) {
+              // Send an interactive DM to the user about this detected task
+              if (user.slackUserId) {
+                await sendTaskDetectionDM(user.slackUserId, task, user.slackAccessToken || undefined);
+              }
+            }
+          } catch (dmError) {
+            console.error('Error sending task detection DM:', dmError);
+            // Continue with other tasks even if one fails
+          }
+        }));
+      }
+      
       res.json(tasks);
     } catch (error) {
       console.error(error);
       res.status(500).json({ message: 'Failed to detect tasks from Slack' });
+    }
+  });
+  
+  // Handle Slack interactive components (buttons, etc.)
+  app.post('/api/slack/interactions', express.urlencoded({ extended: true }), async (req, res) => {
+    try {
+      // Slack sends form data with a 'payload' key containing a JSON string
+      const payload = req.body.payload ? JSON.parse(req.body.payload) : null;
+      
+      if (!payload) {
+        return res.status(400).send('Invalid payload');
+      }
+
+      // Acknowledge receipt immediately to avoid Slack timeout
+      res.status(200).send();
+      
+      // Extract the action data
+      const { type, user, actions, channel, message, response_url } = payload;
+      
+      if (type !== 'block_actions' || !actions || actions.length === 0) {
+        console.warn('Unsupported interaction type or missing actions', payload);
+        return;
+      }
+      
+      // Get the first action (button click, etc.)
+      const action = actions[0];
+      
+      // Look up the user by their Slack ID
+      const dbUserQuery = await storage.getUserBySlackUserId(user.id);
+      
+      if (!dbUserQuery) {
+        console.error(`No user found for Slack user ID: ${user.id}`);
+        // Send failure message
+        await sendMessage(user.id, 'Error: Your account isn\'t connected to TaskFlow. Please log in to the TaskFlow app and connect your Slack account.');
+        return;
+      }
+      
+      // Handle different action types
+      if (action.action_id === 'create_task') {
+        // User clicked "Create Task" button
+        try {
+          // Parse the task data from the button value
+          const taskData = JSON.parse(action.value);
+          
+          // Create a SlackMessage object with the task data
+          const slackMessage = {
+            ts: taskData.ts,
+            text: taskData.text,
+            user: taskData.user,
+            channelId: taskData.channelId,
+            channelName: taskData.channelName,
+            // Add custom values for task creation
+            customTitle: taskData.title,
+            customPriority: taskData.priority,
+            customTimeRequired: taskData.timeRequired,
+            customDueDate: taskData.dueDate,
+            customDueTime: taskData.dueTime
+          };
+          
+          // Create the task in the database
+          const task = await createTaskFromSlackMessage(slackMessage, dbUserQuery.id);
+          
+          // Send confirmation to the user
+          await sendTaskConfirmation(
+            task,
+            user.id, // Send directly to the user as a DM
+            dbUserQuery.slackAccessToken || undefined,
+            true
+          );
+        } catch (error) {
+          console.error('Error creating task from interaction:', error);
+          await sendMessage(user.id, 'Sorry, there was an error creating your task. Please try again.');
+        }
+      } else if (action.action_id === 'ignore_task') {
+        // User clicked "Ignore" button
+        try {
+          // Send acknowledgment message
+          await sendMessage(
+            user.id,
+            'Task ignored. I won\'t remind you about this message again.',
+            undefined,
+            dbUserQuery.slackAccessToken || undefined
+          );
+        } catch (error) {
+          console.error('Error sending ignore confirmation:', error);
+        }
+      } else if (action.action_id === 'edit_task_details') {
+        // User clicked "Edit details" button
+        try {
+          // Parse the task data from the button value
+          const taskData = JSON.parse(action.value);
+          
+          // In a real implementation, this would open a dialog to edit task details
+          // For now, just acknowledge the action
+          await sendMessage(
+            user.id,
+            'This feature is coming soon! In the meantime, you can edit tasks from the TaskFlow dashboard.',
+            undefined,
+            dbUserQuery.slackAccessToken || undefined
+          );
+        } catch (error) {
+          console.error('Error handling edit task details:', error);
+        }
+      }
+    } catch (error) {
+      console.error('Error processing Slack interaction:', error);
     }
   });
   
@@ -639,7 +770,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           
           const event = await createCalendarEvent(user.googleRefreshToken, {
             summary: task.title,
-            description: task.description,
+            description: task.description || undefined,
             start: {
               dateTime: startTime.toISOString(),
               timeZone: 'UTC'
