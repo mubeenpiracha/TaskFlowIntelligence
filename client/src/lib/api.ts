@@ -11,6 +11,29 @@ export interface SlackChannel {
   num_members?: number;
 }
 
+// Slack message interface from the backend
+export interface SlackMessage {
+  user: string;
+  text: string;
+  ts: string;
+  user_profile?: {
+    image_72?: string;
+    display_name?: string;
+    real_name?: string;
+  };
+  channelId?: string;
+  channelName?: string;
+  channel?: string;
+  
+  // Optional customization parameters for task creation
+  customTitle?: string;
+  customDescription?: string;
+  customPriority?: 'high' | 'medium' | 'low';
+  customTimeRequired?: string;
+  customDueDate?: string;
+  customDueTime?: string;
+}
+
 // Auth API
 export const login = async (username: string, password: string) => {
   const res = await apiRequest('POST', '/api/auth/login', { username, password });
@@ -63,7 +86,7 @@ export const saveSlackChannelPreferences = async (channelIds: string[]): Promise
   return res.json();
 };
 
-export const detectSlackTasks = async (channelIds?: string[]) => {
+export const detectSlackTasks = async (channelIds?: string[]): Promise<SlackMessage[]> => {
   let url = '/api/slack/detect-tasks';
   
   // Add channel IDs to query params if provided
@@ -74,6 +97,11 @@ export const detectSlackTasks = async (channelIds?: string[]) => {
   }
   
   const res = await apiRequest('GET', url);
+  return res.json();
+};
+
+export const createTaskFromSlackMessage = async (message: SlackMessage): Promise<Task> => {
+  const res = await apiRequest('POST', '/api/slack/create-task', { message });
   return res.json();
 };
 

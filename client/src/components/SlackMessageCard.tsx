@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { useQueryClient, useMutation } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import TaskDetailModal from "./modals/TaskDetailModal";
-import { InsertTask } from "@shared/schema";
+import { createTaskFromSlackMessage } from "@/lib/api";
+import { SlackMessage } from "@/lib/api";
+import { Task } from "@shared/schema";
 import { cn } from "@/lib/utils";
 
 interface SlackMessage {
@@ -26,6 +27,8 @@ interface SlackMessageCardProps {
 
 export default function SlackMessageCard({ message, isTaskAdded = false }: SlackMessageCardProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [localIsTaskAdded, setLocalIsTaskAdded] = useState(isTaskAdded);
+  const [taskDetails, setTaskDetails] = useState<Task | null>(null);
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
@@ -48,9 +51,55 @@ export default function SlackMessageCard({ message, isTaskAdded = false }: Slack
     return text.replace(/<@([A-Z0-9]+)>/g, '@user');
   };
 
-  // Handle adding as task
+  // Mutation for creating a task from a Slack message
+  const createTaskMutation = useMutation({
+    mutationFn: () => {
+      // Convert to our API SlackMessage format
+      const slackMessage: SlackMessage = {
+        user: message.user,
+        text: message.text,
+        ts: message.ts,
+        user_profile: message.user_profile,
+        channelId: message.channel,
+        channelName: message.channelName
+      };
+      
+      return createTaskFromSlackMessage(slackMessage);
+    },
+    onSuccess: (data) => {
+      // Update UI state
+      setLocalIsTaskAdded(true);
+      setTaskDetails(data);
+      
+      // Invalidate related queries
+      queryClient.invalidateQueries({ queryKey: ['/api/tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/tasks/today'] });
+      if (data.dueDate) {
+        queryClient.invalidateQueries({ queryKey: [`/api/tasks/${data.dueDate}`] });
+      }
+      
+      toast({
+        title: "Task created",
+        description: "The Slack message has been converted to a task.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to create task from Slack message.",
+        variant: "destructive",
+      });
+    }
+  });
+
+  // Handle adding as task with the modal for customization
   const handleAddAsTask = () => {
     setIsModalOpen(true);
+  };
+  
+  // Handle quick add (immediately create task without customization)
+  const handleQuickAdd = () => {
+    createTaskMutation.mutate();
   };
 
   // Handle ignoring message
@@ -97,42 +146,77 @@ export default function SlackMessageCard({ message, isTaskAdded = false }: Slack
           <div>
             <span className={cn(
               "inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium",
-              isTaskAdded 
+              localIsTaskAdded 
                 ? "bg-green-100 text-green-800" 
                 : "bg-purple-100 text-[#4A154B]"
             )}>
-              {isTaskAdded ? 'Added to Tasks' : 'Needs Action'}
+              {localIsTaskAdded ? 'Added to Tasks' : 'Needs Action'}
             </span>
           </div>
         </div>
         
-        {!isTaskAdded && (
+        {!localIsTaskAdded && (
           <div className="mt-4 flex">
+            <button 
+              type="button" 
+              className="inline-flex items-center mr-2 px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-[#2EB67D] hover:bg-opacity-90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#2EB67D]"
+              onClick={handleQuickAdd}
+              disabled={createTaskMutation.isPending}
+            >
+              {createTaskMutation.isPending ? (
+                <>
+                  <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  Processing...
+                </>
+              ) : (
+                <>
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                  Quick Add
+                </>
+              )}
+            </button>
             <button 
               type="button" 
               className="inline-flex items-center mr-2 px-3 py-2 border border-transparent text-sm leading-4 font-medium rounded-md text-white bg-[#36C5F0] hover:bg-opacity-90 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#36C5F0]"
               onClick={handleAddAsTask}
+              disabled={createTaskMutation.isPending}
             >
               <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
               </svg>
-              Add as Task
+              Customize
             </button>
             <button 
               type="button" 
               className="inline-flex items-center px-3 py-2 border border-gray-300 shadow-sm text-sm leading-4 font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#36C5F0]"
               onClick={ignoreMessage}
+              disabled={createTaskMutation.isPending}
             >
               Ignore
             </button>
           </div>
         )}
 
-        {isTaskAdded && (
+        {localIsTaskAdded && (
           <div className="mt-2 border-t border-gray-100 pt-2">
             <div className="flex justify-between items-center">
               <div className="text-xs text-gray-500">
-                Added as task with <span className="font-medium text-yellow-600">Medium Priority</span> • Due today at 5:00 PM
+                Added as task with 
+                <span className={cn(
+                  "font-medium mx-1",
+                  taskDetails?.priority === 'high' ? "text-red-600" :
+                  taskDetails?.priority === 'medium' ? "text-yellow-600" : "text-green-600"
+                )}>
+                  {taskDetails?.priority === 'high' ? 'High' : 
+                   taskDetails?.priority === 'medium' ? 'Medium' : 'Low'} Priority
+                </span>
+                • Due {taskDetails?.dueDate ? new Date(taskDetails.dueDate).toLocaleDateString() : 'soon'}
+                {taskDetails?.dueTime ? ` at ${taskDetails.dueTime}` : ''}
               </div>
               <button 
                 type="button" 
@@ -150,7 +234,23 @@ export default function SlackMessageCard({ message, isTaskAdded = false }: Slack
         <TaskDetailModal
           slackMessage={message}
           isOpen={isModalOpen}
-          onClose={() => setIsModalOpen(false)}
+          onClose={() => {
+            setIsModalOpen(false);
+            
+            // If task was created through the modal, update the UI state
+            queryClient.getQueryData(['/api/tasks']).then((data: Task[] | undefined) => {
+              if (data) {
+                // Check if any tasks were created from this message
+                const taskFromThisMessage = data.find(t => t.slackMessageId === message.ts);
+                if (taskFromThisMessage) {
+                  setLocalIsTaskAdded(true);
+                  setTaskDetails(taskFromThisMessage);
+                }
+              }
+            }).catch(() => {
+              // Silently ignore error
+            });
+          }}
         />
       )}
     </>

@@ -4,7 +4,7 @@ import session from "express-session";
 import { storage } from "./storage";
 import { z } from "zod";
 import { insertTaskSchema, insertUserSchema, insertWorkingHoursSchema } from "@shared/schema";
-import { detectTasks, sendSlackMessage, listUserChannels, type SlackChannel } from "./utils/slack";
+import { detectTasks, sendMessage, listUserChannels, type SlackChannel, type SlackMessage } from "./services/slack";
 import { 
   getCalendarAuthUrl, 
   getLoginAuthUrl,
@@ -14,9 +14,10 @@ import {
   updateCalendarEvent, 
   deleteCalendarEvent, 
   listCalendarEvents 
-} from "./utils/google";
+} from "./services/google";
 import { GOOGLE_LOGIN_REDIRECT_URL, GOOGLE_CALENDAR_REDIRECT_URL } from './config';
 import { getChannelPreferences, saveChannelPreferences } from './services/channelPreferences';
+import { createTaskFromSlackMessage, sendTaskConfirmation } from './services/taskCreation';
 
 // Create a store for sessions
 import createMemoryStore from 'memorystore';
@@ -389,6 +390,54 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error(error);
       res.status(500).json({ message: 'Failed to detect tasks from Slack' });
+    }
+  });
+  
+  // Create a task from a Slack message
+  app.post('/api/slack/create-task', requireAuth, async (req, res) => {
+    try {
+      const user = await storage.getUser(req.session.userId!);
+      
+      if (!user || !user.slackUserId) {
+        return res.status(400).json({ message: 'Slack integration not configured' });
+      }
+      
+      // Validate the incoming message data
+      const { message } = z.object({
+        message: z.object({
+          ts: z.string(),
+          text: z.string(),
+          user: z.string(),
+          channelId: z.string().optional(),
+          channel: z.string().optional(),
+          channelName: z.string().optional(),
+          user_profile: z.object({
+            image_72: z.string().optional(),
+            display_name: z.string().optional(),
+            real_name: z.string().optional()
+          }).optional(),
+          // Optional custom fields for task creation
+          customTitle: z.string().optional(),
+          customDescription: z.string().optional(),
+          customPriority: z.enum(['high', 'medium', 'low']).optional(),
+          customTimeRequired: z.string().optional(),
+          customDueDate: z.string().optional(),
+          customDueTime: z.string().optional()
+        })
+      }).parse(req.body);
+      
+      // Create a task from the Slack message
+      const task = await createTaskFromSlackMessage(message, req.session.userId!);
+      
+      // If the message has a channel ID, send a confirmation message to that channel
+      if (message.channelId) {
+        await sendTaskConfirmation(task, message.channelId);
+      }
+      
+      res.status(201).json(task);
+    } catch (error) {
+      console.error('Error creating task from Slack message:', error);
+      res.status(500).json({ message: 'Failed to create task from Slack message' });
     }
   });
   

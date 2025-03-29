@@ -19,6 +19,8 @@ import {
 import { Task } from "@shared/schema";
 import { useQueryClient, useMutation } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import { createTask, updateTask, createTaskFromSlackMessage } from "@/lib/api";
+import { SlackMessage } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 
 interface SlackMessage {
@@ -72,13 +74,33 @@ export default function TaskDetailModal({ task, slackMessage, isOpen, onClose }:
       
       if (task) {
         // Update existing task
-        await apiRequest('PATCH', `/api/tasks/${task.id}`, taskData);
+        return updateTask(task.id, taskData);
+      } else if (slackMessage) {
+        // Create new task from slack message with customizations
+        const apiSlackMessage: SlackMessage = {
+          user: slackMessage.user,
+          text: slackMessage.text,
+          ts: slackMessage.ts,
+          channel: slackMessage.channel
+        };
+        
+        // Create with custom parameters
+        return createTaskFromSlackMessage({
+          ...apiSlackMessage,
+          customTitle: title,
+          customDescription: description,
+          customPriority: priority,
+          customTimeRequired: timeRequired,
+          customDueDate: dueDate,
+          customDueTime: dueTime
+        });
       } else {
-        // Create new task
-        await apiRequest('POST', '/api/tasks', taskData);
+        // Create brand new task
+        return createTask(taskData);
       }
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
+      // Invalidate queries
       queryClient.invalidateQueries({ queryKey: ['/api/tasks'] });
       queryClient.invalidateQueries({ queryKey: ['/api/tasks/today'] });
       queryClient.invalidateQueries({ queryKey: [`/api/tasks/${dueDate}`] });
