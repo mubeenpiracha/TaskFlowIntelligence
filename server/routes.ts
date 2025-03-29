@@ -301,10 +301,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.redirect('/#/login?error=not_authenticated');
       }
       
-      const { accessToken, userId, teamId, teamName } = await exchangeCodeForToken(code);
+      const { userId, teamId, teamName } = await exchangeCodeForToken(code);
       
-      // Store the Slack user ID, access token, and workspace in the user record
-      await storage.updateUserSlackInfo(req.session.userId, userId, teamName, accessToken);
+      // Store the Slack user ID and workspace in the user record
+      // Note: We no longer store accessToken in the user record for security reasons
+      await storage.updateUserSlackInfo(req.session.userId, userId, teamName, null);
       
       // Create default empty channel preferences
       await saveChannelPreferences(req.session.userId, []);
@@ -383,8 +384,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       try {
-        // Use the user's token if available, otherwise fall back to bot token
-        const channels = await listUserChannels(user.slackAccessToken || undefined);
+        // Always use global bot token from environment variable
+        const channels = await listUserChannels();
         res.json(channels);
       } catch (error: any) {
         // Handle specific Slack authentication errors
@@ -481,7 +482,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Detect potential tasks
-      const tasks = await detectTasks(channelIds, user.slackUserId, user.slackAccessToken || undefined);
+      // Use bot token from environment variable instead of user token
+      const tasks = await detectTasks(channelIds, user.slackUserId);
       
       // Flag to determine if we should automatically send DMs for detected tasks
       const sendDMs = req.query.sendDMs === 'true';
@@ -496,7 +498,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             if (!existingTask) {
               // Send an interactive DM to the user about this detected task
               if (user.slackUserId) {
-                await sendTaskDetectionDM(user.slackUserId, task, user.slackAccessToken || undefined);
+                // Use bot token from environment variable instead of user token
+                await sendTaskDetectionDM(user.slackUserId, task);
               }
             }
           } catch (dmError) {
@@ -573,10 +576,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const task = await createTaskFromSlackMessage(slackMessage, dbUserQuery.id);
           
           // Send confirmation to the user
+          // Use bot token from environment variable instead of user token
           await sendTaskConfirmation(
             task,
             user.id, // Send directly to the user as a DM
-            dbUserQuery.slackAccessToken || undefined,
             true
           );
         } catch (error) {
@@ -587,11 +590,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // User clicked "Ignore" button
         try {
           // Send acknowledgment message
+          // Always uses bot token from environment variable
           await sendMessage(
             user.id,
-            'Task ignored. I won\'t remind you about this message again.',
-            undefined,
-            dbUserQuery.slackAccessToken || undefined
+            'Task ignored. I won\'t remind you about this message again.'
           );
         } catch (error) {
           console.error('Error sending ignore confirmation:', error);
@@ -604,11 +606,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           
           // In a real implementation, this would open a dialog to edit task details
           // For now, just acknowledge the action
+          // Always uses bot token from environment variable
           await sendMessage(
             user.id,
-            'This feature is coming soon! In the meantime, you can edit tasks from the TaskFlow dashboard.',
-            undefined,
-            dbUserQuery.slackAccessToken || undefined
+            'This feature is coming soon! In the meantime, you can edit tasks from the TaskFlow dashboard.'
           );
         } catch (error) {
           console.error('Error handling edit task details:', error);
@@ -656,10 +657,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const task = await createTaskFromSlackMessage(message, req.session.userId!);
       
       // Always send a confirmation message as a DM to the user
+      // Use bot token from environment variable
       await sendTaskConfirmation(
         task, 
         message.channelId || '', 
-        user.slackAccessToken || undefined,
         true // Force sending as DM
       );
       
