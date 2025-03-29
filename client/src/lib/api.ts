@@ -77,8 +77,22 @@ export const connectSlack = async (slackUserId: string, workspace: string): Prom
 };
 
 export const getSlackChannels = async (): Promise<SlackChannel[]> => {
-  const res = await apiRequest('GET', '/api/slack/channels');
-  return res.json();
+  try {
+    const res = await apiRequest('GET', '/api/slack/channels');
+    
+    if (!res.ok) {
+      const errorData = await res.json();
+      if (errorData.code === 'SLACK_AUTH_ERROR') {
+        throw new Error('SLACK_AUTH_ERROR: ' + errorData.message);
+      }
+      throw new Error(`Failed to fetch Slack channels: ${errorData.message || 'Unknown error'}`);
+    }
+    
+    return res.json();
+  } catch (error) {
+    console.error('Error in getSlackChannels:', error);
+    throw error;
+  }
 };
 
 export const getSlackChannelPreferences = async (): Promise<{channelIds: string[]}> => {

@@ -140,22 +140,39 @@ export default function Settings() {
   const isGoogleConnected = !!user?.googleRefreshToken;
   
   // Fetch Slack channels
+  const [slackAuthError, setSlackAuthError] = useState<string | null>(null);
+  
   const { data: slackChannels, isLoading: isLoadingSlackChannels, refetch: refetchChannels } = useQuery({
     queryKey: ['/api/slack/channels'],
     queryFn: async () => {
       if (!isSlackConnected) return [];
       setIsLoadingChannels(true);
+      setSlackAuthError(null);
+      
       try {
         const channels = await getSlackChannels();
         setIsLoadingChannels(false);
         return channels;
-      } catch (error) {
+      } catch (error: any) {
         console.error("Error fetching Slack channels:", error);
         setIsLoadingChannels(false);
+        
+        // Check if this is an auth error
+        if (error?.message?.includes('SLACK_AUTH_ERROR')) {
+          setSlackAuthError(error.message.replace('SLACK_AUTH_ERROR: ', ''));
+        }
+        
         return [];
       }
     },
-    enabled: false // Don't fetch on component mount
+    enabled: false, // Don't fetch on component mount
+    retry: (failureCount, error: any) => {
+      // Don't retry on authentication errors
+      if (error?.message?.includes('SLACK_AUTH_ERROR')) {
+        return false;
+      }
+      return failureCount < 2; // Only retry twice for other errors
+    }
   });
   
   // Fetch channel preferences
@@ -480,7 +497,36 @@ export default function Settings() {
                     </Button>
                   </div>
                   
-                  {slackChannels && slackChannels.length > 0 ? (
+                  {slackAuthError ? (
+                    <div className="p-4 border border-red-200 rounded-md bg-red-50 text-red-800">
+                      <h4 className="font-medium flex items-center mb-2">
+                        <AlertCircle className="h-4 w-4 mr-2" />
+                        Slack Authentication Error
+                      </h4>
+                      <p className="text-sm mb-2">{slackAuthError}</p>
+                      <p className="text-sm mb-2">This may be due to:</p>
+                      <ul className="list-disc pl-5 text-sm space-y-1">
+                        <li>Missing required Slack app permissions</li>
+                        <li>Bot token expired or invalid</li>
+                        <li>Bot not added to your workspace</li>
+                      </ul>
+                      <p className="text-sm mt-2">
+                        Please verify that your Slack app is configured with all the required scopes and that 
+                        your SLACK_BOT_TOKEN is valid and up-to-date.
+                      </p>
+                      <div className="mt-3">
+                        <Button 
+                          variant="outline" 
+                          size="sm" 
+                          onClick={() => refetchChannels()}
+                          className="bg-white"
+                        >
+                          <RefreshCw className="mr-2 h-4 w-4" />
+                          Try Again
+                        </Button>
+                      </div>
+                    </div>
+                  ) : slackChannels && slackChannels.length > 0 ? (
                     <div className="space-y-2 max-h-60 overflow-y-auto border rounded-md p-2">
                       {slackChannels.map((channel: SlackChannel) => (
                         <div key={channel.id} className="flex items-center space-x-2 py-2 border-b last:border-b-0">
@@ -507,20 +553,6 @@ export default function Settings() {
                     <div className="space-y-4">
                       <div className="text-center py-6 border rounded-md bg-gray-50">
                         <p className="text-gray-500">No channels available or you are not a member of any channels.</p>
-                      </div>
-                      
-                      <div className="p-4 border border-red-200 rounded-md bg-red-50 text-red-800">
-                        <h4 className="font-medium flex items-center mb-2">
-                          <AlertCircle className="h-4 w-4 mr-2" />
-                          Authentication Error
-                        </h4>
-                        <p className="text-sm mb-2">We're having trouble accessing your Slack channels. This may be due to:</p>
-                        <ul className="list-disc pl-5 text-sm space-y-1">
-                          <li>Missing required Slack app permissions</li>
-                          <li>Bot token expired or invalid</li>
-                          <li>Bot not added to your workspace</li>
-                        </ul>
-                        <p className="text-sm mt-2">Please verify that your Slack app is configured with all the required scopes mentioned above.</p>
                       </div>
                     </div>
                   )}

@@ -344,14 +344,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = await storage.getUser(req.session.userId!);
       
       if (!user || !user.slackUserId) {
-        return res.status(400).json({ message: 'Slack integration not configured' });
+        return res.status(400).json({ 
+          message: 'Slack integration not configured', 
+          code: 'SLACK_NOT_CONNECTED' 
+        });
       }
       
-      const channels = await listUserChannels();
-      res.json(channels);
+      try {
+        const channels = await listUserChannels();
+        res.json(channels);
+      } catch (error: any) {
+        // Handle specific Slack authentication errors
+        if (error.message && error.message.startsWith('SLACK_AUTH_ERROR:')) {
+          return res.status(401).json({ 
+            message: error.message.replace('SLACK_AUTH_ERROR: ', ''), 
+            code: 'SLACK_AUTH_ERROR' 
+          });
+        }
+        
+        // Handle generic Slack errors
+        console.error('Error fetching Slack channels:', error);
+        return res.status(500).json({ 
+          message: 'Failed to fetch Slack channels. There may be an issue with your Slack token or permissions.', 
+          code: 'SLACK_API_ERROR'
+        });
+      }
     } catch (error) {
       console.error(error);
-      res.status(500).json({ message: 'Failed to list Slack channels' });
+      res.status(500).json({ message: 'Server error' });
     }
   });
   

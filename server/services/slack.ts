@@ -35,7 +35,25 @@ export interface SlackMessage {
  * @returns Promise with list of channels
  */
 export async function listUserChannels(): Promise<SlackChannel[]> {
+  if (!process.env.SLACK_BOT_TOKEN || process.env.SLACK_BOT_TOKEN.trim() === '') {
+    console.error('SLACK_BOT_TOKEN is missing or empty');
+    throw new Error('Slack Bot Token is missing or empty. Please check your environment variables.');
+  }
+  
   try {
+    // First test if the token is valid with a simpler method
+    try {
+      // This is a lightweight call to test authentication
+      await slack.auth.test();
+    } catch (authError: any) {
+      // If we get invalid_auth, the token is not valid
+      if (authError.data && authError.data.error === 'invalid_auth') {
+        console.error('Slack Bot Token is invalid or expired:', authError.data.error);
+        throw new Error('SLACK_AUTH_ERROR: Your Slack Bot Token is invalid or expired. Please check your token or generate a new one.');
+      }
+      throw authError;
+    }
+    
     // Get all public channels the bot is a member of
     const publicResult = await slack.conversations.list({
       types: 'public_channel',
@@ -69,7 +87,8 @@ export async function listUserChannels(): Promise<SlackChannel[]> {
       }));
   } catch (error) {
     console.error('Error listing Slack channels:', error);
-    return [];
+    // Re-throw so the route handler can deal with it appropriately
+    throw error;
   }
 }
 
