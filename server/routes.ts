@@ -204,14 +204,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       try {
         const userProfile = await getUserProfile(tokens.access_token);
         
-        if (!userProfile.emailAddresses || userProfile.emailAddresses.length === 0) {
+        if (!userProfile.email) {
           return res.redirect('/#/login?error=no_email');
         }
         
-        const email = userProfile.emailAddresses[0].value;
-        const name = userProfile.names && userProfile.names.length > 0 
-          ? userProfile.names[0].displayName 
-          : email.split('@')[0];
+        const email = userProfile.email;
+        const name = userProfile.name || email.split('@')[0];
         
         // Check if user with this email exists
         let user = await storage.getUserByUsername(email);
