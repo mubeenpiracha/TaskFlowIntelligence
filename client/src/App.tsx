@@ -11,27 +11,19 @@ import Login from "@/pages/Login";
 import Layout from "@/components/Layout";
 import { useEffect, useState } from "react";
 import { apiRequest } from "./lib/queryClient";
+import { AuthProvider, useAuth } from "@/hooks/use-auth";
 
 function PrivateRoute({ component: Component, ...rest }: { component: React.ComponentType<any>, path: string }) {
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
+  const { user, isLoading } = useAuth();
   const [, setLocation] = useLocation();
 
   useEffect(() => {
-    const checkAuth = async () => {
-      try {
-        await apiRequest('GET', '/api/auth/me');
-        setIsAuthenticated(true);
-      } catch (error) {
-        setIsAuthenticated(false);
-        setLocation('/login');
-      }
-    };
-    
-    checkAuth();
-  }, [setLocation]);
+    if (!isLoading && !user) {
+      setLocation('/login');
+    }
+  }, [user, isLoading, setLocation]);
 
-  if (isAuthenticated === null) {
-    // Loading state
+  if (isLoading) {
     return <div className="flex items-center justify-center h-screen">Loading...</div>;
   }
 
@@ -39,7 +31,7 @@ function PrivateRoute({ component: Component, ...rest }: { component: React.Comp
     <Route
       {...rest}
       component={(props: any) => 
-        isAuthenticated ? (
+        user ? (
           <Layout>
             <Component {...props} />
           </Layout>
@@ -67,8 +59,10 @@ function Router() {
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <Router />
-      <Toaster />
+      <AuthProvider>
+        <Router />
+        <Toaster />
+      </AuthProvider>
     </QueryClientProvider>
   );
 }

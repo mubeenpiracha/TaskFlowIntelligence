@@ -1,6 +1,7 @@
 import { storage } from '../storage';
 import { sendMessage, slack } from './slack';
 import { createCalendarEvent } from './google';
+import { notifyTaskDetection } from './websocket';
 import type { SlackMessage } from '../services/slack';
 import type { Task, InsertTask } from '@shared/schema';
 
@@ -240,6 +241,9 @@ export async function createTaskFromSlackMessage(
     
     // Create the task in storage
     const createdTask = await storage.createTask(taskData);
+    
+    // Send real-time notification via WebSocket
+    notifyTaskDetection(userId, createdTask);
     
     // Check if user has Google Calendar connected and create calendar event
     const user = await storage.getUser(userId);

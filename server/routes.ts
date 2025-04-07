@@ -22,6 +22,8 @@ import {
 import { GOOGLE_LOGIN_REDIRECT_URL, GOOGLE_CALENDAR_REDIRECT_URL, SLACK_OAUTH_REDIRECT_URL } from './config';
 import { getChannelPreferences, saveChannelPreferences } from './services/channelPreferences';
 import { createTaskFromSlackMessage, sendTaskConfirmation } from './services/taskCreation';
+import { setupWebSocketServer } from './services/websocket';
+import { startSlackMonitoring, getMonitoringStatus } from './services/slackMonitor';
 
 // Create a store for sessions
 import createMemoryStore from 'memorystore';
@@ -1023,6 +1025,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   const httpServer = createServer(app);
+  
+  // Initialize WebSocket server for real-time updates
+  const wsServer = setupWebSocketServer(httpServer);
+  
+  // Start Slack monitoring service
+  const stopMonitoring = startSlackMonitoring();
+  
+  // System monitoring endpoints
+  app.get('/api/system/status', requireAuth, async (req, res) => {
+    res.json({
+      slack_monitoring: getMonitoringStatus(),
+      websocket: {
+        active: true,
+        total_connections: wsServer.clients.size
+      }
+    });
+  });
 
   return httpServer;
 }
