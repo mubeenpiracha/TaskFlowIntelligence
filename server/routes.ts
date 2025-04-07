@@ -612,6 +612,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } else if (action.action_id === 'ignore_task') {
         // User clicked "Ignore" button
         try {
+          // Parse the task data from the button value
+          const taskData = JSON.parse(action.value);
+          
+          // Log the taskData for debugging
+          console.log('Ignore task data:', {
+            ts: taskData.ts,
+            channelId: taskData.channelId,
+            channelName: taskData.channelName
+          });
+
+          // Update the task status to "ignored" in the database if it exists
+          if (taskData.ts) {
+            const task = await storage.getTasksBySlackMessageId(taskData.ts);
+            if (task) {
+              await storage.updateTaskStatus(task.id, 'ignored');
+              console.log(`Task ${task.id} from message ${taskData.ts} marked as ignored`);
+            } else {
+              // If the task doesn't exist yet in the database, create it with "ignored" status
+              // This ensures we won't process this message again
+              await storage.createPendingTask(
+                dbUserQuery.id, 
+                taskData.ts, 
+                taskData.channelId || message?.channel?.id || 'unknown-channel',
+                'Ignored task'
+              );
+              // Then update its status to ignored
+              const newTask = await storage.getTasksBySlackMessageId(taskData.ts);
+              if (newTask) {
+                await storage.updateTaskStatus(newTask.id, 'ignored');
+              }
+            }
+          }
+          
           // Send acknowledgment message
           // Use user token if available, otherwise fall back to bot token
           await sendMessage(

@@ -46,6 +46,7 @@ export const tasks = pgTable("tasks", {
   slackMessageId: text("slack_message_id"),
   slackChannelId: text("slack_channel_id"),
   googleEventId: text("google_event_id"),
+  status: text("status").notNull().default("pending"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
@@ -90,6 +91,7 @@ export const insertTaskSchema = createInsertSchema(tasks).pick({
   slackMessageId: true,
   slackChannelId: true,
   googleEventId: true,
+  status: true,
 });
 
 export type InsertUser = z.infer<typeof insertUserSchema>;

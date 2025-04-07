@@ -5,6 +5,11 @@ import { getChannelPreferences } from './channelPreferences';
 import { User } from '@shared/schema';
 import fs from 'fs';
 import path from 'path';
+import { fileURLToPath } from 'url';
+
+// Get the directory name for ES modules compatibility
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // Interval between monitoring cycles (in milliseconds)
 // Changed from 1 minute to 10 minutes to avoid frequent processing
@@ -253,7 +258,7 @@ async function checkUserTasks(userId: number, slackUserId: string, slackAccessTo
           await sendTaskDetectionDM(slackUserId, task);
           
           // Mark this message as processed to avoid duplicates
-          markTaskAsProcessed(task.ts);
+          await markTaskAsProcessed(task.ts, userId, task.channelId || '', task.text);
           
           // If we got here without error, we can slightly decrease the delay
           // but not below the minimum
@@ -289,7 +294,7 @@ async function checkUserTasks(userId: number, slackUserId: string, slackAccessTo
           } else {
             console.error(`Error processing task ${task.ts}:`, error);
             // Mark as processed anyway to avoid getting stuck
-            markTaskAsProcessed(task.ts);
+            await markTaskAsProcessed(task.ts, userId, task.channelId || 'unknown', task.text);
           }
         }
       }
@@ -338,12 +343,32 @@ async function isTaskAlreadyProcessed(messageTs: string): Promise<boolean> {
 }
 
 /**
- * Marks a task message as processed
+ * Marks a task message as processed by creating a task record with status = 'pending'
  * @param messageTs - Message timestamp (used as ID)
+ * @param userId - User ID to associate with the task
+ * @param slackChannelId - Channel where the message was detected
+ * @param messageText - The text of the message to use as task title
  */
-function markTaskAsProcessed(messageTs: string) {
-  // Add to our in-memory set to prevent re-processing
-  processedMessages.add(messageTs);
+async function markTaskAsProcessed(messageTs: string, userId: number, slackChannelId: string, messageText: string) {
+  try {
+    // First, add to our in-memory set to prevent re-processing during this session
+    processedMessages.add(messageTs);
+    
+    // Then, create a task record with status="pending" to make this persistent
+    // Use a trimmed version of the message as the title (first 50 chars)
+    const title = messageText.length > 50 ? 
+      messageText.substring(0, 47) + '...' : 
+      messageText;
+    
+    await storage.createPendingTask(userId, messageTs, slackChannelId, title);
+    
+    // Save the updated set to file for persistence across restarts
+    saveProcessedMessagesToFile();
+  } catch (error) {
+    console.error('Error marking task as processed:', error);
+    // Still add to memory even if DB operation fails
+    processedMessages.add(messageTs);
+  }
 }
 
 /**

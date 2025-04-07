@@ -129,7 +129,43 @@ export class PgStorage implements IStorage {
     return result[0];
   }
   
+  async getTasksByStatus(userId: number, status: string): Promise<Task[]> {
+    return db
+      .select()
+      .from(tasks)
+      .where(and(eq(tasks.userId, userId), eq(tasks.status, status)));
+  }
+  
   async createTask(task: InsertTask): Promise<Task> {
+    const result = await db.insert(tasks).values(task).returning();
+    return result[0];
+  }
+  
+  async updateTaskStatus(id: number, status: string): Promise<Task | undefined> {
+    const result = await db
+      .update(tasks)
+      .set({ status })
+      .where(eq(tasks.id, id))
+      .returning();
+    return result[0];
+  }
+  
+  async createPendingTask(userId: number, slackMessageId: string, slackChannelId: string, title: string): Promise<Task> {
+    const task: InsertTask = {
+      userId,
+      title,
+      slackMessageId,
+      slackChannelId,
+      status: 'pending',
+      description: null,
+      priority: 'medium',
+      timeRequired: '01:00',
+      dueDate: null,
+      dueTime: null,
+      completed: false,
+      googleEventId: null
+    };
+    
     const result = await db.insert(tasks).values(task).returning();
     return result[0];
   }

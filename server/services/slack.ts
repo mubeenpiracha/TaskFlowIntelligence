@@ -456,7 +456,9 @@ export async function sendTaskDetectionDM(
             },
             value: JSON.stringify({
               action: "ignore_task",
-              ts: message.ts
+              ts: message.ts,
+              channelId: message.channelId,
+              channelName: message.channelName
             }),
             action_id: "ignore_task"
           }

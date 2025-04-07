@@ -30,10 +30,13 @@ export interface IStorage {
   getTasksByUser(userId: number): Promise<Task[]>;
   getTasksByDate(userId: number, date: string): Promise<Task[]>;
   getTasksBySlackMessageId(messageId: string): Promise<Task | undefined>;
+  getTasksByStatus(userId: number, status: string): Promise<Task[]>; 
   createTask(task: InsertTask): Promise<Task>;
   updateTask(id: number, task: Partial<InsertTask>): Promise<Task | undefined>;
+  updateTaskStatus(id: number, status: string): Promise<Task | undefined>;
   deleteTask(id: number): Promise<boolean>;
   markTaskComplete(id: number, completed: boolean): Promise<Task | undefined>;
+  createPendingTask(userId: number, slackMessageId: string, slackChannelId: string, title: string): Promise<Task>;
 }
 
 export class MemStorage implements IStorage {
@@ -210,6 +213,12 @@ export class MemStorage implements IStorage {
     );
   }
 
+  async getTasksByStatus(userId: number, status: string): Promise<Task[]> {
+    return Array.from(this.tasks.values()).filter(
+      (task) => task.userId === userId && task.status === status,
+    );
+  }
+
   async createTask(insertTask: InsertTask): Promise<Task> {
     const id = this.currentTaskId++;
     const now = new Date();
@@ -226,8 +235,44 @@ export class MemStorage implements IStorage {
       completed: insertTask.completed ?? false,
       slackMessageId: insertTask.slackMessageId ?? null,
       slackChannelId: insertTask.slackChannelId ?? null,
-      googleEventId: insertTask.googleEventId ?? null
+      googleEventId: insertTask.googleEventId ?? null,
+      status: insertTask.status ?? 'pending'
     };
+    this.tasks.set(id, task);
+    return task;
+  }
+  
+  async updateTaskStatus(id: number, status: string): Promise<Task | undefined> {
+    const task = this.tasks.get(id);
+    if (!task) return undefined;
+    
+    const updatedTask = { ...task, status };
+    this.tasks.set(id, updatedTask);
+    return updatedTask;
+  }
+  
+  async createPendingTask(userId: number, slackMessageId: string, slackChannelId: string, title: string): Promise<Task> {
+    const id = this.currentTaskId++;
+    const now = new Date();
+    
+    // Create a minimal task with just enough info to track the message
+    const task: Task = {
+      id,
+      userId,
+      title,
+      description: null,
+      priority: 'medium',
+      timeRequired: '01:00',
+      dueDate: null,
+      dueTime: null,
+      completed: false,
+      slackMessageId,
+      slackChannelId,
+      googleEventId: null,
+      status: 'pending',
+      createdAt: now
+    };
+    
     this.tasks.set(id, task);
     return task;
   }
