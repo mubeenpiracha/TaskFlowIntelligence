@@ -13,7 +13,7 @@ const __dirname = path.dirname(__filename);
 
 // Interval between monitoring cycles (in milliseconds)
 // Set to 1 minute for better responsiveness while still respecting rate limits
-const MONITORING_INTERVAL = 6; // 1 minute
+const MONITORING_INTERVAL = 60000; // 1 minute
 
 // Map to track the last checked timestamp for each channel
 const lastCheckedTimestamps: Map<string, string> = new Map();
