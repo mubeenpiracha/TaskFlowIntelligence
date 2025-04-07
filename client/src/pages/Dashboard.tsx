@@ -20,9 +20,9 @@ export default function Dashboard() {
 
   // Fetch current user data
   const { data: user } = useQuery({
-    queryKey: ['/api/user/me'],
+    queryKey: ['/api/auth/me'],
     queryFn: async () => {
-      const res = await apiRequest('GET', '/api/user/me');
+      const res = await apiRequest('GET', '/api/auth/me');
       return res.json();
     }
   });
@@ -76,6 +76,9 @@ export default function Dashboard() {
     }
   });
   
+  // Debug output of user data
+  console.log("User data:", user);
+
   return (
     <>
       <div className="flex justify-between items-center mb-8">
@@ -180,7 +183,7 @@ export default function Dashboard() {
               <h3 className="text-lg leading-6 font-medium text-[#1D1C1D]">Recently Detected Tasks</h3>
               <p className="mt-1 text-sm text-gray-500">Tasks detected from Slack messages in the last 24 hours</p>
             </div>
-            {user?.slackUserId && (
+            {/* Force display the button regardless of user state for testing */}
               <Button
                 onClick={() => detectTasksMutation.mutate()}
                 disabled={detectTasksMutation.isPending}
@@ -191,7 +194,6 @@ export default function Dashboard() {
                 <RefreshCw className={`h-4 w-4 mr-2 ${detectTasksMutation.isPending ? 'animate-spin' : ''}`} />
                 {detectTasksMutation.isPending ? 'Detecting...' : 'Detect Tasks'}
               </Button>
-            )}
           </div>
           <div className="bg-white px-4 py-5 sm:p-6 space-y-4">
             {isLoadingSlackTasks ? (
