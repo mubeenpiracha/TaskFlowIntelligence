@@ -36,6 +36,23 @@ import createMemoryStore from 'memorystore';
 const MemoryStore = createMemoryStore(session);
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Slack URL verification handler for root path
+  // This must be registered before session middleware to ensure it's processed first
+  app.post('/', express.json(), (req, res) => {
+    console.log('Received root POST request:', typeof req.body, req.body);
+    
+    // Check if this is a URL verification request from Slack
+    if (req.body && req.body.type === 'url_verification') {
+      console.log('Returning Slack challenge:', req.body.challenge);
+      // Return the challenge value to verify the URL
+      return res.status(200).json({ challenge: req.body.challenge });
+    }
+    
+    // If not a verification request, pass through to other routes
+    console.log('Not a Slack verification request');
+    res.status(404).send('Not Found');
+  });
+
   // Session middleware
   app.use(session({
     secret: process.env.SESSION_SECRET || 'taskflow-secret-key',
@@ -299,6 +316,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Slack Events API endpoint for event subscriptions
+  app.post('/slack/events', express.json(), (req, res) => {
+    console.log('Received Slack Events API request:', req.body);
+    
+    // URL verification challenge
+    if (req.body && req.body.type === 'url_verification') {
+      console.log('Returning Slack challenge from /slack/events:', req.body.challenge);
+      return res.status(200).json({ challenge: req.body.challenge });
+    }
+    
+    // Handle other event types here
+    if (req.body && req.body.event) {
+      console.log('Received Slack event:', req.body.event.type);
+      // Process event here in the future
+    }
+    
+    // Acknowledge receipt of the event
+    res.status(200).send();
+  });
+  
   // Slack verification endpoint (for testing connectivity)
   app.post('/slack/verify', express.urlencoded({ extended: true }), (req, res) => {
     console.log('Received Slack verification request');
