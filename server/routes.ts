@@ -299,6 +299,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Slack verification endpoint (for testing connectivity)
+  app.post('/slack/verify', express.urlencoded({ extended: true }), (req, res) => {
+    console.log('Received Slack verification request');
+    console.log('Headers:', req.headers);
+    console.log('Body:', req.body);
+    
+    // Simply echo back what was received for debugging
+    res.status(200).json({
+      received: {
+        headers: {
+          'content-type': req.headers['content-type']
+        },
+        body: req.body
+      },
+      message: 'Verification endpoint reached successfully'
+    });
+  });
+  
   app.get('/api/auth/slack/callback', async (req, res) => {
     try {
       const { code } = z.object({
@@ -549,6 +567,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log('Received Slack interaction payload at API path');
       console.log('Body type:', typeof req.body);
       console.log('Body keys:', Object.keys(req.body));
+      console.log('Content-Type:', req.headers['content-type']);
+      console.log('Raw body:', JSON.stringify(req.body));
       
       // Slack sends form data with a 'payload' key containing a JSON string
       const payload = req.body.payload ? JSON.parse(req.body.payload) : null;
@@ -565,6 +585,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log('Slack interaction payload type:', type);
       console.log('Slack interaction actions:', actions ? actions.length : 0);
       
+      // Process the action (just acknowledge for now to avoid 404s)
+      console.log('Processing interaction at API path');
+      
       // Acknowledge receipt immediately to avoid Slack timeout
       res.status(200).send('OK');
     } catch (error) {
@@ -576,9 +599,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Root endpoint for Slack interactions
   app.post('/slack/interactions', express.urlencoded({ extended: true }), async (req, res) => {
     try {
-      console.log('Received Slack interaction payload');
+      console.log('Received Slack interaction payload at root path');
       console.log('Body type:', typeof req.body);
       console.log('Body keys:', Object.keys(req.body));
+      console.log('Content-Type:', req.headers['content-type']);
+      console.log('Raw body:', JSON.stringify(req.body));
       
       // Slack sends form data with a 'payload' key containing a JSON string
       const payload = req.body.payload ? JSON.parse(req.body.payload) : null;
@@ -594,9 +619,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Log the payload for debugging
       console.log('Slack interaction payload type:', type);
       console.log('Slack interaction actions:', actions ? actions.length : 0);
+      console.log('Response URL available:', !!response_url);
       
       // Acknowledge receipt immediately to avoid Slack timeout
       res.status(200).send('OK');
+      
+      // Verify we have the necessary data to process the interaction
+      if (!user || !user.id) {
+        console.error('Missing user information in Slack payload:', payload);
+        return;
+      }
       
       if (type !== 'block_actions' || !actions || actions.length === 0) {
         console.warn('Unsupported interaction type or missing actions', payload);
@@ -607,14 +639,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const action = actions[0];
       console.log('Processing action:', action.action_id);
       
+      // Additional sanity checks
+      if (!action || !action.action_id) {
+        console.error('Invalid action data:', action);
+        return;
+      }
+      
       // Look up the user by their Slack ID
       const dbUserQuery = await storage.getUserBySlackUserId(user.id);
       
       if (!dbUserQuery) {
         console.error(`No user found for Slack user ID: ${user.id}`);
-        // Send failure message
-        // Always use bot token here since we don't have a user associated with this Slack ID
-        await sendMessage(user.id, 'Error: Your account isn\'t connected to TaskFlow. Please log in to the TaskFlow app and connect your Slack account.');
+        try {
+          // Send failure message
+          // Always use bot token here since we don't have a user associated with this Slack ID
+          await sendMessage(user.id, 'Error: Your account isn\'t connected to TaskFlow. Please log in to the TaskFlow app and connect your Slack account.');
+        } catch (msgError) {
+          console.error('Failed to send error message to user:', msgError);
+        }
         return;
       }
       

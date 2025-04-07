@@ -6,10 +6,19 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
+// Log all requests for debugging
 app.use((req, res, next) => {
   const start = Date.now();
   const path = req.path;
   let capturedJsonResponse: Record<string, any> | undefined = undefined;
+
+  // Log the request immediately
+  console.log(`[REQUEST] ${req.method} ${path}`);
+  
+  if (req.method === 'POST' && (path.includes('/slack/interactions') || path.includes('/api/slack/interactions'))) {
+    console.log(`[SLACK INTERACTION] Body keys: ${Object.keys(req.body).join(', ')}`);
+    console.log(`[SLACK INTERACTION] Content-Type: ${req.headers['content-type']}`);
+  }
 
   const originalResJson = res.json;
   res.json = function (bodyJson, ...args) {
@@ -19,7 +28,12 @@ app.use((req, res, next) => {
 
   res.on("finish", () => {
     const duration = Date.now() - start;
-    if (path.startsWith("/api")) {
+    // Log all responses with status code 400 or higher
+    if (res.statusCode >= 400) {
+      console.error(`[ERROR] ${req.method} ${path} responded with ${res.statusCode} in ${duration}ms`);
+    }
+    
+    if (path.startsWith("/api") || path.startsWith("/slack")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
       if (capturedJsonResponse) {
         logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;

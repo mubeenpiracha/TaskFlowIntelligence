@@ -197,12 +197,25 @@ export async function createTaskFromSlackMessage(
   userId: number
 ): Promise<Task> {
   try {
+    console.log('Creating task from Slack message with ID:', message.ts);
+    
+    if (!message.ts) {
+      throw new Error('Invalid Slack message: missing timestamp (ts)');
+    }
+    
+    if (!message.text) {
+      throw new Error('Invalid Slack message: missing text content');
+    }
+    
     // Check if a task already exists for this message
+    console.log('Checking for existing task with Slack message ID:', message.ts);
     const existingTask = await storage.getTasksBySlackMessageId(message.ts);
     if (existingTask) {
+      console.log('Found existing task:', existingTask.id);
       return existingTask;
     }
     
+    console.log('Extracting task information from message');
     // Extract information from the message, or use provided custom values
     const title = message.customTitle || extractTaskTitle(message.text);
     const description = message.customDescription || message.text;
@@ -214,9 +227,11 @@ export async function createTaskFromSlackMessage(
     let dueTime: string | null = null;
     
     if (message.customDueDate) {
+      console.log('Using custom due date:', message.customDueDate);
       dueDate = message.customDueDate;
       dueTime = message.customDueTime || null;
     } else {
+      console.log('Extracting due date from message text');
       const extractedDueDate = extractDueDate(message.text);
       if (extractedDueDate) {
         dueDate = extractedDueDate.dueDate;
@@ -308,6 +323,13 @@ export async function sendTaskConfirmation(
   sendAsDM: boolean = true
 ): Promise<string | undefined> {
   try {
+    console.log(`Sending task confirmation for task ID ${task.id} to ${sendAsDM ? 'user DM' : 'channel'}`);
+    
+    // Validate task data
+    if (!task || !task.id) {
+      throw new Error('Invalid task object provided to sendTaskConfirmation');
+    }
+    
     // Format the message nicely with task details
     const blocks = [
       {
@@ -325,7 +347,7 @@ export async function sendTaskConfirmation(
         fields: [
           {
             type: "mrkdwn",
-            text: `*Task*\n${task.title}`
+            text: `*Task*\n${task.title || 'Untitled Task'}`
           },
           {
             type: "mrkdwn",
@@ -357,12 +379,23 @@ export async function sendTaskConfirmation(
     ];
     
     // Get the user ID if available (for sending a DM)
+    console.log(`Fetching user with ID ${task.userId} for DM confirmation`);
     const user = await storage.getUser(task.userId);
+    
+    if (!user) {
+      console.error(`User with ID ${task.userId} not found for task confirmation`);
+    }
+    
+    if (sendAsDM && !user?.slackUserId) {
+      console.warn(`Cannot send DM: User ${task.userId} has no Slack ID, will send to channel`);
+    }
     
     // If sendAsDM is true and we have a Slack user ID, send as DM
     const targetId = sendAsDM && user?.slackUserId 
       ? user.slackUserId  // Send to user's DM
       : channelId;        // Send to original channel
+    
+    console.log(`Sending confirmation message to target ID: ${targetId}`);
     
     // Send the confirmation message using the bot token
     // For task confirmations, we always use the bot token for consistent branding
@@ -372,15 +405,36 @@ export async function sendTaskConfirmation(
     try {
       const response = await client.chat.postMessage({
         channel: targetId,
-        text: `Task created: ${task.title}`,
+        text: `Task created: ${task.title || 'Untitled Task'}`,
         blocks,
         unfurl_links: false,
         unfurl_media: false
       });
       
+      console.log(`Confirmation message sent successfully, timestamp: ${response.ts}`);
       return response.ts;
     } catch (error) {
-      console.error('Error sending Slack task confirmation:', error);
+      console.error(`Error sending Slack task confirmation to ${targetId}:`, error);
+      
+      // Try with a fallback approach if sending to the user failed
+      if (sendAsDM && user?.slackUserId && channelId && channelId !== user.slackUserId) {
+        try {
+          console.log(`Attempting fallback - sending to original channel: ${channelId}`);
+          const fallbackResponse = await client.chat.postMessage({
+            channel: channelId,
+            text: `Task created: ${task.title || 'Untitled Task'}`,
+            blocks,
+            unfurl_links: false,
+            unfurl_media: false
+          });
+          
+          console.log(`Fallback confirmation sent successfully, timestamp: ${fallbackResponse.ts}`);
+          return fallbackResponse.ts;
+        } catch (fallbackError) {
+          console.error('Fallback confirmation also failed:', fallbackError);
+        }
+      }
+      
       throw error;
     }
   } catch (error) {
