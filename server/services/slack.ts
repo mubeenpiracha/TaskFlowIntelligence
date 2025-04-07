@@ -8,7 +8,7 @@ if (!process.env.SLACK_BOT_TOKEN) {
 
 // Initialize the Slack WebClient with the bot token for bot-only operations
 // This will be used as a fallback when user token is not available
-const slack = new WebClient(process.env.SLACK_BOT_TOKEN || '');
+export const slack = new WebClient(process.env.SLACK_BOT_TOKEN || '');
 
 export interface SlackChannel {
   id: string;
@@ -37,15 +37,16 @@ export interface SlackMessage {
  * Note: This will only return channels the bot is a member of
  * @returns Promise with list of channels
  */
-export async function listUserChannels(): Promise<SlackChannel[]> {
-  // Always use the bot token from environment variable
-  if (!process.env.SLACK_BOT_TOKEN || process.env.SLACK_BOT_TOKEN.trim() === '') {
-    console.error('Slack bot token is missing or empty');
-    throw new Error('Slack token is missing or empty. Please check your environment variables.');
+export async function listUserChannels(userToken?: string | null): Promise<SlackChannel[]> {
+  // Use user token for listing channels when available, as it gives access to private channels
+  // the user is in, but the bot might not be
+  if (!userToken && (!process.env.SLACK_BOT_TOKEN || process.env.SLACK_BOT_TOKEN.trim() === '')) {
+    console.error('No Slack tokens available');
+    throw new Error('Slack token is missing or empty. Please check your environment variables or reconnect your Slack account.');
   }
   
-  // Use the global slack client that's initialized with bot token
-  const client = slack;
+  // Use the user token if provided, otherwise fall back to bot token
+  const client = userToken ? new WebClient(userToken) : slack;
   
   try {
     // Validate the token first
@@ -60,10 +61,13 @@ export async function listUserChannels(): Promise<SlackChannel[]> {
       throw authError;
     }
     
-    // With bot token, we'll get public channels that the bot is added to
-    const conversationTypes = 'public_channel,private_channel'; // Bot needs to be invited to these
+    // When using user token, we can get all types of conversations the user is in
+    // This includes private channels and DMs the bot might not have access to
+    const conversationTypes = userToken 
+      ? 'public_channel,private_channel,mpim,im' // User token gives access to everything
+      : 'public_channel,private_channel'; // Bot token limited to channels it's invited to
     
-    // Get conversations the bot is a member of
+    // Get conversations the user is a member of
     const result = await client.users.conversations({
       types: conversationTypes,
       exclude_archived: true,
@@ -73,7 +77,9 @@ export async function listUserChannels(): Promise<SlackChannel[]> {
     // Map to our expected format
     return (result.channels || [])
       .filter((channel: any) => {
-        // Filter out non-channel results if needed
+        // Include all types when using user token
+        if (userToken) return true;
+        // Otherwise filter as before
         return channel.is_channel !== false && channel.is_im !== true;
       })
       .map((channel: any) => ({
@@ -117,13 +123,15 @@ export async function getUserInfo(userId: string) {
  */
 export async function readChannelHistory(
   channelId: string,
-  messageLimit: number = 100
+  messageLimit: number = 100,
+  userToken?: string | null
 ): Promise<SlackMessage[]> {
-  // Always use the global slack client with bot token
-  const client = slack;
+  // Use user token when available, especially for private channels and DMs
+  // This allows access to private conversations the bot might not have access to
+  const client = userToken ? new WebClient(userToken) : slack;
   
   try {
-    // Get messages
+    // Get messages - using user token provides access to private channels and DMs
     const result = await client.conversations.history({
       channel: channelId,
       limit: messageLimit,
@@ -149,6 +157,15 @@ export async function readChannelHistory(
     return messages;
   } catch (error) {
     console.error(`Error reading Slack channel history for ${channelId}:`, error);
+    
+    // If using bot token and getting access errors, log specific message
+    if (!userToken && error instanceof Error && 
+       (error.message.includes('not_in_channel') || 
+        error.message.includes('channel_not_found') || 
+        error.message.includes('missing_scope'))) {
+      console.warn(`Bot doesn't have access to channel ${channelId}. Consider using user token for this operation.`);
+    }
+    
     return [];
   }
 }
@@ -200,16 +217,23 @@ function isLikelyTask(message: string, userId: string): boolean {
  * @param userId - User ID to look for mentions of
  * @returns Promise with detected task messages, merged from all channels
  */
-export async function detectTasks(channelIds: string[], userId: string): Promise<SlackMessage[]> {
+export async function detectTasks(
+  channelIds: string[], 
+  userId: string,
+  userToken?: string | null
+): Promise<SlackMessage[]> {
   try {
     // Get channel names for better context
-    const allChannels = await listUserChannels();
+    // Use user token to see private channels
+    const allChannels = await listUserChannels(userToken);
     const channelMap = new Map<string, string>();
     allChannels.forEach(channel => channelMap.set(channel.id, channel.name));
     
     // Process all channels in parallel
     const channelPromises = channelIds.map(async (channelId) => {
-      const messages = await readChannelHistory(channelId, 100);
+      // Use user token for reading channel history
+      // This allows access to private channels and DMs the bot might not have access to
+      const messages = await readChannelHistory(channelId, 100, userToken);
       
       // Filter messages to those that likely contain tasks
       const taskMessages = messages.filter(msg => isLikelyTask(msg.text, userId));
@@ -426,14 +450,27 @@ export async function sendTaskDetectionDM(
       }
     ];
     
-    // Send the DM
-    return await sendMessage(
-      slackUserId,
-      `Task detected: ${extractedTitle}`,
-      blocks
-    );
+    // Send the DM using the bot token
+    // For task notifications, we always use the bot token
+    // This keeps a consistent identity for task-related communications
+    const client = slack; // Use the global slack client with bot token
+    
+    try {
+      const response = await client.chat.postMessage({
+        channel: slackUserId,
+        text: `Task detected: ${extractedTitle}`,
+        blocks,
+        unfurl_links: false,
+        unfurl_media: false
+      });
+      
+      return response.ts;
+    } catch (error) {
+      console.error('Error sending Slack task detection DM:', error);
+      throw error;
+    }
   } catch (error) {
-    console.error('Error sending task detection DM to Slack:', error);
+    console.error('Error in sendTaskDetectionDM:', error);
     return undefined;
   }
 }

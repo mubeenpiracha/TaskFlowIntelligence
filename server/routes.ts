@@ -398,8 +398,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       try {
-        // Always use global bot token from environment variable
-        const channels = await listUserChannels();
+        // Use the user's Slack access token when available
+        const channels = await listUserChannels(user.slackAccessToken);
         res.json(channels);
       } catch (error: any) {
         // Handle specific Slack authentication errors
@@ -590,13 +590,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Create the task in the database
           const task = await createTaskFromSlackMessage(slackMessage, dbUserQuery.id);
           
-          // Send confirmation to the user
-          // Use user token if available, otherwise fall back to bot token
+          // Send confirmation to the user using the bot token
+          // We always use bot token for task confirmations for consistent branding
           await sendTaskConfirmation(
             task,
             user.id, // Send directly to the user as a DM
-            true,
-            dbUserQuery.slackAccessToken || undefined
+            true
           );
         } catch (error) {
           console.error('Error creating task from interaction:', error);
@@ -677,13 +676,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Create a task from the Slack message
       const task = await createTaskFromSlackMessage(message, req.session.userId!);
       
-      // Always send a confirmation message as a DM to the user
-      // Use user token if available, otherwise fall back to bot token
+      // Always send a confirmation message as a DM to the user using the bot token
       await sendTaskConfirmation(
         task, 
         message.channelId || '', 
-        true, // Force sending as DM
-        user.slackAccessToken || undefined
+        true // Force sending as DM
       );
       
       res.status(201).json(task);

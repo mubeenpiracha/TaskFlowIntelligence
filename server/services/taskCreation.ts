@@ -1,5 +1,5 @@
 import { storage } from '../storage';
-import { sendMessage } from './slack';
+import { sendMessage, slack } from './slack';
 import { createCalendarEvent } from './google';
 import type { SlackMessage } from '../services/slack';
 import type { Task, InsertTask } from '@shared/schema';
@@ -301,8 +301,7 @@ export async function createTaskFromSlackMessage(
 export async function sendTaskConfirmation(
   task: Task, 
   channelId: string, 
-  sendAsDM: boolean = true,
-  userToken?: string
+  sendAsDM: boolean = true
 ): Promise<string | undefined> {
   try {
     // Format the message nicely with task details
@@ -361,15 +360,27 @@ export async function sendTaskConfirmation(
       ? user.slackUserId  // Send to user's DM
       : channelId;        // Send to original channel
     
-    // Send the confirmation message
-    return await sendMessage(
-      targetId,
-      `Task created: ${task.title}`,
-      blocks,
-      userToken
-    );
+    // Send the confirmation message using the bot token
+    // For task confirmations, we always use the bot token for consistent branding
+    // and to ensure proper interactive component handling
+    const client = slack; // Use the global slack client with bot token
+    
+    try {
+      const response = await client.chat.postMessage({
+        channel: targetId,
+        text: `Task created: ${task.title}`,
+        blocks,
+        unfurl_links: false,
+        unfurl_media: false
+      });
+      
+      return response.ts;
+    } catch (error) {
+      console.error('Error sending Slack task confirmation:', error);
+      throw error;
+    }
   } catch (error) {
-    console.error('Error sending task confirmation to Slack:', error);
+    console.error('Error in sendTaskConfirmation:', error);
     // Don't throw here, just return undefined
     return undefined;
   }
