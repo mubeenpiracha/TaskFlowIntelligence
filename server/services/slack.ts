@@ -90,12 +90,12 @@ export async function listUserChannels(userToken?: string | null): Promise<Slack
       console.log('Could not determine bot user ID, using default Slackbot ID');
     }
     
-    // Process the channels, filter out DMs with self and with bot
+    // Process the channels, only filter out DMs with bot
     const channels = [];
     
     for (const channel of (result.channels || [])) {
-      // Skip DMs with self or with bot
-      if (channel.is_im && (channel.user === selfUserId || channel.user === botUserId || channel.user === 'USLACKBOT')) {
+      // Skip only DMs with the bot or Slackbot
+      if (channel.is_im && (channel.user === botUserId || channel.user === 'USLACKBOT')) {
         continue;
       }
       
