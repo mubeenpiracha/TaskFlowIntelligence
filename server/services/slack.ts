@@ -558,7 +558,7 @@ export async function sendTaskDetectionDM(
               dueDate: extractedDueDate?.dueDate,
               dueTime: extractedDueDate?.dueTime
             }),
-            action_id: "edit_task_details"
+            action_id: "edit_task"
           }
         ]
       },

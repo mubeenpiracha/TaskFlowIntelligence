@@ -539,20 +539,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
   
   // Handle Slack interactive components (buttons, etc.)
+  // Dedicated endpoint for Slack interactive components
+  // This needs to be publicly accessible from Slack
   app.post('/api/slack/interactions', express.urlencoded({ extended: true }), async (req, res) => {
     try {
+      console.log('Received Slack interaction payload');
+      
       // Slack sends form data with a 'payload' key containing a JSON string
       const payload = req.body.payload ? JSON.parse(req.body.payload) : null;
       
       if (!payload) {
+        console.error('Invalid payload received from Slack:', req.body);
         return res.status(400).send('Invalid payload');
       }
 
-      // Acknowledge receipt immediately to avoid Slack timeout
-      res.status(200).send();
-      
       // Extract the action data
       const { type, user, actions, channel, message, response_url } = payload;
+      
+      // Log the payload for debugging
+      console.log('Slack interaction payload type:', type);
+      console.log('Slack interaction actions:', actions ? actions.length : 0);
+      
+      // Acknowledge receipt immediately to avoid Slack timeout
+      res.status(200).send();
       
       if (type !== 'block_actions' || !actions || actions.length === 0) {
         console.warn('Unsupported interaction type or missing actions', payload);
@@ -561,6 +570,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Get the first action (button click, etc.)
       const action = actions[0];
+      console.log('Processing action:', action.action_id);
       
       // Look up the user by their Slack ID
       const dbUserQuery = await storage.getUserBySlackUserId(user.id);
@@ -577,6 +587,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (action.action_id === 'create_task') {
         // User clicked "Create Task" button
         try {
+          console.log('Create task action value:', action.value);
+          
           // Parse the task data from the button value
           const taskData = JSON.parse(action.value);
           
@@ -595,8 +607,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
             customDueTime: taskData.dueTime
           };
           
+          console.log('Creating task for user ID:', dbUserQuery.id);
+          
           // Create the task in the database
           const task = await createTaskFromSlackMessage(slackMessage, dbUserQuery.id);
+          
+          console.log('Task created successfully:', task.id);
+          
+          // Use the response_url to update the original message if available
+          if (response_url) {
+            try {
+              // Make direct request to response_url
+              const updateResponse = await fetch(response_url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  text: 'Task created successfully!',
+                  replace_original: true
+                })
+              });
+              console.log('Response URL update status:', updateResponse.status);
+            } catch (updateError) {
+              console.error('Error updating original message:', updateError);
+            }
+          }
           
           // Send confirmation to the user using the bot token
           // We always use bot token for task confirmations for consistent branding
@@ -613,15 +647,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } else if (action.action_id === 'ignore_task') {
         // User clicked "Ignore" button
         try {
+          console.log('Ignore task action value:', action.value);
+          
           // Parse the task data from the button value
           const taskData = JSON.parse(action.value);
           
-          // Log the taskData for debugging
-          console.log('Ignore task data:', {
-            ts: taskData.ts,
-            channelId: taskData.channelId,
-            channelName: taskData.channelName
-          });
+          console.log('Ignoring task for message:', taskData.ts);
 
           // Update the task status to "ignored" in the database if it exists
           if (taskData.ts) {
@@ -632,21 +663,39 @@ export async function registerRoutes(app: Express): Promise<Server> {
             } else {
               // If the task doesn't exist yet in the database, create it with "ignored" status
               // This ensures we won't process this message again
-              await storage.createPendingTask(
+              const pendingTask = await storage.createPendingTask(
                 dbUserQuery.id, 
                 taskData.ts, 
                 taskData.channelId || message?.channel?.id || 'unknown-channel',
                 'Ignored task'
               );
+              console.log('Created pending task:', pendingTask.id);
+              
               // Then update its status to ignored
-              const newTask = await storage.getTasksBySlackMessageId(taskData.ts);
-              if (newTask) {
-                await storage.updateTaskStatus(newTask.id, 'ignored');
-              }
+              await storage.updateTaskStatus(pendingTask.id, 'ignored');
+              console.log(`Updated pending task ${pendingTask.id} to ignored`);
             }
           }
           
-          // Send acknowledgment message
+          // Use the response_url to update the original message if available
+          if (response_url) {
+            try {
+              // Make direct request to response_url
+              const updateResponse = await fetch(response_url, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  text: 'Task ignored.',
+                  replace_original: true
+                })
+              });
+              console.log('Response URL update status:', updateResponse.status);
+            } catch (updateError) {
+              console.error('Error updating original message:', updateError);
+            }
+          }
+          
+          // Send acknowledgment message as a separate DM
           // Use user token if available, otherwise fall back to bot token
           await sendMessage(
             user.id,
@@ -655,11 +704,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
             dbUserQuery.slackAccessToken || undefined
           );
         } catch (error) {
-          console.error('Error sending ignore confirmation:', error);
+          console.error('Error processing ignore task action:', error);
         }
-      } else if (action.action_id === 'edit_task_details') {
+      } else if (action.action_id === 'edit_task') {
         // User clicked "Edit details" button
         try {
+          console.log('Edit task action value:', action.value);
+          
           // Parse the task data from the button value
           const taskData = JSON.parse(action.value);
           
@@ -673,7 +724,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             dbUserQuery.slackAccessToken || undefined
           );
         } catch (error) {
-          console.error('Error handling edit task details:', error);
+          console.error('Error handling edit task action:', error);
         }
       }
     } catch (error) {

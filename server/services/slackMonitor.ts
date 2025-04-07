@@ -1,11 +1,11 @@
-import { WebClient } from '@slack/web-api';
-import { detectTasks, sendTaskDetectionDM } from './slack';
-import { storage } from '../storage';
-import { getChannelPreferences } from './channelPreferences';
-import { User } from '@shared/schema';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import { WebClient } from "@slack/web-api";
+import { detectTasks, sendTaskDetectionDM } from "./slack";
+import { storage } from "../storage";
+import { getChannelPreferences } from "./channelPreferences";
+import { User } from "@shared/schema";
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
 
 // Get the directory name for ES modules compatibility
 const __filename = fileURLToPath(import.meta.url);
@@ -13,12 +13,12 @@ const __dirname = path.dirname(__filename);
 
 // Interval between monitoring cycles (in milliseconds)
 // Set to 1 minute for better responsiveness while still respecting rate limits
-const MONITORING_INTERVAL = 60000; // 1 minute
+const MONITORING_INTERVAL = 6000; // 1 minute
 
 // Map to track the last checked timestamp for each channel
 const lastCheckedTimestamps: Map<string, string> = new Map();
 
-// Set to keep track of messages we've already processed 
+// Set to keep track of messages we've already processed
 // This is needed because the database check alone might not be enough
 // if the user doesn't accept the task
 const processedMessages: Set<string> = new Set();
@@ -28,7 +28,10 @@ let isMonitoringActive = false;
 let monitoringInterval: NodeJS.Timeout | null = null;
 
 // File path for persisting processed message IDs
-const PROCESSED_MESSAGES_FILE = path.join(__dirname, '../../processed_messages.json');
+const PROCESSED_MESSAGES_FILE = path.join(
+  __dirname,
+  "../../processed_messages.json",
+);
 
 /**
  * Loads processed message IDs from file if it exists
@@ -37,7 +40,7 @@ const PROCESSED_MESSAGES_FILE = path.join(__dirname, '../../processed_messages.j
 function loadProcessedMessagesFromFile(): string[] {
   try {
     if (fs.existsSync(PROCESSED_MESSAGES_FILE)) {
-      const fileContent = fs.readFileSync(PROCESSED_MESSAGES_FILE, 'utf8');
+      const fileContent = fs.readFileSync(PROCESSED_MESSAGES_FILE, "utf8");
       const data = JSON.parse(fileContent);
       if (Array.isArray(data)) {
         console.log(`Loaded ${data.length} processed message IDs from file`);
@@ -45,7 +48,7 @@ function loadProcessedMessagesFromFile(): string[] {
       }
     }
   } catch (error) {
-    console.error('Error loading processed messages from file:', error);
+    console.error("Error loading processed messages from file:", error);
   }
   return [];
 }
@@ -56,10 +59,14 @@ function loadProcessedMessagesFromFile(): string[] {
 function saveProcessedMessagesToFile(): void {
   try {
     const messageArray = Array.from(processedMessages);
-    fs.writeFileSync(PROCESSED_MESSAGES_FILE, JSON.stringify(messageArray), 'utf8');
+    fs.writeFileSync(
+      PROCESSED_MESSAGES_FILE,
+      JSON.stringify(messageArray),
+      "utf8",
+    );
     console.log(`Saved ${messageArray.length} processed message IDs to file`);
   } catch (error) {
-    console.error('Error saving processed messages to file:', error);
+    console.error("Error saving processed messages to file:", error);
   }
 }
 
@@ -69,44 +76,51 @@ function saveProcessedMessagesToFile(): void {
  */
 async function preloadProcessedMessages(): Promise<void> {
   try {
-    console.log('Preloading processed message IDs...');
-    
+    console.log("Preloading processed message IDs...");
+
     // First, load from file (faster and more reliable)
     const fileMessages = loadProcessedMessagesFromFile();
-    fileMessages.forEach(messageId => processedMessages.add(messageId));
-    
+    fileMessages.forEach((messageId) => processedMessages.add(messageId));
+
     // Then, get additional IDs from database as backup
     const allUsers = await storage.getAllUsers();
-    
+
     // Create an array of promises to fetch tasks for each user
-    const taskPromises = allUsers.map(user => storage.getTasksByUser(user.id));
-    
+    const taskPromises = allUsers.map((user) =>
+      storage.getTasksByUser(user.id),
+    );
+
     // Wait for all promises to settle
     const results = await Promise.allSettled(taskPromises);
-    
+
     // Extract tasks from successful results
     const allTasks = results
-      .filter((result): result is PromiseFulfilledResult<any[]> => result.status === 'fulfilled')
-      .flatMap(result => result.value)
-      .filter(task => task.slackMessageId); // Only keep tasks with Slack message IDs
-    
+      .filter(
+        (result): result is PromiseFulfilledResult<any[]> =>
+          result.status === "fulfilled",
+      )
+      .flatMap((result) => result.value)
+      .filter((task) => task.slackMessageId); // Only keep tasks with Slack message IDs
+
     // Add all message IDs to the processed set
     let newIdsCount = 0;
-    allTasks.forEach(task => {
+    allTasks.forEach((task) => {
       if (task.slackMessageId && !processedMessages.has(task.slackMessageId)) {
         processedMessages.add(task.slackMessageId);
         newIdsCount++;
       }
     });
-    
-    console.log(`Preloaded ${processedMessages.size} processed message IDs (${newIdsCount} from database)`);
-    
+
+    console.log(
+      `Preloaded ${processedMessages.size} processed message IDs (${newIdsCount} from database)`,
+    );
+
     // Save the combined set back to file
     if (newIdsCount > 0) {
       saveProcessedMessagesToFile();
     }
   } catch (error) {
-    console.error('Error preloading processed message IDs:', error);
+    console.error("Error preloading processed message IDs:", error);
   }
 }
 
@@ -117,25 +131,27 @@ async function preloadProcessedMessages(): Promise<void> {
  */
 export function startSlackMonitoring(): () => void {
   if (isMonitoringActive) {
-    console.log('Slack monitoring is already active, not starting a new instance');
+    console.log(
+      "Slack monitoring is already active, not starting a new instance",
+    );
     return () => stopSlackMonitoring();
   }
-  
-  console.log('Starting Slack monitoring service');
+
+  console.log("Starting Slack monitoring service");
   isMonitoringActive = true;
-  
+
   // Preload processed messages before starting
   void preloadProcessedMessages().then(() => {
     // Run initial check immediately after preloading
-    console.log('Running initial task check...');
+    console.log("Running initial task check...");
     void checkForNewTasks();
-    
+
     // Set up recurring monitoring with shorter interval
     monitoringInterval = setInterval(async () => {
       void checkForNewTasks();
     }, MONITORING_INTERVAL);
   });
-  
+
   // Return a cleanup function
   return () => stopSlackMonitoring();
 }
@@ -144,9 +160,9 @@ export function startSlackMonitoring(): () => void {
  * Stops the Slack monitoring service
  */
 function stopSlackMonitoring() {
-  console.log('Stopping Slack monitoring service');
+  console.log("Stopping Slack monitoring service");
   isMonitoringActive = false;
-  
+
   if (monitoringInterval) {
     clearInterval(monitoringInterval);
     monitoringInterval = null;
@@ -160,24 +176,30 @@ function stopSlackMonitoring() {
  */
 export async function checkForNewTasks() {
   try {
-    console.log('Running Slack message check for all users...');
-    
+    console.log("Running Slack message check for all users...");
+
     // Get all users with Slack integration configured
     const users = await getAllSlackUsers();
     console.log(`Found ${users.length} users with Slack integration`);
-    
+
     // Process each user in parallel
-    await Promise.allSettled(users.map(async (user) => {
-      try {
-        await checkUserTasks(user.id, user.slackUserId!, user.slackAccessToken);
-      } catch (error) {
-        console.error(`Error checking tasks for user ${user.id}:`, error);
-      }
-    }));
-    
-    console.log('Completed Slack message check cycle');
+    await Promise.allSettled(
+      users.map(async (user) => {
+        try {
+          await checkUserTasks(
+            user.id,
+            user.slackUserId!,
+            user.slackAccessToken,
+          );
+        } catch (error) {
+          console.error(`Error checking tasks for user ${user.id}:`, error);
+        }
+      }),
+    );
+
+    console.log("Completed Slack message check cycle");
   } catch (error) {
-    console.error('Error in checkForNewTasks:', error);
+    console.error("Error in checkForNewTasks:", error);
   }
 }
 
@@ -188,9 +210,11 @@ export async function checkForNewTasks() {
 async function getAllSlackUsers() {
   // In a large-scale app, you'd want to paginate this query
   // For simplicity, we're assuming a reasonable number of users
-  
+
   // Find all users with Slack integration configured (slackUserId is set)
-  const allUsers = (await storage.getAllUsers()).filter(user => user.slackUserId);
+  const allUsers = (await storage.getAllUsers()).filter(
+    (user) => user.slackUserId,
+  );
   return allUsers;
 }
 
@@ -200,7 +224,7 @@ async function getAllSlackUsers() {
  * @returns Promise that resolves after the delay
  */
 function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
@@ -209,44 +233,52 @@ function sleep(ms: number): Promise<void> {
  * @param slackUserId - Slack user ID
  * @param slackAccessToken - User's Slack access token
  */
-async function checkUserTasks(userId: number, slackUserId: string, slackAccessToken: string | null) {
+async function checkUserTasks(
+  userId: number,
+  slackUserId: string,
+  slackAccessToken: string | null,
+) {
   try {
     // Get channels the user wants to monitor
     const channelIds = await getChannelPreferences(userId);
-    
+
     if (channelIds.length === 0) {
       // Skip users who haven't configured channels to monitor
       return;
     }
-    
-    console.log(`Checking ${channelIds.length} channels for user ${userId} (${slackUserId})`);
-    
+
+    console.log(
+      `Checking ${channelIds.length} channels for user ${userId} (${slackUserId})`,
+    );
+
     // For each channel, get messages since the last check
     const tasks = await detectTasks(channelIds, slackUserId, slackAccessToken);
     console.log(`Found ${tasks.length} potential tasks for user ${userId}`);
-    
+
     // Batch process tasks to avoid rate limiting
     // Process tasks with adaptive rate limiting
     const BATCH_SIZE = 3; // Reduced from 5 to 3
     const BATCH_DELAY = 5000; // Increased from 2s to 5s
     const MESSAGE_DELAY = 2000; // Increased from 1s to 2s
     const MAX_TASKS_TO_PROCESS = 25; // Cap the maximum number of tasks to process in one cycle
-    
+
     // Limit the number of tasks to avoid excessive notifications
     const tasksToProcess = tasks.slice(0, MAX_TASKS_TO_PROCESS);
     if (tasksToProcess.length < tasks.length) {
-      console.log(`Limiting to ${MAX_TASKS_TO_PROCESS} tasks out of ${tasks.length} detected`);
+      console.log(
+        `Limiting to ${MAX_TASKS_TO_PROCESS} tasks out of ${tasks.length} detected`,
+      );
     }
-    
+
     // Track rate limit errors to adaptively adjust delays
     let rateLimitErrors = 0;
     let currentMessageDelay = MESSAGE_DELAY;
     let currentBatchDelay = BATCH_DELAY;
-    
+
     for (let i = 0; i < tasksToProcess.length; i += BATCH_SIZE) {
       // Get a batch of tasks
       const batch = tasksToProcess.slice(i, i + BATCH_SIZE);
-      
+
       // Process this batch
       for (const task of batch) {
         try {
@@ -254,62 +286,82 @@ async function checkUserTasks(userId: number, slackUserId: string, slackAccessTo
           if (await isTaskAlreadyProcessed(task.ts)) {
             continue;
           }
-          
+
           // Send an interactive DM to the user
           console.log(`Sending task detection DM for message ${task.ts}`);
           await sendTaskDetectionDM(slackUserId, task);
-          
+
           // Mark this message as processed to avoid duplicates
-          await markTaskAsProcessed(task.ts, userId, task.channelId || '', task.text);
-          
+          await markTaskAsProcessed(
+            task.ts,
+            userId,
+            task.channelId || "",
+            task.text,
+          );
+
           // If we got here without error, we can slightly decrease the delay
           // but not below the minimum
           if (rateLimitErrors > 0) {
             rateLimitErrors--;
           }
-          
+
           // Small delay between individual messages within a batch
           // Use adaptive delay based on rate limit errors
-          const adaptiveDelay = currentMessageDelay * (1 + rateLimitErrors * 0.5);
+          const adaptiveDelay =
+            currentMessageDelay * (1 + rateLimitErrors * 0.5);
           console.log(`Waiting ${adaptiveDelay}ms before next message...`);
           await sleep(adaptiveDelay);
         } catch (error: any) {
           // Check if the error is a rate limit error
-          if (error.code === 'slack_webapi_platform_error' && 
-              error.data && error.data.error === 'ratelimited') {
+          if (
+            error.code === "slack_webapi_platform_error" &&
+            error.data &&
+            error.data.error === "ratelimited"
+          ) {
             // Increment rate limit error counter
             rateLimitErrors++;
-            
+
             // Use the retry-after value if available, otherwise increase exponentially
-            const retryAfter = error.retryAfter || Math.pow(2, rateLimitErrors) * 1000;
-            console.log(`Rate limited. Waiting ${retryAfter}ms before continuing...`);
-            
+            const retryAfter =
+              error.retryAfter || Math.pow(2, rateLimitErrors) * 1000;
+            console.log(
+              `Rate limited. Waiting ${retryAfter}ms before continuing...`,
+            );
+
             // Update delays for future messages
             currentMessageDelay = Math.min(currentMessageDelay * 1.5, 5000); // Max 5s
             currentBatchDelay = Math.min(currentBatchDelay * 1.5, 10000); // Max 10s
-            
+
             await sleep(retryAfter);
-            
+
             // Try to process this task again
             i--; // Adjust index to retry this task
             break;
           } else {
             console.error(`Error processing task ${task.ts}:`, error);
             // Mark as processed anyway to avoid getting stuck
-            await markTaskAsProcessed(task.ts, userId, task.channelId || 'unknown', task.text);
+            await markTaskAsProcessed(
+              task.ts,
+              userId,
+              task.channelId || "unknown",
+              task.text,
+            );
           }
         }
       }
-      
+
       // Delay between batches if there are more tasks to process
       if (i + BATCH_SIZE < tasksToProcess.length) {
         // Use adaptive batch delay based on rate limit errors
-        const adaptiveBatchDelay = currentBatchDelay * (1 + rateLimitErrors * 0.5);
-        console.log(`Processed batch of ${batch.length} tasks, waiting ${adaptiveBatchDelay}ms before next batch...`);
+        const adaptiveBatchDelay =
+          currentBatchDelay * (1 + rateLimitErrors * 0.5);
+        console.log(
+          `Processed batch of ${batch.length} tasks, waiting ${adaptiveBatchDelay}ms before next batch...`,
+        );
         await sleep(adaptiveBatchDelay);
       }
     }
-    
+
     // Update last checked timestamps for each channel
     updateLastCheckedTimestamps(channelIds);
   } catch (error) {
@@ -328,7 +380,7 @@ async function isTaskAlreadyProcessed(messageTs: string): Promise<boolean> {
     if (processedMessages.has(messageTs)) {
       return true;
     }
-    
+
     // Then, as a fallback, check if we already created a task for this message
     const existingTask = await storage.getTasksBySlackMessageId(messageTs);
     if (existingTask) {
@@ -336,10 +388,10 @@ async function isTaskAlreadyProcessed(messageTs: string): Promise<boolean> {
       processedMessages.add(messageTs);
       return true;
     }
-    
+
     return false;
   } catch (error) {
-    console.error('Error checking if task is already processed:', error);
+    console.error("Error checking if task is already processed:", error);
     return false;
   }
 }
@@ -351,23 +403,29 @@ async function isTaskAlreadyProcessed(messageTs: string): Promise<boolean> {
  * @param slackChannelId - Channel where the message was detected
  * @param messageText - The text of the message to use as task title
  */
-async function markTaskAsProcessed(messageTs: string, userId: number, slackChannelId: string, messageText: string) {
+async function markTaskAsProcessed(
+  messageTs: string,
+  userId: number,
+  slackChannelId: string,
+  messageText: string,
+) {
   try {
     // First, add to our in-memory set to prevent re-processing during this session
     processedMessages.add(messageTs);
-    
+
     // Then, create a task record with status="pending" to make this persistent
     // Use a trimmed version of the message as the title (first 50 chars)
-    const title = messageText.length > 50 ? 
-      messageText.substring(0, 47) + '...' : 
-      messageText;
-    
+    const title =
+      messageText.length > 50
+        ? messageText.substring(0, 47) + "..."
+        : messageText;
+
     await storage.createPendingTask(userId, messageTs, slackChannelId, title);
-    
+
     // Save the updated set to file for persistence across restarts
     saveProcessedMessagesToFile();
   } catch (error) {
-    console.error('Error marking task as processed:', error);
+    console.error("Error marking task as processed:", error);
     // Still add to memory even if DB operation fails
     processedMessages.add(messageTs);
   }
@@ -379,22 +437,28 @@ async function markTaskAsProcessed(messageTs: string, userId: number, slackChann
  */
 function updateLastCheckedTimestamps(channelIds: string[]) {
   const now = Math.floor(Date.now() / 1000).toString();
-  
-  channelIds.forEach(channelId => {
+
+  channelIds.forEach((channelId) => {
     lastCheckedTimestamps.set(channelId, now);
   });
-  
+
   // Limit the size of the processedMessages set to prevent memory leaks
   // This should be done periodically to ensure it doesn't grow indefinitely
   if (processedMessages.size > 10000) {
-    console.log(`Pruning processed messages cache (current size: ${processedMessages.size})`);
+    console.log(
+      `Pruning processed messages cache (current size: ${processedMessages.size})`,
+    );
     // Convert to array, slice to keep the latest 5000 entries, convert back to set
     const messagesArray = Array.from(processedMessages);
-    const prunedMessages = new Set(messagesArray.slice(messagesArray.length - 5000));
+    const prunedMessages = new Set(
+      messagesArray.slice(messagesArray.length - 5000),
+    );
     processedMessages.clear();
     // Add all pruned messages back
-    prunedMessages.forEach(msg => processedMessages.add(msg));
-    console.log(`Processed messages cache pruned (new size: ${processedMessages.size})`);
+    prunedMessages.forEach((msg) => processedMessages.add(msg));
+    console.log(
+      `Processed messages cache pruned (new size: ${processedMessages.size})`,
+    );
   }
 }
 
@@ -409,16 +473,18 @@ export function getMonitoringStatus() {
     processedMessagesCount: processedMessages.size,
     monitoring: {
       interval: MONITORING_INTERVAL / 1000, // Convert to seconds for readability
-      lastCheckedTimestamps: Object.fromEntries(lastCheckedTimestamps.entries()),
+      lastCheckedTimestamps: Object.fromEntries(
+        lastCheckedTimestamps.entries(),
+      ),
       batchProcessingEnabled: true,
       batchSize: 3, // Corresponds to the BATCH_SIZE in checkUserTasks
       batchDelay: 5000, // ms between batches
       messageDelay: 2000, // ms between messages
       maxTasksPerCheck: 25, // Max tasks processed per check from detectTasks
       rateLimitingEnabled: true,
-      adaptiveBackoff: true
+      adaptiveBackoff: true,
     },
-    memoryUsage: process.memoryUsage()
+    memoryUsage: process.memoryUsage(),
   };
 }
 
@@ -430,7 +496,7 @@ export function getMonitoringStatus() {
  */
 export function clearProcessedMessages(keepCount: number = 0): number {
   const originalSize = processedMessages.size;
-  
+
   if (keepCount <= 0) {
     // Clear all
     processedMessages.clear();
@@ -440,16 +506,20 @@ export function clearProcessedMessages(keepCount: number = 0): number {
     // Keep the most recent n messages
     const messagesArray = Array.from(processedMessages);
     const toKeep = Math.min(keepCount, messagesArray.length);
-    const newMessages = new Set(messagesArray.slice(messagesArray.length - toKeep));
-    
+    const newMessages = new Set(
+      messagesArray.slice(messagesArray.length - toKeep),
+    );
+
     // Calculate how many were removed
     const removedCount = originalSize - newMessages.size;
-    
+
     // Replace the set
     processedMessages.clear();
-    newMessages.forEach(m => processedMessages.add(m));
-    
-    console.log(`Cleared ${removedCount} processed messages, kept ${newMessages.size} most recent`);
+    newMessages.forEach((m) => processedMessages.add(m));
+
+    console.log(
+      `Cleared ${removedCount} processed messages, kept ${newMessages.size} most recent`,
+    );
     return removedCount;
   }
 }
@@ -460,50 +530,52 @@ export function clearProcessedMessages(keepCount: number = 0): number {
  * @returns Promise with results of the check
  */
 export async function checkForNewTasksManually(): Promise<{
-  success: boolean,
-  tasksDetected: number,
-  usersProcessed: number,
-  error?: string
+  success: boolean;
+  tasksDetected: number;
+  usersProcessed: number;
+  error?: string;
 }> {
   try {
     // Run the task check
-    console.log('Manually triggering Slack task detection...');
+    console.log("Manually triggering Slack task detection...");
     await checkForNewTasks();
-    
+
     // Get the user count with Slack integration
     const users = await getAllSlackUsers();
-    
+
     return {
       success: true,
       tasksDetected: processedMessages.size,
-      usersProcessed: users.length
+      usersProcessed: users.length,
     };
   } catch (error) {
-    console.error('Error in manual task detection:', error);
+    console.error("Error in manual task detection:", error);
     return {
       success: false,
       tasksDetected: 0,
       usersProcessed: 0,
-      error: error instanceof Error ? error.message : String(error)
+      error: error instanceof Error ? error.message : String(error),
     };
   }
 }
 
-export function resetMonitoring(): { 
-  clearedMessages: number, 
-  clearedTimestamps: number,
-  monitoringActive: boolean 
+export function resetMonitoring(): {
+  clearedMessages: number;
+  clearedTimestamps: number;
+  monitoringActive: boolean;
 } {
   const messagesCleared = clearProcessedMessages();
-  
+
   const timestampsCount = lastCheckedTimestamps.size;
   lastCheckedTimestamps.clear();
-  
-  console.log(`Reset monitoring: cleared ${messagesCleared} messages and ${timestampsCount} channel timestamps`);
-  
+
+  console.log(
+    `Reset monitoring: cleared ${messagesCleared} messages and ${timestampsCount} channel timestamps`,
+  );
+
   return {
     clearedMessages: messagesCleared,
     clearedTimestamps: timestampsCount,
-    monitoringActive: isMonitoringActive
+    monitoringActive: isMonitoringActive,
   };
 }
