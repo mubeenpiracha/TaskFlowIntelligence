@@ -257,9 +257,9 @@ export async function detectTasks(
         const channelName = channelMap.get(channelId) || channelId;
         console.log(`Reading history for channel: ${channelName} (${channelId})`);
         
-        // Use user token for reading channel history
-        // This allows access to private channels and DMs the bot might not have access to
-        const messages = await readChannelHistory(channelId, 100, userToken);
+        // Only get the most recent 50 messages per channel to avoid overwhelming
+        // This significantly reduces the risk of processing too many messages at once
+        const messages = await readChannelHistory(channelId, 50, userToken);
         console.log(`Retrieved ${messages.length} messages from ${channelName}`);
         
         // Filter messages to those that likely contain tasks
@@ -283,11 +283,28 @@ export async function detectTasks(
       .map((result) => (result as PromiseFulfilledResult<SlackMessage[]>).value)
       .flat();
     
-    return successfulResults;
+    // Limit the total number of tasks to process to 25 to avoid rate limiting
+    // Sort by timestamp to get the most recent first
+    const limitedResults = successfulResults
+      .sort((a, b) => parseFloat(b.ts) - parseFloat(a.ts))
+      .slice(0, 25);
+    
+    console.log(`Limiting to ${limitedResults.length} most recent tasks out of ${successfulResults.length} total potential tasks`);
+    
+    return limitedResults;
   } catch (error) {
     console.error('Error detecting tasks in Slack:', error);
     return [];
   }
+}
+
+/**
+ * Sleep function for rate limiting and retries
+ * @param ms - Milliseconds to sleep
+ * @returns Promise that resolves after specified time
+ */
+function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
 }
 
 /**
@@ -306,20 +323,51 @@ export async function sendMessage(
   // Use user token if provided, otherwise use the global slack client with bot token
   const client = userToken ? new WebClient(userToken) : slack;
   
-  try {
-    const response = await client.chat.postMessage({
-      channel: channelId,
-      text,
-      blocks,
-      unfurl_links: false,
-      unfurl_media: false
-    });
-    
-    return response.ts;
-  } catch (error) {
-    console.error('Error sending Slack message:', error);
-    throw error;
+  // Maximum retry attempts
+  const MAX_RETRIES = 3;
+  // Exponential backoff delay (ms)
+  const INITIAL_DELAY = 1000; // 1 second
+  
+  let retries = 0;
+  let response;
+  
+  while (retries <= MAX_RETRIES) {
+    try {
+      response = await client.chat.postMessage({
+        channel: channelId,
+        text,
+        blocks,
+        unfurl_links: false,
+        unfurl_media: false
+      });
+      
+      return response.ts;
+    } catch (error: any) {
+      // Check if the error is rate limiting related
+      const isRateLimit = error.code === 'slack_webapi_platform_error' && 
+                          error.data && error.data.error === 'ratelimited';
+      
+      retries++;
+      
+      if (isRateLimit && retries <= MAX_RETRIES) {
+        // Get retry wait time from Slack or use exponential backoff
+        const retryAfter = error.retryAfter || Math.pow(2, retries) * INITIAL_DELAY;
+        console.log(`Rate limited. Retrying sendMessage after ${retryAfter}ms (attempt ${retries} of ${MAX_RETRIES})`);
+        await sleep(retryAfter);
+      } else if (retries <= MAX_RETRIES) {
+        // For other errors, use exponential backoff
+        const backoffTime = Math.pow(2, retries) * INITIAL_DELAY;
+        console.log(`Error sending message. Retrying after ${backoffTime}ms (attempt ${retries} of ${MAX_RETRIES})`);
+        await sleep(backoffTime);
+      } else {
+        console.error('Error sending Slack message after max retries:', error);
+        throw error;
+      }
+    }
   }
+  
+  // This line should never be reached due to return or throw in the loop
+  return undefined;
 }
 
 /**
@@ -486,25 +534,59 @@ export async function sendTaskDetectionDM(
       }
     ];
     
+    // Add a simple sleep function for rate limiting
+    const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
+    
     // Send the DM using the bot token
     // For task notifications, we always use the bot token
     // This keeps a consistent identity for task-related communications
     const client = slack; // Use the global slack client with bot token
     
-    try {
-      const response = await client.chat.postMessage({
-        channel: slackUserId,
-        text: `Task detected: ${extractedTitle}`,
-        blocks,
-        unfurl_links: false,
-        unfurl_media: false
-      });
-      
-      return response.ts;
-    } catch (error) {
-      console.error('Error sending Slack task detection DM:', error);
-      throw error;
+    // Maximum retry attempts
+    const MAX_RETRIES = 3;
+    // Exponential backoff delay (ms)
+    const INITIAL_DELAY = 1000; // 1 second
+    
+    let retries = 0;
+    let response;
+    
+    while (retries <= MAX_RETRIES) {
+      try {
+        response = await client.chat.postMessage({
+          channel: slackUserId,
+          text: `Task detected: ${extractedTitle}`,
+          blocks,
+          unfurl_links: false,
+          unfurl_media: false
+        });
+        
+        return response.ts;
+      } catch (error: any) {
+        // Check if the error is rate limiting related
+        const isRateLimit = error.code === 'slack_webapi_platform_error' && 
+                            error.data && error.data.error === 'ratelimited';
+        
+        retries++;
+        
+        if (isRateLimit && retries <= MAX_RETRIES) {
+          // Get retry wait time from Slack or use exponential backoff
+          const retryAfter = error.retryAfter || Math.pow(2, retries) * INITIAL_DELAY;
+          console.log(`Rate limited. Retrying after ${retryAfter}ms (attempt ${retries} of ${MAX_RETRIES})`);
+          await sleep(retryAfter);
+        } else if (retries <= MAX_RETRIES) {
+          // For other errors, use exponential backoff
+          const backoffTime = Math.pow(2, retries) * INITIAL_DELAY;
+          console.log(`Error sending message. Retrying after ${backoffTime}ms (attempt ${retries} of ${MAX_RETRIES})`);
+          await sleep(backoffTime);
+        } else {
+          console.error('Error sending Slack task detection DM after max retries:', error);
+          throw error;
+        }
+      }
     }
+    
+    // This line should never be reached due to return or throw in the loop
+    return undefined;
   } catch (error) {
     console.error('Error in sendTaskDetectionDM:', error);
     return undefined;

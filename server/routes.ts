@@ -23,7 +23,12 @@ import { GOOGLE_LOGIN_REDIRECT_URL, GOOGLE_CALENDAR_REDIRECT_URL, SLACK_OAUTH_RE
 import { getChannelPreferences, saveChannelPreferences } from './services/channelPreferences';
 import { createTaskFromSlackMessage, sendTaskConfirmation } from './services/taskCreation';
 import { setupWebSocketServer } from './services/websocket';
-import { startSlackMonitoring, getMonitoringStatus } from './services/slackMonitor';
+import { 
+  startSlackMonitoring, 
+  getMonitoringStatus,
+  clearProcessedMessages,
+  resetMonitoring
+} from './services/slackMonitor';
 
 // Create a store for sessions
 import createMemoryStore from 'memorystore';
@@ -1041,6 +1046,51 @@ export async function registerRoutes(app: Express): Promise<Server> {
         total_connections: wsServer.clients.size
       }
     });
+  });
+  
+  // System maintenance endpoints - admin access only
+  app.post('/api/system/slack/reset', requireAuth, async (req, res) => {
+    try {
+      // Check if user is admin (ideally, you would have a proper role system)
+      const user = await storage.getUser(req.session.userId!);
+      if (!user || user.id !== 1) { // Simple check for first user as admin
+        return res.status(403).json({ message: 'Unauthorized. Admin access required.' });
+      }
+      
+      const resetResult = resetMonitoring();
+      res.json({
+        success: true,
+        message: 'Slack monitoring reset successfully',
+        details: resetResult
+      });
+    } catch (error) {
+      console.error('Error resetting Slack monitoring:', error);
+      res.status(500).json({ message: 'Failed to reset Slack monitoring' });
+    }
+  });
+  
+  app.post('/api/system/slack/clear-cache', requireAuth, async (req, res) => {
+    try {
+      // Check if user is admin
+      const user = await storage.getUser(req.session.userId!);
+      if (!user || user.id !== 1) { // Simple check for first user as admin
+        return res.status(403).json({ message: 'Unauthorized. Admin access required.' });
+      }
+      
+      const { keepCount } = req.body;
+      const keepCountValue = keepCount ? parseInt(keepCount, 10) : 0;
+      
+      const clearedCount = clearProcessedMessages(keepCountValue);
+      res.json({
+        success: true,
+        message: `Successfully cleared ${clearedCount} processed message(s) from cache`,
+        clearedCount,
+        keepCount: keepCountValue
+      });
+    } catch (error) {
+      console.error('Error clearing processed messages:', error);
+      res.status(500).json({ message: 'Failed to clear processed messages' });
+    }
   });
 
   return httpServer;
