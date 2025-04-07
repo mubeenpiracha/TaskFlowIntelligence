@@ -543,38 +543,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // 1. One at the API path (for backward compatibility)
   // 2. Another at the root path (which Slack likely expects)
   
-  // API endpoint for Slack interactions
-  app.post('/api/slack/interactions', express.urlencoded({ extended: true }), async (req, res) => {
-    try {
-      console.log('Received Slack interaction payload at API path');
-      console.log('Body type:', typeof req.body);
-      console.log('Body keys:', Object.keys(req.body));
-      
-      // Slack sends form data with a 'payload' key containing a JSON string
-      const payload = req.body.payload ? JSON.parse(req.body.payload) : null;
-      
-      if (!payload) {
-        console.error('Invalid payload received from Slack:', req.body);
-        return res.status(400).send('Invalid payload');
-      }
-      
-      // Extract the action data
-      const { type, user, actions } = payload;
-      
-      // Log the payload for debugging
-      console.log('Slack interaction payload type:', type);
-      console.log('Slack interaction actions:', actions ? actions.length : 0);
-      
-      // Acknowledge receipt immediately to avoid Slack timeout
-      res.status(200).send('OK');
-    } catch (error) {
-      console.error('Error processing Slack interaction at API path:', error);
-      res.status(500).send('Error processing interaction');
-    }
+  // Register both endpoints for Slack interactions
+  app.post('/api/slack/interactions', express.urlencoded({ extended: true }), (req, res) => {
+    handleSlackInteraction(req, res);
   });
   
-  // Root endpoint for Slack interactions
-  app.post('/slack/interactions', express.urlencoded({ extended: true }), async (req, res) => {
+  // Direct root endpoint for Slack interactions (some Slack setups expect this)
+  app.post('/slack/interactions', express.urlencoded({ extended: true }), (req, res) => {
+    handleSlackInteraction(req, res);
+  });
+  
+  // Helper function to process Slack interactions
+  const handleSlackInteraction = async (req: Request, res: Response) => {
     try {
       console.log('Received Slack interaction payload');
       console.log('Body type:', typeof req.body);
