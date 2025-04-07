@@ -100,17 +100,26 @@ export async function listUserChannels(userToken?: string | null): Promise<Slack
 /**
  * Gets user info from Slack
  * @param userId - Slack user ID
+ * @param userToken - Optional user token for accessing private user data
  * @returns Promise with user information
  */
-export async function getUserInfo(userId: string) {
-  // Always use the global slack client with bot token
-  const client = slack;
+export async function getUserInfo(userId: string, userToken?: string | null) {
+  // Use user token when available for better access to user data
+  const client = userToken ? new WebClient(userToken) : slack;
   
   try {
     const result = await client.users.info({ user: userId });
     return result.user;
   } catch (error) {
     console.error('Error getting user info:', error);
+    
+    // If using bot token and getting access errors, log specific message
+    if (!userToken && error instanceof Error && 
+       (error.message.includes('not_authorized') || 
+        error.message.includes('missing_scope'))) {
+      console.warn(`Bot doesn't have access to user data for ${userId}. Consider using user token for this operation.`);
+    }
+    
     return null;
   }
 }
@@ -137,11 +146,12 @@ export async function readChannelHistory(
       limit: messageLimit,
     });
 
-    // For each message, get the user profile
+    // For each message, get the user profile, using the same token we used for channel access
     const messages = await Promise.all((result.messages || []).map(async (message: any) => {
       let userProfile = null;
       if (message.user) {
-        const userInfo = await getUserInfo(message.user);
+        // Pass the same user token to getUserInfo that we used for reading the channel history
+        const userInfo = await getUserInfo(message.user, userToken);
         userProfile = userInfo?.profile;
       }
 
@@ -223,31 +233,57 @@ export async function detectTasks(
   userToken?: string | null
 ): Promise<SlackMessage[]> {
   try {
+    // Log the token strategy being used
+    if (userToken) {
+      console.log(`Using Slack token for user: ${userId}`);
+    } else {
+      console.log(`Using bot token for user: ${userId} (this may limit access to private channels)`);
+    }
+
     // Get channel names for better context
     // Use user token to see private channels
     const allChannels = await listUserChannels(userToken);
     const channelMap = new Map<string, string>();
     allChannels.forEach(channel => channelMap.set(channel.id, channel.name));
     
-    // Process all channels in parallel
-    const channelPromises = channelIds.map(async (channelId) => {
-      // Use user token for reading channel history
-      // This allows access to private channels and DMs the bot might not have access to
-      const messages = await readChannelHistory(channelId, 100, userToken);
-      
-      // Filter messages to those that likely contain tasks
-      const taskMessages = messages.filter(msg => isLikelyTask(msg.text, userId));
-      
-      // Add channel name to each message for context
-      return taskMessages.map(msg => ({
-        ...msg,
-        channelName: channelMap.get(msg.channelId || '') || 'unknown-channel'
-      }));
-    });
+    // Log all channels to help with debugging
+    console.log(`Found ${allChannels.length} total channels accessible: ${allChannels.map(c => c.name).join(', ')}`);
+    console.log(`Monitoring ${channelIds.length} channels: ${channelIds.join(', ')}`);
     
-    // Merge all results
-    const results = await Promise.all(channelPromises);
-    return results.flat();
+    // Process all channels in parallel but with enhanced error handling
+    const channelResults = await Promise.allSettled(channelIds.map(async (channelId) => {
+      try {
+        // Get channel name for logging
+        const channelName = channelMap.get(channelId) || channelId;
+        console.log(`Reading history for channel: ${channelName} (${channelId})`);
+        
+        // Use user token for reading channel history
+        // This allows access to private channels and DMs the bot might not have access to
+        const messages = await readChannelHistory(channelId, 100, userToken);
+        console.log(`Retrieved ${messages.length} messages from ${channelName}`);
+        
+        // Filter messages to those that likely contain tasks
+        const taskMessages = messages.filter(msg => isLikelyTask(msg.text, userId));
+        console.log(`Found ${taskMessages.length} potential tasks in ${channelName}`);
+        
+        // Add channel name to each message for context
+        return taskMessages.map(msg => ({
+          ...msg,
+          channelName: channelMap.get(msg.channelId || '') || 'unknown-channel'
+        }));
+      } catch (channelError) {
+        console.error(`Error processing channel ${channelId}:`, channelError);
+        return [];
+      }
+    }));
+    
+    // Collect successful results and flatten the array
+    const successfulResults = channelResults
+      .filter((result): result is PromiseFulfilledResult<SlackMessage[]> => result.status === 'fulfilled')
+      .map(result => result.value)
+      .flat();
+    
+    return successfulResults;
   } catch (error) {
     console.error('Error detecting tasks in Slack:', error);
     return [];
