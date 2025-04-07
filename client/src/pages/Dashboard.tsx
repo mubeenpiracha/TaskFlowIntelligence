@@ -1,6 +1,6 @@
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Plus, Calendar, AlertTriangle, MessageSquare } from "lucide-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { Plus, Calendar, AlertTriangle, MessageSquare, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiRequest } from "@/lib/queryClient";
@@ -11,9 +11,12 @@ import TaskDetailModal from "@/components/modals/TaskDetailModal";
 import CalendarView from "@/components/CalendarView";
 import { Link } from "wouter";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { useToast } from "@/hooks/use-toast";
 
 export default function Dashboard() {
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
 
   // Fetch current user data
   const { data: user } = useQuery({
@@ -44,6 +47,32 @@ export default function Dashboard() {
         console.error("Error fetching Slack tasks:", error);
         return [];
       }
+    }
+  });
+  
+  // Mutation for manually triggering task detection
+  const detectTasksMutation = useMutation({
+    mutationFn: async () => {
+      // Add sendDMs=true query parameter to send notifications for detected tasks
+      const res = await apiRequest('GET', '/api/slack/detect-tasks?sendDMs=true');
+      return res.json();
+    },
+    onSuccess: (data) => {
+      // Invalidate the slack tasks query to refresh the data
+      queryClient.invalidateQueries({ queryKey: ['/api/slack/detect-tasks'] });
+      toast({
+        title: "Task Detection Complete",
+        description: `Found ${data.length} potential tasks in your Slack channels.`,
+        variant: "default",
+      });
+    },
+    onError: (error) => {
+      console.error("Error detecting tasks:", error);
+      toast({
+        title: "Task Detection Failed",
+        description: "There was an error checking for tasks in Slack. Please try again.",
+        variant: "destructive",
+      });
     }
   });
   
@@ -146,9 +175,23 @@ export default function Dashboard() {
 
         {/* Recent Slack Tasks */}
         <div className="bg-white overflow-hidden shadow rounded-lg">
-          <div className="px-4 py-5 sm:px-6 border-b border-gray-200">
-            <h3 className="text-lg leading-6 font-medium text-[#1D1C1D]">Recently Detected Tasks</h3>
-            <p className="mt-1 text-sm text-gray-500">Tasks detected from Slack messages in the last 24 hours</p>
+          <div className="px-4 py-5 sm:px-6 border-b border-gray-200 flex justify-between items-center">
+            <div>
+              <h3 className="text-lg leading-6 font-medium text-[#1D1C1D]">Recently Detected Tasks</h3>
+              <p className="mt-1 text-sm text-gray-500">Tasks detected from Slack messages in the last 24 hours</p>
+            </div>
+            {user?.slackUserId && (
+              <Button
+                onClick={() => detectTasksMutation.mutate()}
+                disabled={detectTasksMutation.isPending}
+                variant="outline"
+                className="flex items-center bg-[#4A154B] hover:bg-opacity-90 text-white border-none"
+                size="sm"
+              >
+                <RefreshCw className={`h-4 w-4 mr-2 ${detectTasksMutation.isPending ? 'animate-spin' : ''}`} />
+                {detectTasksMutation.isPending ? 'Detecting...' : 'Detect Tasks'}
+              </Button>
+            )}
           </div>
           <div className="bg-white px-4 py-5 sm:p-6 space-y-4">
             {isLoadingSlackTasks ? (

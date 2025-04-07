@@ -279,8 +279,8 @@ export async function detectTasks(
     
     // Collect successful results and flatten the array
     const successfulResults = channelResults
-      .filter((result): result is PromiseFulfilledResult<SlackMessage[]> => result.status === 'fulfilled')
-      .map(result => result.value)
+      .filter((result) => result.status === 'fulfilled')
+      .map((result) => (result as PromiseFulfilledResult<SlackMessage[]>).value)
       .flat();
     
     return successfulResults;
