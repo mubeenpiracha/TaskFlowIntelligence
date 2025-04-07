@@ -299,8 +299,17 @@ export async function detectTasks(
         const messages = await readChannelHistory(channelId, 50, userToken);
         console.log(`Retrieved ${messages.length} messages from ${channelName}`);
         
+        // Filter messages to only include those from the last 24 hours
+        const twentyFourHoursAgo = Date.now() / 1000 - 86400; // 86400 seconds = 24 hours
+        const recentMessages = messages.filter(msg => {
+          const messageTimestamp = parseFloat(msg.ts);
+          return messageTimestamp > twentyFourHoursAgo;
+        });
+        
+        console.log(`Found ${recentMessages.length} messages from the last 24 hours in ${channelName}`);
+        
         // Filter messages to those that likely contain tasks
-        const taskMessages = messages.filter(msg => isLikelyTask(msg.text, userId));
+        const taskMessages = recentMessages.filter(msg => isLikelyTask(msg.text, userId));
         console.log(`Found ${taskMessages.length} potential tasks in ${channelName}`);
         
         // Add channel name to each message for context

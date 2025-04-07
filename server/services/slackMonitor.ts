@@ -370,9 +370,9 @@ async function checkUserTasks(
 }
 
 /**
- * Checks if a task message has already been processed
+ * Checks if a task message has already been processed or is too old
  * @param messageTs - Message timestamp (used as ID)
- * @returns True if already processed
+ * @returns True if already processed or too old
  */
 async function isTaskAlreadyProcessed(messageTs: string): Promise<boolean> {
   try {
@@ -381,7 +381,18 @@ async function isTaskAlreadyProcessed(messageTs: string): Promise<boolean> {
       return true;
     }
 
-    // Then, as a fallback, check if we already created a task for this message
+    // Then, check if the message is older than 24 hours (to avoid spamming users with old messages)
+    const messageTimestamp = parseFloat(messageTs);
+    const twentyFourHoursAgo = Date.now() / 1000 - 86400; // 86400 seconds = 24 hours
+
+    if (messageTimestamp < twentyFourHoursAgo) {
+      console.log(`Skipping message ${messageTs} because it's older than 24 hours`);
+      // Add to processed set to avoid checking again
+      processedMessages.add(messageTs);
+      return true;
+    }
+
+    // Finally, check if we already created a task for this message
     const existingTask = await storage.getTasksBySlackMessageId(messageTs);
     if (existingTask) {
       // If found in database but not in our set, add it to the set
@@ -421,9 +432,9 @@ async function markTaskAsProcessed(
         : messageText;
 
     await storage.createPendingTask(userId, messageTs, slackChannelId, title);
-
-    // Save the updated set to file for persistence across restarts
-    saveProcessedMessagesToFile();
+    
+    // We no longer save to the file as we rely on the database
+    // This helps prevent spamming the user with old messages
   } catch (error) {
     console.error("Error marking task as processed:", error);
     // Still add to memory even if DB operation fails
