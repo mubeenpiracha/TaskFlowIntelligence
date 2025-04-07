@@ -694,18 +694,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Use the response_url to update the original message if available
           if (response_url) {
             try {
-              // Make direct request to response_url
-              const updateResponse = await fetch(response_url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  text: 'Task created successfully!',
-                  replace_original: true
-                })
-              });
-              console.log('Response URL update status:', updateResponse.status);
+              // Check if the response_url is a valid URL (for development environment testing)
+              if (response_url.startsWith('http')) {
+                try {
+                  // Make direct request to response_url
+                  const updateResponse = await fetch(response_url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      text: 'Task created successfully!',
+                      replace_original: true
+                    })
+                  });
+                  console.log('Response URL update status:', updateResponse.status);
+                } catch (fetchError) {
+                  // Don't let this error break the flow, just log it
+                  console.log('Could not reach Slack response_url (expected in development):', fetchError.message);
+                }
+              } else {
+                console.log('Skipping response_url update: URL appears invalid');
+              }
             } catch (updateError) {
-              console.error('Error updating original message:', updateError);
+              console.error('Error handling response_url update:', updateError);
             }
           }
           
@@ -757,18 +767,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Use the response_url to update the original message if available
           if (response_url) {
             try {
-              // Make direct request to response_url
-              const updateResponse = await fetch(response_url, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                  text: 'Task ignored.',
-                  replace_original: true
-                })
-              });
-              console.log('Response URL update status:', updateResponse.status);
+              // Check if the response_url is a valid URL (for development environment testing)
+              if (response_url.startsWith('http')) {
+                try {
+                  // Make direct request to response_url
+                  const updateResponse = await fetch(response_url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      text: 'Task ignored.',
+                      replace_original: true
+                    })
+                  });
+                  console.log('Response URL update status:', updateResponse.status);
+                } catch (fetchError) {
+                  // Don't let this error break the flow, just log it
+                  console.log('Could not reach Slack response_url (expected in development):', fetchError.message);
+                }
+              } else {
+                console.log('Skipping response_url update: URL appears invalid');
+              }
             } catch (updateError) {
-              console.error('Error updating original message:', updateError);
+              console.error('Error handling response_url update:', updateError);
             }
           }
           
