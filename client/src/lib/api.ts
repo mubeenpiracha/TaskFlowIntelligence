@@ -185,3 +185,20 @@ export const getCalendarEvents = async (start: string, end: string) => {
   const res = await apiRequest('GET', `/api/calendar/events?start=${start}&end=${end}`);
   return res.json();
 };
+
+// System monitoring API
+export interface MonitoringCheckResult {
+  success: boolean;
+  message: string;
+  details: {
+    success: boolean;
+    tasksDetected: number;
+    usersProcessed: number;
+    error?: string;
+  };
+}
+
+export const checkTasksNow = async (): Promise<MonitoringCheckResult> => {
+  const res = await apiRequest('POST', '/api/system/slack/check-now');
+  return res.json();
+};

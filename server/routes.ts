@@ -27,7 +27,8 @@ import {
   startSlackMonitoring, 
   getMonitoringStatus,
   clearProcessedMessages,
-  resetMonitoring
+  resetMonitoring,
+  checkForNewTasksManually
 } from './services/slackMonitor';
 
 // Create a store for sessions
@@ -1102,7 +1103,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
-  app.post('/api/system/slack/clear-cache', requireAuth, async (req, res) => {
+  app.post('/api/system/slack/check-now', requireAuth, async (req, res) => {
+    try {
+      // Check if user is admin or has Slack integration
+      const user = await storage.getUser(req.session.userId!);
+      if (!user) {
+        return res.status(404).json({ message: 'User not found' });
+      }
+      
+      // Allow if user is admin or has Slack integration
+      const isAdmin = user.id === 1;
+      const hasSlackIntegration = !!user.slackUserId;
+      
+      if (!isAdmin && !hasSlackIntegration) {
+        return res.status(403).json({ 
+          message: 'Unauthorized. Admin access or Slack integration required.' 
+        });
+      }
+      
+      // Run the manual check
+      const checkResult = await checkForNewTasksManually();
+      
+      res.json({
+        success: true,
+        message: 'Manual Slack task check completed',
+        details: checkResult
+      });
+    } catch (error) {
+      console.error('Error running manual Slack task check:', error);
+      res.status(500).json({ 
+        message: 'Failed to run manual Slack task check',
+        error: error instanceof Error ? error.message : String(error) 
+      });
+    }
+  });
+
+app.post('/api/system/slack/clear-cache', requireAuth, async (req, res) => {
     try {
       // Check if user is admin
       const user = await storage.getUser(req.session.userId!);

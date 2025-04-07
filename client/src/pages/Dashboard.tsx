@@ -16,6 +16,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useWebSocket } from "@/hooks/use-websocket";
 import { useAuth } from "@/hooks/use-auth";
 import { Badge } from "@/components/ui/badge";
+import { checkTasksNow } from "@/lib/api";
 
 export default function Dashboard() {
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
@@ -66,7 +67,7 @@ export default function Dashboard() {
     }
   });
   
-  // Mutation for manually triggering task detection
+  // Mutation for manually triggering task detection through UI
   const detectTasksMutation = useMutation({
     mutationFn: async () => {
       // Add sendDMs=true query parameter to send notifications for detected tasks
@@ -87,6 +88,32 @@ export default function Dashboard() {
       toast({
         title: "Task Detection Failed",
         description: "There was an error checking for tasks in Slack. Please try again.",
+        variant: "destructive",
+      });
+    }
+  });
+  
+  // Mutation for triggering the backend immediate task check
+  const checkNowMutation = useMutation({
+    mutationFn: checkTasksNow,
+    onSuccess: (data) => {
+      // Invalidate the slack tasks query to refresh the data
+      queryClient.invalidateQueries({ queryKey: ['/api/slack/detect-tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/tasks/today'] });
+      
+      const { details } = data;
+      
+      toast({
+        title: "Slack Task Scan Complete",
+        description: `Processed ${details.tasksDetected} messages for ${details.usersProcessed} user(s). Refresh to see any new tasks.`,
+        variant: details.success ? "default" : "destructive",
+      });
+    },
+    onError: (error) => {
+      console.error("Error forcing Slack task scan:", error);
+      toast({
+        title: "Slack Scan Failed",
+        description: "There was an error scanning for tasks in Slack. Please try again.",
         variant: "destructive",
       });
     }
@@ -210,7 +237,20 @@ export default function Dashboard() {
                 )}
               </p>
             </div>
-            {/* Force display the button regardless of user state for testing */}
+            <div className="flex space-x-2">
+              {/* Button for immediate backend task check */}
+              <Button
+                onClick={() => checkNowMutation.mutate()}
+                disabled={checkNowMutation.isPending}
+                variant="outline"
+                className="flex items-center bg-[#36C5F0] hover:bg-opacity-90 text-white border-none"
+                size="sm"
+              >
+                <RefreshCw className={`h-4 w-4 mr-2 ${checkNowMutation.isPending ? 'animate-spin' : ''}`} />
+                {checkNowMutation.isPending ? 'Scanning...' : 'Force Scan'}
+              </Button>
+              
+              {/* Button for UI-based task detection */}
               <Button
                 onClick={() => detectTasksMutation.mutate()}
                 disabled={detectTasksMutation.isPending}
@@ -221,6 +261,7 @@ export default function Dashboard() {
                 <RefreshCw className={`h-4 w-4 mr-2 ${detectTasksMutation.isPending ? 'animate-spin' : ''}`} />
                 {detectTasksMutation.isPending ? 'Detecting...' : 'Detect Tasks'}
               </Button>
+            </div>
           </div>
           <div className="bg-white px-4 py-5 sm:p-6 space-y-4">
             {isLoadingSlackTasks ? (

@@ -12,8 +12,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // Interval between monitoring cycles (in milliseconds)
-// Changed from 1 minute to 10 minutes to avoid frequent processing
-const MONITORING_INTERVAL = 600000; // 10 minutes
+// Set to 1 minute for better responsiveness while still respecting rate limits
+const MONITORING_INTERVAL = 60000; // 1 minute
 
 // Map to track the last checked timestamp for each channel
 const lastCheckedTimestamps: Map<string, string> = new Map();
@@ -126,10 +126,11 @@ export function startSlackMonitoring(): () => void {
   
   // Preload processed messages before starting
   void preloadProcessedMessages().then(() => {
-    // Run initial check after preloading
+    // Run initial check immediately after preloading
+    console.log('Running initial task check...');
     void checkForNewTasks();
     
-    // Set up recurring monitoring
+    // Set up recurring monitoring with shorter interval
     monitoringInterval = setInterval(async () => {
       void checkForNewTasks();
     }, MONITORING_INTERVAL);
@@ -155,8 +156,9 @@ function stopSlackMonitoring() {
 /**
  * Checks for new tasks across all monitored users
  * This creates a checkpoint timestamp for each channel, so we only process new messages
+ * Exported so it can be called manually to force an immediate check
  */
-async function checkForNewTasks() {
+export async function checkForNewTasks() {
   try {
     console.log('Running Slack message check for all users...');
     
@@ -453,10 +455,40 @@ export function clearProcessedMessages(keepCount: number = 0): number {
 }
 
 /**
- * Resets the monitoring service 
- * This clears processed messages and channel timestamps
- * @returns Status information about the reset
+ * Manually trigger task detection immediately
+ * This is useful for forcing a scan when a user requests it
+ * @returns Promise with results of the check
  */
+export async function checkForNewTasksManually(): Promise<{
+  success: boolean,
+  tasksDetected: number,
+  usersProcessed: number,
+  error?: string
+}> {
+  try {
+    // Run the task check
+    console.log('Manually triggering Slack task detection...');
+    await checkForNewTasks();
+    
+    // Get the user count with Slack integration
+    const users = await getAllSlackUsers();
+    
+    return {
+      success: true,
+      tasksDetected: processedMessages.size,
+      usersProcessed: users.length
+    };
+  } catch (error) {
+    console.error('Error in manual task detection:', error);
+    return {
+      success: false,
+      tasksDetected: 0,
+      usersProcessed: 0,
+      error: error instanceof Error ? error.message : String(error)
+    };
+  }
+}
+
 export function resetMonitoring(): { 
   clearedMessages: number, 
   clearedTimestamps: number,
