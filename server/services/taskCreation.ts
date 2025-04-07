@@ -301,7 +301,8 @@ export async function createTaskFromSlackMessage(
 export async function sendTaskConfirmation(
   task: Task, 
   channelId: string, 
-  sendAsDM: boolean = true
+  sendAsDM: boolean = true,
+  userToken?: string
 ): Promise<string | undefined> {
   try {
     // Format the message nicely with task details
@@ -364,7 +365,8 @@ export async function sendTaskConfirmation(
     return await sendMessage(
       targetId,
       `Task created: ${task.title}`,
-      blocks
+      blocks,
+      userToken
     );
   } catch (error) {
     console.error('Error sending task confirmation to Slack:', error);

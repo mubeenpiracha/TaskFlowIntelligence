@@ -546,6 +546,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!dbUserQuery) {
         console.error(`No user found for Slack user ID: ${user.id}`);
         // Send failure message
+        // Always use bot token here since we don't have a user associated with this Slack ID
         await sendMessage(user.id, 'Error: Your account isn\'t connected to TaskFlow. Please log in to the TaskFlow app and connect your Slack account.');
         return;
       }
@@ -576,24 +577,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const task = await createTaskFromSlackMessage(slackMessage, dbUserQuery.id);
           
           // Send confirmation to the user
-          // Use bot token from environment variable instead of user token
+          // Use user token if available, otherwise fall back to bot token
           await sendTaskConfirmation(
             task,
             user.id, // Send directly to the user as a DM
-            true
+            true,
+            dbUserQuery.slackAccessToken || undefined
           );
         } catch (error) {
           console.error('Error creating task from interaction:', error);
-          await sendMessage(user.id, 'Sorry, there was an error creating your task. Please try again.');
+          // Use user token if available, otherwise fall back to bot token
+          await sendMessage(user.id, 'Sorry, there was an error creating your task. Please try again.', undefined, dbUserQuery.slackAccessToken || undefined);
         }
       } else if (action.action_id === 'ignore_task') {
         // User clicked "Ignore" button
         try {
           // Send acknowledgment message
-          // Always uses bot token from environment variable
+          // Use user token if available, otherwise fall back to bot token
           await sendMessage(
             user.id,
-            'Task ignored. I won\'t remind you about this message again.'
+            'Task ignored. I won\'t remind you about this message again.',
+            undefined,
+            dbUserQuery.slackAccessToken || undefined
           );
         } catch (error) {
           console.error('Error sending ignore confirmation:', error);
@@ -606,10 +611,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
           
           // In a real implementation, this would open a dialog to edit task details
           // For now, just acknowledge the action
-          // Always uses bot token from environment variable
+          // Use user token if available, otherwise fall back to bot token
           await sendMessage(
             user.id,
-            'This feature is coming soon! In the meantime, you can edit tasks from the TaskFlow dashboard.'
+            'This feature is coming soon! In the meantime, you can edit tasks from the TaskFlow dashboard.',
+            undefined,
+            dbUserQuery.slackAccessToken || undefined
           );
         } catch (error) {
           console.error('Error handling edit task details:', error);
@@ -657,11 +664,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const task = await createTaskFromSlackMessage(message, req.session.userId!);
       
       // Always send a confirmation message as a DM to the user
-      // Use bot token from environment variable
+      // Use user token if available, otherwise fall back to bot token
       await sendTaskConfirmation(
         task, 
         message.channelId || '', 
-        true // Force sending as DM
+        true, // Force sending as DM
+        user.slackAccessToken || undefined
       );
       
       res.status(201).json(task);

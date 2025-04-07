@@ -240,10 +240,11 @@ export async function detectTasks(channelIds: string[], userId: string): Promise
 export async function sendMessage(
   channelId: string,
   text: string,
-  blocks?: any[]
+  blocks?: any[],
+  userToken?: string
 ) {
-  // Always use the global slack client with bot token
-  const client = slack;
+  // Use user token if provided, otherwise use the global slack client with bot token
+  const client = userToken ? new WebClient(userToken) : slack;
   
   try {
     const response = await client.chat.postMessage({
