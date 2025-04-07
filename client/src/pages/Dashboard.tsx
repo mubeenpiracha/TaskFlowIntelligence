@@ -42,7 +42,9 @@ export default function Dashboard() {
     queryFn: async () => {
       try {
         const res = await apiRequest('GET', '/api/slack/detect-tasks');
-        return res.json();
+        const data = await res.json();
+        console.log("Slack tasks detected:", data);
+        return data;
       } catch (error) {
         console.error("Error fetching Slack tasks:", error);
         return [];
@@ -75,9 +77,6 @@ export default function Dashboard() {
       });
     }
   });
-  
-  // Debug output of user data
-  console.log("User data:", user);
 
   return (
     <>
@@ -201,20 +200,23 @@ export default function Dashboard() {
                 <Skeleton className="h-32 w-full" />
                 <Skeleton className="h-32 w-full" />
               </div>
-            ) : slackTasks?.length > 0 ? (
-              slackTasks.slice(0, 3).map((message: any) => (
-                <SlackMessageCard 
-                  key={message.ts} 
-                  message={{
-                    user: message.user,
-                    user_profile: message.user_profile,
-                    text: message.text,
-                    ts: message.ts,
-                    channel: message.channel,
-                    channelName: message.channel_name
-                  }}
-                />
-              ))
+            ) : slackTasks && slackTasks.length > 0 ? (
+              slackTasks.slice(0, 3).map((message: any) => {
+                console.log("Processing individual message:", message);
+                return (
+                  <SlackMessageCard 
+                    key={message.ts} 
+                    message={{
+                      user: message.user,
+                      user_profile: message.user_profile,
+                      text: message.text,
+                      ts: message.ts,
+                      channel: message.channel || message.channelId,
+                      channelName: message.channel_name || message.channelName
+                    }}
+                  />
+                );
+              })
             ) : (
               <div className="text-center py-4 text-gray-500">
                 No new tasks detected from Slack.

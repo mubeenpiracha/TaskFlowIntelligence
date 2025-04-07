@@ -3,7 +3,6 @@ import { useQueryClient, useMutation } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import TaskDetailModal from "./modals/TaskDetailModal";
 import { createTaskFromSlackMessage } from "@/lib/api";
-import { SlackMessage } from "@/lib/api";
 import { Task } from "@shared/schema";
 import { cn } from "@/lib/utils";
 
@@ -17,6 +16,7 @@ interface SlackMessage {
   text: string;
   ts: string;
   channel?: string;
+  channelId?: string;
   channelName?: string;
 }
 
@@ -60,7 +60,7 @@ export default function SlackMessageCard({ message, isTaskAdded = false }: Slack
         text: message.text,
         ts: message.ts,
         user_profile: message.user_profile,
-        channelId: message.channel,
+        channelId: message.channelId || message.channel,
         channelName: message.channelName
       };
       
@@ -238,18 +238,15 @@ export default function SlackMessageCard({ message, isTaskAdded = false }: Slack
             setIsModalOpen(false);
             
             // If task was created through the modal, update the UI state
-            queryClient.getQueryData(['/api/tasks']).then((data: Task[] | undefined) => {
-              if (data) {
-                // Check if any tasks were created from this message
-                const taskFromThisMessage = data.find(t => t.slackMessageId === message.ts);
-                if (taskFromThisMessage) {
-                  setLocalIsTaskAdded(true);
-                  setTaskDetails(taskFromThisMessage);
-                }
+            const data = queryClient.getQueryData<Task[]>(['/api/tasks']);
+            if (data) {
+              // Check if any tasks were created from this message
+              const taskFromThisMessage = data.find(t => t.slackMessageId === message.ts);
+              if (taskFromThisMessage) {
+                setLocalIsTaskAdded(true);
+                setTaskDetails(taskFromThisMessage);
               }
-            }).catch(() => {
-              // Silently ignore error
-            });
+            }
           }}
         />
       )}
