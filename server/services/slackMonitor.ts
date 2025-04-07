@@ -3,6 +3,8 @@ import { detectTasks, sendTaskDetectionDM } from './slack';
 import { storage } from '../storage';
 import { getChannelPreferences } from './channelPreferences';
 import { User } from '@shared/schema';
+import fs from 'fs';
+import path from 'path';
 
 // Interval between monitoring cycles (in milliseconds)
 // Changed from 1 minute to 10 minutes to avoid frequent processing
@@ -20,15 +22,55 @@ const processedMessages: Set<string> = new Set();
 let isMonitoringActive = false;
 let monitoringInterval: NodeJS.Timeout | null = null;
 
+// File path for persisting processed message IDs
+const PROCESSED_MESSAGES_FILE = path.join(__dirname, '../../processed_messages.json');
+
 /**
- * Preloads already processed message IDs from the database
+ * Loads processed message IDs from file if it exists
+ * @returns Array of message IDs
+ */
+function loadProcessedMessagesFromFile(): string[] {
+  try {
+    if (fs.existsSync(PROCESSED_MESSAGES_FILE)) {
+      const fileContent = fs.readFileSync(PROCESSED_MESSAGES_FILE, 'utf8');
+      const data = JSON.parse(fileContent);
+      if (Array.isArray(data)) {
+        console.log(`Loaded ${data.length} processed message IDs from file`);
+        return data;
+      }
+    }
+  } catch (error) {
+    console.error('Error loading processed messages from file:', error);
+  }
+  return [];
+}
+
+/**
+ * Saves the current set of processed message IDs to a file
+ */
+function saveProcessedMessagesToFile(): void {
+  try {
+    const messageArray = Array.from(processedMessages);
+    fs.writeFileSync(PROCESSED_MESSAGES_FILE, JSON.stringify(messageArray), 'utf8');
+    console.log(`Saved ${messageArray.length} processed message IDs to file`);
+  } catch (error) {
+    console.error('Error saving processed messages to file:', error);
+  }
+}
+
+/**
+ * Preloads already processed message IDs from both file and database
  * This is used to avoid re-processing messages on restart
  */
 async function preloadProcessedMessages(): Promise<void> {
   try {
     console.log('Preloading processed message IDs...');
     
-    // Get all tasks with Slack message IDs
+    // First, load from file (faster and more reliable)
+    const fileMessages = loadProcessedMessagesFromFile();
+    fileMessages.forEach(messageId => processedMessages.add(messageId));
+    
+    // Then, get additional IDs from database as backup
     const allUsers = await storage.getAllUsers();
     
     // Create an array of promises to fetch tasks for each user
@@ -44,13 +86,20 @@ async function preloadProcessedMessages(): Promise<void> {
       .filter(task => task.slackMessageId); // Only keep tasks with Slack message IDs
     
     // Add all message IDs to the processed set
+    let newIdsCount = 0;
     allTasks.forEach(task => {
-      if (task.slackMessageId) {
+      if (task.slackMessageId && !processedMessages.has(task.slackMessageId)) {
         processedMessages.add(task.slackMessageId);
+        newIdsCount++;
       }
     });
     
-    console.log(`Preloaded ${processedMessages.size} processed message IDs`);
+    console.log(`Preloaded ${processedMessages.size} processed message IDs (${newIdsCount} from database)`);
+    
+    // Save the combined set back to file
+    if (newIdsCount > 0) {
+      saveProcessedMessagesToFile();
+    }
   } catch (error) {
     console.error('Error preloading processed message IDs:', error);
   }
