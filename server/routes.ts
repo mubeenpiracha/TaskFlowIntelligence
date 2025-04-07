@@ -496,8 +496,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Detect potential tasks
-      // Use bot token from environment variable instead of user token
-      const tasks = await detectTasks(channelIds, user.slackUserId);
+      // Pass user token to access private channels and DMs
+      const tasks = await detectTasks(channelIds, user.slackUserId, user.slackAccessToken);
       
       // Flag to determine if we should automatically send DMs for detected tasks
       const sendDMs = req.query.sendDMs === 'true';
