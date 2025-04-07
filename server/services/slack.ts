@@ -74,22 +74,59 @@ export async function listUserChannels(userToken?: string | null): Promise<Slack
       limit: 1000
     });
     
-    // Map to our expected format
-    return (result.channels || [])
-      .filter((channel: any) => {
-        // Include all types when using user token
-        if (userToken) return true;
-        // Otherwise filter as before
-        return channel.is_channel !== false && channel.is_im !== true;
-      })
-      .map((channel: any) => ({
+    // Get auth info to identify own user ID
+    const authInfo = await client.auth.test();
+    const selfUserId = authInfo.user_id;
+    
+    // Get bot user ID
+    let botUserId = 'USLACKBOT'; // Default Slackbot ID
+    try {
+      // Try to get the app's bot user ID if possible
+      const botInfo = await slack.auth.test();
+      if (botInfo.bot_id) {
+        botUserId = botInfo.user_id;
+      }
+    } catch (error) {
+      console.log('Could not determine bot user ID, using default Slackbot ID');
+    }
+    
+    // Process the channels, filter out DMs with self and with bot
+    const channels = [];
+    
+    for (const channel of (result.channels || [])) {
+      // Skip DMs with self or with bot
+      if (channel.is_im && (channel.user === selfUserId || channel.user === botUserId || channel.user === 'USLACKBOT')) {
+        continue;
+      }
+      
+      // For DMs, try to get user name instead of ID
+      let name = channel.name;
+      if (!name && channel.is_im && channel.user) {
+        try {
+          const userInfo = await client.users.info({ user: channel.user });
+          if (userInfo.user) {
+            const displayName = userInfo.user.profile?.display_name || userInfo.user.profile?.real_name || userInfo.user.name;
+            name = `DM with ${displayName}`;
+          } else {
+            name = `DM with ${channel.user}`;
+          }
+        } catch (error) {
+          console.log(`Could not get user info for ${channel.user}`, error);
+          name = `DM with ${channel.user}`;
+        }
+      }
+      
+      channels.push({
         id: channel.id,
-        name: channel.name || `DM with ${channel.user || 'Unknown'}`,
+        name: name || `DM with ${channel.user || 'Unknown'}`,
         is_member: true, // users.conversations only returns channels the user is a member of
         is_private: channel.is_private || false,
         is_channel: channel.is_channel !== false,
         num_members: channel.num_members
-      }));
+      });
+    }
+    
+    return channels;
   } catch (error) {
     console.error('Error listing Slack channels:', error);
     // Re-throw so the route handler can deal with it appropriately
