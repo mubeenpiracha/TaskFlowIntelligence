@@ -301,14 +301,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.redirect('/#/login?error=not_authenticated');
       }
       
-      const { userId, teamId, teamName } = await exchangeCodeForToken(code);
+      const { 
+        userId, 
+        teamId, 
+        teamName, 
+        botAccessToken, 
+        userAccessToken 
+      } = await exchangeCodeForToken(code);
       
-      // Store the Slack user ID and workspace in the user record
-      // Note: We no longer store accessToken in the user record for security reasons
-      await storage.updateUserSlackInfo(req.session.userId, userId, teamName, null);
+      // Store the Slack user ID, workspace, and user token in the user record
+      // We store the user token (xoxp-) for personalized interactions
+      await storage.updateUserSlackInfo(
+        req.session.userId, 
+        userId, 
+        teamName, 
+        userAccessToken  // Store the user token from the authed_user object
+      );
       
       // Create default empty channel preferences
       await saveChannelPreferences(req.session.userId, []);
+      
+      // Log success and token types for debugging
+      console.log(`Slack connected for user ${req.session.userId}: user token = ${userAccessToken ? 'present' : 'missing'}, bot token = ${botAccessToken ? 'present' : 'missing'}`);
       
       res.redirect('/#/settings?slack_connected=true');
     } catch (error) {

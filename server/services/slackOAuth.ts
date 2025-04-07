@@ -52,10 +52,11 @@ export function getSlackAuthUrl(state?: string): string {
 /**
  * Exchanges an auth code for tokens and user information
  * @param code Authorization code from OAuth redirect
- * @returns Object containing access token, user ID, and workspace info
+ * @returns Object containing access tokens (both bot and user), user ID, and workspace info
  */
 export async function exchangeCodeForToken(code: string): Promise<{
-  accessToken: string;
+  botAccessToken: string | null;  // The bot token (xoxb-)
+  userAccessToken: string | null;  // The user token (xoxp-)
   userId: string;
   teamId: string;
   teamName: string;
@@ -87,17 +88,20 @@ export async function exchangeCodeForToken(code: string): Promise<{
       throw new Error('Invalid response from Slack OAuth');
     }
     
-    // We MUST have a user token (xoxp-) for this application to work properly
-    if (!response.authed_user?.access_token) {
-      throw new Error('User token not provided in Slack OAuth response. This app requires user-level permissions.');
+    // For a complete integration, we should have both the bot token and user token
+    // Bot token is used for general API calls
+    // User token is used for user-specific actions (improves personalization)
+    const botAccessToken = response.access_token || null;
+    const userAccessToken = response.authed_user?.access_token || null;
+    
+    if (!botAccessToken && !userAccessToken) {
+      throw new Error('No access tokens provided in Slack OAuth response. This app requires OAuth token access.');
     }
     
-    // Use the user token, not the bot token
-    const accessToken = response.authed_user.access_token;
-    
-    // Return the tokens and user information
+    // Return both tokens and user information
     return {
-      accessToken: accessToken,
+      botAccessToken,
+      userAccessToken,
       userId: response.authed_user.id,
       teamId: response.team.id,
       teamName: response.team.name || response.team.id
