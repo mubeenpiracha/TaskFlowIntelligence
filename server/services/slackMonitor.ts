@@ -6,6 +6,7 @@ import { User } from "@shared/schema";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { getWebhookHealthStatus } from "./slackEvents";
 
 // Get the directory name for ES modules compatibility
 const __filename = fileURLToPath(import.meta.url);
@@ -662,35 +663,42 @@ export async function checkForNewTasksManually(): Promise<{
     enabled: boolean;
     description: string;
   };
-  legacyPollResult?: {
-    tasksDetected: number;
-    usersProcessed: number;
-  };
+  tasksDetected: number;
+  usersProcessed: number;
   error?: string;
 }> {
   try {
     console.log("Checking Slack monitoring status (webhook-only mode)...");
     
-    // For debugging and testing purposes, we'll still run the legacy check
-    // This is useful for manual verification of workspace connectivity
-    console.log("Running legacy check for manual verification...");
-    await checkForNewTasks();
-
-    // Get the user count with Slack integration
+    // Get the user count with Slack integration - we don't actually poll anymore
+    // but we still return this information for the UI
     const users = await getAllSlackUsers();
+    
+    // Get webhook status metrics
+    let webhookMetrics;
+    try {
+      webhookMetrics = getWebhookHealthStatus();
+    } catch (e) {
+      console.error("Error getting webhook health status:", e);
+      webhookMetrics = { 
+        status: "active",
+        mode: "webhook-only",
+        events: { total: 0 }
+      };
+    }
 
+    console.log("Webhook-only mode is active - skipping legacy polling");
+    
     return {
       success: true,
       mode: "webhook-only",
       processedMessages: processedMessages.size,
       webhookStatus: {
         enabled: true,
-        description: "System is using Slack Events API webhooks for real-time event processing"
+        description: `Using Slack Events API webhooks (${webhookMetrics.events?.total || 0} events received)`
       },
-      legacyPollResult: {
-        tasksDetected: processedMessages.size,
-        usersProcessed: users.length
-      }
+      tasksDetected: processedMessages.size,
+      usersProcessed: users.length
     };
   } catch (error) {
     console.error("Error in manual Slack status check:", error);
@@ -702,6 +710,8 @@ export async function checkForNewTasksManually(): Promise<{
         enabled: true,
         description: "Error occurred during manual status check"
       },
+      tasksDetected: 0,
+      usersProcessed: 0,
       error: error instanceof Error ? error.message : String(error),
     };
   }

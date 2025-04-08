@@ -23,13 +23,12 @@ export default function Dashboard() {
   const { toast } = useToast();
   // Polling is used instead of WebSockets
   
-  // Set up polling instead of using websockets to refresh task data
+  // Set up polling for task updates but not for Slack message detection
   useEffect(() => {
-    // Set up polling every 30 seconds to refresh task data
+    // Only poll for tasks, not Slack messages (which now use webhooks)
     const pollInterval = setInterval(() => {
-      // Invalidate both tasks and Slack messages queries to trigger refetch
+      // Only invalidate tasks query, not the Slack messages query
       queryClient.invalidateQueries({ queryKey: ['/api/tasks/today'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/slack/detect-tasks'] });
     }, 30000); // 30 seconds
     
     return () => clearInterval(pollInterval);
