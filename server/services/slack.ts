@@ -1013,12 +1013,10 @@ export async function sendTaskDetectionDM(
           initial_option: {
             text: {
               type: "plain_text",
-              text: initialPriority === 'high' ? "5 - Very Urgent" : 
-                    initialPriority === 'medium' ? "3 - Moderate" : "1 - Not Urgent",
+              text: "3 - Moderate",
               emoji: true
             },
-            value: initialPriority === 'high' ? "5" : 
-                  initialPriority === 'medium' ? "3" : "1"
+            value: "3"
           },
           options: [
             {
@@ -1078,12 +1076,10 @@ export async function sendTaskDetectionDM(
           initial_option: {
             text: {
               type: "plain_text",
-              text: initialPriority === 'high' ? "5 - Very Important" : 
-                    initialPriority === 'medium' ? "3 - Moderately Important" : "1 - Not Important",
+              text: "3 - Moderately Important",
               emoji: true
             },
-            value: initialPriority === 'high' ? "5" : 
-                  initialPriority === 'medium' ? "3" : "1"
+            value: "3"
           },
           options: [
             {
@@ -1143,13 +1139,10 @@ export async function sendTaskDetectionDM(
           initial_option: {
             text: {
               type: "plain_text",
-              text: initialTimeRequired === "00:30" ? "30 minutes" :
-                    initialTimeRequired === "01:00" ? "1 hour" :
-                    initialTimeRequired === "01:30" ? "1.5 hours" :
-                    initialTimeRequired === "02:00" ? "2 hours" : "2 hours",
+              text: "1 hour",
               emoji: true
             },
-            value: initialTimeRequired || "02:00"
+            value: "01:00"
           },
           options: [
             {
