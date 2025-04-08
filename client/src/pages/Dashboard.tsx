@@ -15,7 +15,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/hooks/use-auth";
 import { Badge } from "@/components/ui/badge";
-import { checkTasksNow, forceScanSlack } from "@/lib/api";
+import { checkTasksNow, forceScanSlack, detectSlackTasks, SlackMessage, WebhookTaskResponse } from "@/lib/api";
 
 export default function Dashboard() {
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
@@ -52,37 +52,69 @@ export default function Dashboard() {
     }
   });
   
-  // Fetch Slack detected tasks
-  const { data: slackTasks, isLoading: isLoadingSlackTasks } = useQuery({
+  // Fetch potential Slack task messages (using webhook-only mode)
+  const { data: slackTasksResponse, isLoading: isLoadingSlackTasks } = useQuery({
     queryKey: ['/api/slack/detect-tasks'],
     queryFn: async () => {
       try {
-        const res = await apiRequest('GET', '/api/slack/detect-tasks');
-        const data = await res.json();
-        console.log("Slack tasks detected:", data);
-        return data;
+        // Pass forceScan=true to get webhook status info too
+        const data = await detectSlackTasks(undefined, true);
+        console.log("Slack tasks response:", data);
+        
+        // If we got the webhook response format, extract the tasks
+        if ('webhookMode' in data) {
+          return {
+            tasks: data.tasks || [],
+            webhookStatus: data.webhookStatus,
+            webhookMode: true,
+            message: data.message
+          };
+        }
+        
+        // Otherwise it's just an array of tasks (legacy format)
+        return {
+          tasks: data as SlackMessage[],
+          webhookMode: false
+        };
       } catch (error) {
         console.error("Error fetching Slack tasks:", error);
-        return [];
+        return { tasks: [], webhookMode: false, error: String(error) };
       }
     }
   });
   
+  // Extract just the tasks for easier use in the UI
+  const slackTasks = slackTasksResponse?.tasks || [];
+  const webhookStatus = slackTasksResponse?.webhookStatus;
+  
   // Mutation for manually triggering task detection through UI
   const detectTasksMutation = useMutation({
     mutationFn: async () => {
-      // Add sendDMs=true query parameter to send notifications for detected tasks
-      const res = await apiRequest('GET', '/api/slack/detect-tasks?sendDMs=true');
-      return res.json();
+      // Add sendDMs=true parameter to send notifications for detected tasks
+      const data = await detectSlackTasks(undefined, true);
+      return data;
     },
     onSuccess: (data) => {
       // Invalidate the slack tasks query to refresh the data
       queryClient.invalidateQueries({ queryKey: ['/api/slack/detect-tasks'] });
-      toast({
-        title: "Task Detection Complete",
-        description: `Found ${data.length} potential tasks in your Slack channels.`,
-        variant: "default",
-      });
+      
+      // Extract tasks based on response format
+      const tasks = 'webhookMode' in data ? data.tasks : data;
+      
+      // Display appropriate message based on response
+      if ('webhookMode' in data && data.webhookMode) {
+        toast({
+          title: "Webhook-Only Mode",
+          description: data.message || "Using webhook-only mode for task detection. New Slack messages will be processed automatically.",
+          variant: "default",
+        });
+      } else {
+        toast({
+          title: "Task Detection Complete",
+          description: `Found ${tasks.length} potential tasks in your Slack channels.`,
+          variant: "default",
+        });
+      }
     },
     onError: (error) => {
       console.error("Error detecting tasks:", error);

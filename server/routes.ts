@@ -556,9 +556,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
       }
       
-      // Detect potential tasks
-      // Pass user token to access private channels and DMs
-      const tasks = await detectTasks(channelIds, user.slackUserId, user.slackAccessToken);
+      // WEBHOOK-ONLY MODE: Instead of actively polling for new messages,
+      // we'll just return pending tasks that might have been detected via webhooks
+      console.log("Running in webhook-only mode - no active message polling");
+      
+      // Get webhook health status to inform the client
+      const webhookStatus = getWebhookHealthStatus();
+      console.log("Webhook status:", webhookStatus);
+      
+      // Get pending tasks from the database
+      const pendingTasks = await storage.getTasksByStatus(req.session.userId!, 'pending');
+      
+      // Format tasks to match the expected SlackMessage format from the frontend
+      const formattedTasks = pendingTasks.map(task => ({
+        user: user.slackUserId,
+        text: task.title,
+        ts: task.slackMessageId || String(task.id),
+        channelId: task.slackChannelId || undefined,
+        channelName: task.slackChannelId || 'Unknown Channel'
+      }));
       
       // Flag to determine if we should automatically send DMs for detected tasks
       const sendDMs = req.query.sendDMs === 'true';
@@ -581,18 +597,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
           console.log(`Successfully tested DM capability for user ${user.slackUserId}, proceeding with task notifications`);
         }
       
-        // Process each detected task
-        await Promise.all(tasks.map(async (task) => {
+        // Process each detected task from pending list
+        await Promise.all(formattedTasks.map(async (task) => {
           try {
-            // Check if this task was already processed (has a task record)
-            const existingTask = await storage.getTasksBySlackMessageId(task.ts);
-            if (!existingTask) {
-              // Send an interactive DM to the user about this detected task
-              if (user.slackUserId) {
-                console.log(`Sending task detection DM for task from message ${task.ts}`);
-                // Use bot token from environment variable instead of user token
-                await sendTaskDetectionDM(user.slackUserId, task);
-              }
+            // Send an interactive DM to the user about this detected task
+            if (user.slackUserId) {
+              console.log(`Sending task detection DM for task from message ${task.ts}`);
+              // Use bot token from environment variable instead of user token
+              await sendTaskDetectionDM(user.slackUserId, task);
             }
           } catch (dmError) {
             console.error('Error sending task detection DM:', dmError);
@@ -602,7 +614,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }));
       }
       
-      res.json(tasks);
+      // Special case: If user explicitly requests a scan via the Force Scan button,
+      // inform them that we're now using webhook-only mode
+      if (req.query.forceScan === 'true') {
+        return res.json({
+          message: 'Using webhook-only mode for task detection',
+          webhookStatus,
+          tasks: formattedTasks,
+          webhookMode: true
+        });
+      }
+      
+      res.json(formattedTasks);
     } catch (error) {
       console.error(error);
       res.status(500).json({ message: 'Failed to detect tasks from Slack' });

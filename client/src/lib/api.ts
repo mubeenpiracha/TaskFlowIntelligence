@@ -115,18 +115,49 @@ export const saveSlackChannelPreferences = async (channelIds: string[]): Promise
   return res.json();
 };
 
-export const detectSlackTasks = async (channelIds?: string[]): Promise<SlackMessage[]> => {
+export interface WebhookTaskResponse {
+  message?: string;
+  webhookStatus?: {
+    enabled: boolean;
+    configured: boolean;
+    url: string;
+    status: string;
+  };
+  tasks: SlackMessage[];
+  webhookMode?: boolean;
+}
+
+export const detectSlackTasks = async (channelIds?: string[], forceScan?: boolean): Promise<SlackMessage[] | WebhookTaskResponse> => {
   let url = '/api/slack/detect-tasks';
+  
+  const params = new URLSearchParams();
   
   // Add channel IDs to query params if provided
   if (channelIds && channelIds.length > 0) {
-    const params = new URLSearchParams();
     channelIds.forEach(id => params.append('channels', id));
+  }
+  
+  // Add forceScan parameter if it's true
+  if (forceScan) {
+    params.append('forceScan', 'true');
+  }
+  
+  // Add params to URL if any were set
+  if (params.toString()) {
     url += `?${params.toString()}`;
   }
   
   const res = await apiRequest('GET', url);
-  return res.json();
+  const data = await res.json();
+  
+  // Check if we got webhook response format or direct tasks array
+  if (data && data.webhookMode) {
+    // Return webhook response object
+    return data as WebhookTaskResponse;
+  } else {
+    // Return array of tasks (backward compatibility)
+    return data as SlackMessage[];
+  }
 };
 
 export const createTaskFromSlackMessage = async (message: SlackMessage): Promise<Task> => {
