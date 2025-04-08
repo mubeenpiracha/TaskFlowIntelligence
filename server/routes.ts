@@ -599,8 +599,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // 2. Another at the root path (which Slack likely expects)
   
   // API endpoint for Slack interactions
-  app.post('/api/slack/interactions', express.urlencoded({ extended: true }), async (req, res) => {
+  app.post('/api/slack/interactions', express.json(), express.urlencoded({ extended: true }), async (req, res) => {
     try {
+      // Handle Slack URL verification challenge (happens when setting up interactive components)
+      if (req.body.type === 'url_verification') {
+        console.log('Received Slack URL verification challenge for API interactions endpoint');
+        return res.json({ challenge: req.body.challenge });
+      }
+      
       console.log('Received Slack interaction payload at API path');
       console.log('Body type:', typeof req.body);
       console.log('Body keys:', Object.keys(req.body));
@@ -634,8 +640,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
   
   // Root endpoint for Slack interactions
-  app.post('/slack/interactions', express.urlencoded({ extended: true }), async (req, res) => {
+  app.post('/slack/interactions', express.json(), express.urlencoded({ extended: true }), async (req, res) => {
     try {
+      console.log('[SLACK INTERACTION] Body keys:', Object.keys(req.body));
+      console.log('[SLACK INTERACTION] Content-Type:', req.headers['content-type']);
+      
+      // Handle Slack URL verification challenge (happens when setting up interactive components)
+      if (req.body.type === 'url_verification') {
+        console.log('Received Slack URL verification challenge for interactive components');
+        return res.json({ challenge: req.body.challenge });
+      }
+      
       console.log('Received Slack interaction payload at root path');
       console.log('Body type:', typeof req.body);
       console.log('Body keys:', Object.keys(req.body));
