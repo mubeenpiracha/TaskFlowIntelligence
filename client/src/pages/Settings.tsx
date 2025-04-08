@@ -31,6 +31,9 @@ import {
 } from "@/lib/api";
 import { ExternalLink, Calendar, Clock, AlertCircle, MessageSquare, RefreshCw, LogOut, Activity, Webhook, Radio, Settings as SettingsIcon } from "lucide-react";
 import WorkingHoursModal from "@/components/modals/WorkingHoursModal";
+import TestSlackDMButton from "@/components/TestSlackDMButton";
+import TimezoneSelector from "@/components/TimezoneSelector";
+import { useLocation } from "wouter";
 
 // System Status Section Component
 const SystemStatusSection = () => {
@@ -158,9 +161,6 @@ const SystemStatusSection = () => {
     </div>
   );
 };
-import TestSlackDMButton from "@/components/TestSlackDMButton";
-import TimezoneSelector from "@/components/TimezoneSelector";
-import { useLocation } from "wouter";
 
 export default function Settings() {
   const [, setLocation] = useLocation();
