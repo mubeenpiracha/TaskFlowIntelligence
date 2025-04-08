@@ -202,3 +202,29 @@ export const checkTasksNow = async (): Promise<MonitoringCheckResult> => {
   const res = await apiRequest('POST', '/api/system/slack/check-now');
   return res.json();
 };
+
+// Test Slack DM capability 
+export const testSlackDM = async (): Promise<{
+  message: string;
+  success: boolean;
+  details?: string;
+  error?: string;
+}> => {
+  try {
+    const res = await apiRequest('GET', '/api/slack/test-dm');
+    
+    if (!res.ok) {
+      const errorData = await res.json();
+      throw new Error(errorData.message || 'Failed to send test DM');
+    }
+    
+    return res.json();
+  } catch (error: any) {
+    console.error('Error in testSlackDM:', error);
+    return {
+      success: false,
+      message: error.message || 'Failed to send test DM',
+      error: error.toString()
+    };
+  }
+};

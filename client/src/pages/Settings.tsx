@@ -28,6 +28,7 @@ import {
 } from "@/lib/api";
 import { ExternalLink, Calendar, AlertCircle, MessageSquare, RefreshCw, LogOut } from "lucide-react";
 import WorkingHoursModal from "@/components/modals/WorkingHoursModal";
+import TestSlackDMButton from "@/components/TestSlackDMButton";
 import { useLocation } from "wouter";
 
 export default function Settings() {
@@ -427,6 +428,11 @@ export default function Settings() {
                         'Disconnect Slack'
                       )}
                     </Button>
+                    
+                    {/* Add Test Slack DM Button */}
+                    <div className="mt-2">
+                      <TestSlackDMButton />
+                    </div>
                   </div>
                 )}
                 

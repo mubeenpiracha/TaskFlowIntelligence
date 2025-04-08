@@ -657,6 +657,59 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
+  // Test Slack DM capability
+  app.get('/api/slack/test-dm', requireAuth, async (req, res) => {
+    try {
+      // Get the authenticated user
+      const user = await storage.getUser(req.session.userId!);
+      
+      if (!user || !user.slackUserId) {
+        return res.status(400).json({ 
+          message: 'Slack integration not configured',
+          code: 'SLACK_NOT_CONNECTED'
+        });
+      }
+      
+      // Test if we can send a DM to this user
+      const canSendDM = await testDirectMessage(user.slackUserId);
+      
+      if (!canSendDM) {
+        return res.status(403).json({
+          message: 'Cannot send DMs to your Slack account. This may be due to permission issues or Slack workspace settings.',
+          success: false,
+          error: 'SLACK_DM_PERMISSION_ERROR'
+        });
+      }
+      
+      // Send a simple test message
+      const messageText = "👋 This is a test message from your TaskFlow bot. If you're receiving this, the notification system is working properly!";
+      
+      // Note: We're using the bot token here which is from the environment variable
+      const messageResult = await sendMessage(user.slackUserId, messageText);
+      
+      if (!messageResult) {
+        return res.status(500).json({
+          message: 'Failed to send test message to Slack',
+          success: false,
+          error: 'SEND_MESSAGE_FAILED'
+        });
+      }
+      
+      return res.status(200).json({
+        message: 'Test message sent successfully!',
+        success: true,
+        details: 'You should now see a direct message from TaskFlow in your Slack app.'
+      });
+    } catch (error) {
+      console.error('Error testing Slack DMs:', error);
+      return res.status(500).json({
+        message: 'An error occurred while testing Slack DMs',
+        success: false,
+        error: String(error)
+      });
+    }
+  });
+  
   // Root endpoint for Slack interactions
   app.post('/slack/interactions', express.json(), express.urlencoded({ extended: true }), async (req, res) => {
     try {
