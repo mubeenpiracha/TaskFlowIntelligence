@@ -401,11 +401,11 @@ export async function createTaskFromSlackMessage(
             summary: `Task: ${createdTask.title}`,
             description: createdTask.description || '',
             start: {
-              dateTime: startDate.toISOString(),
+              dateTime: startDate.toISOString().replace('Z',''),
               timeZone: userTimeZone
             },
             end: {
-              dateTime: endDate.toISOString(),
+              dateTime: endDate.toISOString().replace('Z',''),
               timeZone: userTimeZone
             },
             colorId: priority === 'high' ? '4' : priority === 'medium' ? '5' : '6', // Red, Yellow, Green
