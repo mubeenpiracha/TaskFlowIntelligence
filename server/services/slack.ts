@@ -37,6 +37,37 @@ export interface SlackMessage {
 }
 
 /**
+ * Gets a user's timezone information from Slack
+ * @param userId - Slack user ID
+ * @returns Timezone and timezone_offset
+ */
+export async function getUserTimezone(userId: string): Promise<{ timezone: string; timezone_offset: number }> {
+  if (!slack) {
+    throw new Error("Slack client not initialized - check SLACK_BOT_TOKEN environment variable");
+  }
+  
+  try {
+    const result = await slack.users.info({
+      user: userId
+    });
+    
+    if (!result.user) {
+      throw new Error(`User not found: ${userId}`);
+    }
+    
+    // Default to UTC if timezone info is missing
+    return {
+      timezone: result.user.tz || 'UTC',
+      timezone_offset: result.user.tz_offset || 0
+    };
+  } catch (error) {
+    console.error('Error getting Slack user timezone:', error);
+    // Return UTC as fallback
+    return { timezone: 'UTC', timezone_offset: 0 };
+  }
+}
+
+/**
  * Lists all channels that the authenticated user is a member of
  * Note: This will only return channels the bot is a member of
  * @returns Promise with list of channels

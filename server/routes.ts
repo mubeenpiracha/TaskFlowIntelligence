@@ -4,7 +4,7 @@ import session from "express-session";
 import { storage } from "./storage";
 import { z } from "zod";
 import { insertTaskSchema, insertUserSchema, insertWorkingHoursSchema } from "@shared/schema";
-import { detectTasks, sendMessage, listUserChannels, sendTaskDetectionDM, testDirectMessage, type SlackChannel, type SlackMessage } from "./services/slack";
+import { detectTasks, sendMessage, listUserChannels, sendTaskDetectionDM, testDirectMessage, getUserTimezone, type SlackChannel, type SlackMessage } from "./services/slack";
 import { analyzeMessageForTask, type TaskAnalysisResponse } from "./services/openaiService";
 import { 
   getCalendarAuthUrl, 
@@ -1074,6 +1074,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 scheduledEnd = new Date(scheduledStart);
                 scheduledEnd.setMinutes(scheduledEnd.getMinutes() + durationMinutes);
                 
+                // Get user's timezone from Slack if available
+                let userTimeZone = 'UTC';
+                if (user.slackUserId) {
+                  try {
+                    const { timezone } = await getUserTimezone(user.slackUserId);
+                    userTimeZone = timezone;
+                    console.log(`Using user's Slack timezone for calendar event: ${userTimeZone}`);
+                  } catch (err) {
+                    console.error('Error getting user timezone from Slack, falling back to UTC:', err);
+                  }
+                }
+                
                 const event = await createCalendarEvent(
                   user.googleRefreshToken,
                   {
@@ -1081,11 +1093,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
                     description: `${task.description || taskData.text}\n\nScheduled by TaskFlow\nUrgency: ${urgency}/5\nImportance: ${importance}/5`,
                     start: {
                       dateTime: scheduledStart.toISOString(),
-                      timeZone: 'UTC'
+                      timeZone: userTimeZone
                     },
                     end: {
                       dateTime: scheduledEnd.toISOString(),
-                      timeZone: 'UTC'
+                      timeZone: userTimeZone
                     },
                     colorId: priority === 'high' ? '4' : priority === 'medium' ? '5' : '6', // Red, Yellow, Green
                   }
@@ -1118,11 +1130,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
                     description: `${task.description || taskData.text}\n\nAuto-scheduled by TaskFlow (no suitable slots found)\nUrgency: ${urgency}/5\nImportance: ${importance}/5`,
                     start: {
                       dateTime: deadlineStart.toISOString(),
-                      timeZone: 'UTC'
+                      timeZone: userTimeZone
                     },
                     end: {
                       dateTime: dueDateTime.toISOString(),
-                      timeZone: 'UTC'
+                      timeZone: userTimeZone
                     },
                     colorId: '11', // Red for deadline-based scheduling
                   }
@@ -1523,16 +1535,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const startTime = new Date(`${task.dueDate}T${task.dueTime}`);
           const endTime = new Date(startTime.getTime() + durationMs);
           
+          // Get user's timezone from Slack if available
+          let userTimeZone = 'UTC';
+          if (user.slackUserId) {
+            try {
+              const { timezone } = await getUserTimezone(user.slackUserId);
+              userTimeZone = timezone;
+              console.log(`Using user's Slack timezone for calendar event: ${userTimeZone}`);
+            } catch (err) {
+              console.error('Error getting user timezone from Slack, falling back to UTC:', err);
+            }
+          }
+          
           const event = await createCalendarEvent(user.googleRefreshToken, {
             summary: task.title,
             description: task.description || undefined,
             start: {
               dateTime: startTime.toISOString(),
-              timeZone: 'UTC'
+              timeZone: userTimeZone
             },
             end: {
               dateTime: endTime.toISOString(),
-              timeZone: 'UTC'
+              timeZone: userTimeZone
             }
           });
           
@@ -1608,14 +1632,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
             const startTime = new Date(`${updatedTask.dueDate}T${updatedTask.dueTime}`);
             const endTime = new Date(startTime.getTime() + durationMs);
             
+            // Get user's timezone from Slack if available
+            let userTimeZone = 'UTC';
+            if (user.slackUserId) {
+              try {
+                const { timezone } = await getUserTimezone(user.slackUserId);
+                userTimeZone = timezone;
+                console.log(`Using user's Slack timezone for calendar event update: ${userTimeZone}`);
+              } catch (err) {
+                console.error('Error getting user timezone from Slack, falling back to UTC:', err);
+              }
+            }
+            
             eventUpdate.start = {
               dateTime: startTime.toISOString(),
-              timeZone: 'UTC'
+              timeZone: userTimeZone
             };
             
             eventUpdate.end = {
               dateTime: endTime.toISOString(),
-              timeZone: 'UTC'
+              timeZone: userTimeZone
             };
           }
           

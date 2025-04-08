@@ -1,5 +1,5 @@
 import { storage } from '../storage';
-import { sendMessage, slack } from './slack';
+import { sendMessage, slack, getUserTimezone } from './slack';
 import { createCalendarEvent } from './google';
 import { notifyTaskDetection } from './websocket';
 import type { SlackMessage } from '../services/slack';
@@ -366,6 +366,18 @@ export async function createTaskFromSlackMessage(
         
         const endDate = new Date(`${createdTask.dueDate}T${createdTask.dueTime}`);
         
+        // Get user's timezone from Slack if available
+        let userTimeZone = 'UTC';
+        if (user.slackUserId) {
+          try {
+            const { timezone } = await getUserTimezone(user.slackUserId);
+            userTimeZone = timezone;
+            console.log(`Using user's Slack timezone: ${userTimeZone}`);
+          } catch (err) {
+            console.error('Error getting user timezone from Slack, falling back to UTC:', err);
+          }
+        }
+        
         // Create an event on the user's calendar
         const event = await createCalendarEvent(
           user.googleRefreshToken,
@@ -374,9 +386,11 @@ export async function createTaskFromSlackMessage(
             description: createdTask.description || '',
             start: {
               dateTime: startDate.toISOString(),
+              timeZone: userTimeZone
             },
             end: {
               dateTime: endDate.toISOString(),
+              timeZone: userTimeZone
             },
             colorId: priority === 'high' ? '4' : priority === 'medium' ? '5' : '6', // Red, Yellow, Green
           }
