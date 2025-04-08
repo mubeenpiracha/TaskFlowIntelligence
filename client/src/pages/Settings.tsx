@@ -138,14 +138,14 @@ const SystemStatusSection = () => {
           <div className="flex flex-col">
             <span className="text-sm text-gray-500">WebSocket</span>
             <div className="flex items-center gap-2 mt-1">
-              <Badge variant={systemStatus.websocket.active ? "default" : "destructive"} className={systemStatus.websocket.active ? "bg-green-100 text-green-800 hover:bg-green-100" : ""}>
-                {systemStatus.websocket.active ? 'Active' : 'Inactive'}
+              <Badge variant={"default"} className="bg-yellow-100 text-yellow-800 hover:bg-yellow-100">
+                {systemStatus.app_updates?.method === 'polling' ? 'Polling' : 'Inactive'}
               </Badge>
             </div>
           </div>
           <div className="flex flex-col">
-            <span className="text-sm text-gray-500">Total Connections</span>
-            <span className="text-sm">{systemStatus.websocket.total_connections}</span>
+            <span className="text-sm text-gray-500">Update Interval</span>
+            <span className="text-sm">{systemStatus.app_updates?.polling_interval || 'N/A'}</span>
           </div>
         </div>
       </div>
