@@ -198,6 +198,35 @@ export interface MonitoringCheckResult {
   };
 }
 
+export interface SystemStatus {
+  slack_monitoring: {
+    isMonitoring: boolean;
+    lastStarted: string | null;
+    messagesProcessed: number;
+    tasksDetected: number;
+  };
+  slack_webhook: {
+    enabled: boolean;
+    configured: boolean;
+    url: string;
+    status: string;
+  };
+  websocket: {
+    active: boolean;
+    total_connections: number;
+  };
+}
+
+export const getSystemStatus = async (): Promise<SystemStatus> => {
+  const res = await apiRequest('GET', '/api/system/status');
+  
+  if (!res.ok) {
+    throw new Error('Failed to get system status');
+  }
+  
+  return res.json();
+};
+
 export const checkTasksNow = async (): Promise<MonitoringCheckResult> => {
   const res = await apiRequest('POST', '/api/system/slack/check-now');
   return res.json();

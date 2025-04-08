@@ -23,6 +23,7 @@ import { GOOGLE_LOGIN_REDIRECT_URL, GOOGLE_CALENDAR_REDIRECT_URL, SLACK_OAUTH_RE
 import { getChannelPreferences, saveChannelPreferences } from './services/channelPreferences';
 import { createTaskFromSlackMessage, sendTaskConfirmation } from './services/taskCreation';
 import { setupWebSocketServer } from './services/websocket';
+import { handleSlackEvent, getWebhookHealthStatus } from './services/slackEvents';
 import { 
   startSlackMonitoring, 
   getMonitoringStatus,
@@ -317,23 +318,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Slack Events API endpoint for event subscriptions
-  app.post('/slack/events', express.json(), (req, res) => {
-    console.log('Received Slack Events API request:', req.body);
+  app.post('/slack/events', express.json(), async (req, res) => {
+    console.log('Received Slack Events API request');
     
-    // URL verification challenge
-    if (req.body && req.body.type === 'url_verification') {
-      console.log('Returning Slack challenge from /slack/events:', req.body.challenge);
-      return res.status(200).json({ challenge: req.body.challenge });
+    try {
+      // Use our new events handler to process the event
+      await handleSlackEvent(req, res);
+    } catch (error) {
+      console.error('Error handling Slack event:', error);
+      
+      // Only send response if not already sent
+      if (!res.headersSent) {
+        res.status(500).send('Error processing event');
+      }
     }
-    
-    // Handle other event types here
-    if (req.body && req.body.event) {
-      console.log('Received Slack event:', req.body.event.type);
-      // Process event here in the future
-    }
-    
-    // Acknowledge receipt of the event
-    res.status(200).send();
   });
   
   // Slack verification endpoint (for testing connectivity)
@@ -1344,10 +1342,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
   
   // System monitoring endpoints
   app.get('/api/system/status', requireAuth, async (req, res) => {
+    // Check if the user has configured Slack
+    const user = await storage.getUser(req.session.userId!);
+    const slackConfigured = !!(user && user.slackUserId);
+    
+    // Get the webhook health status - a healthy webhook has received events in the past 24 hours
+    // This is stored in the slackEvents service
+    const { eventsReceived, lastEventTime } = getWebhookHealthStatus();
+    const webhookStatus = slackConfigured ? 
+      (eventsReceived > 0 && lastEventTime && (Date.now() - lastEventTime) < 24 * 60 * 60 * 1000 ? 'healthy' : 'unhealthy') : 
+      'unconfigured';
+    
     res.json({
       slack_monitoring: getMonitoringStatus(),
+      slack_webhook: {
+        enabled: true, // The webhooks are always enabled on the server side
+        configured: slackConfigured,
+        url: `${req.protocol}://${req.get('host')}/slack/events`,
+        status: webhookStatus
+      },
       websocket: {
-        active: true,
+        active: wsServer.clients.size > 0,
         total_connections: wsServer.clients.size
       }
     });

@@ -15,6 +15,7 @@ import { Separator } from "@/components/ui/separator";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import { apiRequest } from "@/lib/queryClient";
 import { 
@@ -24,10 +25,139 @@ import {
   getSlackAuthUrl,
   disconnectSlack,
   disconnectGoogleCalendar,
-  type SlackChannel 
+  getSystemStatus,
+  type SlackChannel,
+  type SystemStatus
 } from "@/lib/api";
-import { ExternalLink, Calendar, AlertCircle, MessageSquare, RefreshCw, LogOut } from "lucide-react";
+import { ExternalLink, Calendar, AlertCircle, MessageSquare, RefreshCw, LogOut, Activity, Webhook, Radio } from "lucide-react";
 import WorkingHoursModal from "@/components/modals/WorkingHoursModal";
+
+// System Status Section Component
+const SystemStatusSection = () => {
+  const { toast } = useToast();
+  const { data: systemStatus, isLoading, error, refetch } = useQuery({
+    queryKey: ['/api/system/status'],
+    queryFn: getSystemStatus,
+    refetchInterval: 60000, // Refresh every minute
+  });
+
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-10 w-full" />
+        <Skeleton className="h-10 w-full" />
+      </div>
+    );
+  }
+
+  if (error || !systemStatus) {
+    return (
+      <div className="p-4 border border-red-200 rounded-md bg-red-50 text-red-800 flex items-center gap-2">
+        <AlertCircle size={20} />
+        <span>Failed to load system status. Please try again later.</span>
+        <Button variant="outline" size="sm" onClick={() => refetch()} className="ml-auto">
+          <RefreshCw size={16} className="mr-2" /> Retry
+        </Button>
+      </div>
+    );
+  }
+
+  // Format date string
+  const formatDate = (dateStr: string | null) => {
+    if (!dateStr) return 'Never';
+    const date = new Date(dateStr);
+    return date.toLocaleString();
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Webhook Status */}
+      <div>
+        <div className="flex items-center mb-2">
+          <Webhook className="h-5 w-5 mr-2" />
+          <h3 className="text-base font-medium">Slack Webhook</h3>
+        </div>
+        <div className="grid grid-cols-2 gap-4 pl-7">
+          <div className="flex flex-col">
+            <span className="text-sm text-gray-500">Status</span>
+            <div className="flex items-center gap-2 mt-1">
+              <Badge variant={systemStatus.slack_webhook.configured ? "default" : "destructive"} className={systemStatus.slack_webhook.configured ? "bg-green-100 text-green-800 hover:bg-green-100" : ""}>
+                {systemStatus.slack_webhook.configured ? 'Configured' : 'Not Configured'}
+              </Badge>
+            </div>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-sm text-gray-500">Health</span>
+            <div className="flex items-center gap-2 mt-1">
+              <Badge variant={systemStatus.slack_webhook.status === 'healthy' ? "default" : "destructive"} className={systemStatus.slack_webhook.status === 'healthy' ? "bg-green-100 text-green-800 hover:bg-green-100" : ""}>
+                {systemStatus.slack_webhook.status === 'healthy' ? 'Healthy' : 'Unhealthy'}
+              </Badge>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Monitoring Status */}
+      <div>
+        <div className="flex items-center mb-2">
+          <Activity className="h-5 w-5 mr-2" />
+          <h3 className="text-base font-medium">Slack Monitoring</h3>
+        </div>
+        <div className="grid grid-cols-2 gap-4 pl-7">
+          <div className="flex flex-col">
+            <span className="text-sm text-gray-500">Active</span>
+            <div className="flex items-center gap-2 mt-1">
+              <Badge variant={systemStatus.slack_monitoring.isMonitoring ? "default" : "destructive"} className={systemStatus.slack_monitoring.isMonitoring ? "bg-green-100 text-green-800 hover:bg-green-100" : ""}>
+                {systemStatus.slack_monitoring.isMonitoring ? 'Yes' : 'No'}
+              </Badge>
+            </div>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-sm text-gray-500">Last Started</span>
+            <span className="text-sm">{formatDate(systemStatus.slack_monitoring.lastStarted)}</span>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-sm text-gray-500">Messages Processed</span>
+            <span className="text-sm">{systemStatus.slack_monitoring.messagesProcessed}</span>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-sm text-gray-500">Tasks Detected</span>
+            <span className="text-sm">{systemStatus.slack_monitoring.tasksDetected}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* WebSocket Status */}
+      <div>
+        <div className="flex items-center mb-2">
+          <Radio className="h-5 w-5 mr-2" />
+          <h3 className="text-base font-medium">Real-time Connection</h3>
+        </div>
+        <div className="grid grid-cols-2 gap-4 pl-7">
+          <div className="flex flex-col">
+            <span className="text-sm text-gray-500">WebSocket</span>
+            <div className="flex items-center gap-2 mt-1">
+              <Badge variant={systemStatus.websocket.active ? "default" : "destructive"} className={systemStatus.websocket.active ? "bg-green-100 text-green-800 hover:bg-green-100" : ""}>
+                {systemStatus.websocket.active ? 'Active' : 'Inactive'}
+              </Badge>
+            </div>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-sm text-gray-500">Total Connections</span>
+            <span className="text-sm">{systemStatus.websocket.total_connections}</span>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex justify-end">
+        <Button variant="outline" size="sm" onClick={() => refetch()}>
+          <RefreshCw size={16} className="mr-2" /> Refresh Status
+        </Button>
+      </div>
+    </div>
+  );
+};
 import TestSlackDMButton from "@/components/TestSlackDMButton";
 import { useLocation } from "wouter";
 
@@ -705,6 +835,23 @@ export default function Settings() {
               Your working hours settings help TaskFlow to intelligently schedule tasks and respect your work-life balance.
             </div>
           </CardFooter>
+        </Card>
+        
+        {/* System Status Card */}
+        <Card className="mt-6">
+          <CardHeader>
+            <CardTitle className="text-xl font-bold">
+              System Status
+            </CardTitle>
+            <CardDescription>
+              View the current status of the TaskFlow system
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-6">
+              <SystemStatusSection />
+            </div>
+          </CardContent>
         </Card>
       </div>
       
