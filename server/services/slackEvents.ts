@@ -4,7 +4,7 @@ import { storage } from '../storage';
 import { analyzeMessageForTask } from './openaiService';
 import { sendTaskDetectionDM } from './slack';
 import { User } from '@shared/schema';
-import { addProcessedMessageId } from './slack';
+import { addProcessedMessageId, isMessageAlreadyProcessed } from './slack';
 
 // Track webhook health metrics
 let webhookMetrics = {
@@ -87,8 +87,15 @@ export async function processMessageEvent(event: any): Promise<void> {
     ) {
       return;
     }
-
+    
+    // Skip if the message is already in our processed messages set
+    // This is critical to prevent re-processing old messages that came through 
+    // historical polling instead of real-time webhooks
     const messageTs = event.ts;
+    if (isMessageAlreadyProcessed(messageTs)) {
+      console.log(`[SLACK EVENT] Skipping already processed message ${messageTs}`);
+      return;
+    }
     const channelId = event.channel;
     const userId = event.user;
     const text = event.text;

@@ -241,6 +241,16 @@ export function addProcessedMessageId(messageId: string): void {
 }
 
 /**
+ * Check if a message has already been processed
+ * Used to prevent duplicate processing of messages
+ * @param messageId - The message ID to check
+ * @returns True if the message has already been processed
+ */
+export function isMessageAlreadyProcessed(messageId: string): boolean {
+  return processedMessageIds.has(messageId);
+}
+
+/**
  * Clear the processed message IDs set
  * Used by slackMonitor.ts when clearing processed messages
  * @param keepCount - Optional number of most recent entries to keep
