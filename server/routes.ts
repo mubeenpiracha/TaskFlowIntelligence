@@ -1118,9 +1118,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 scheduledEnd = new Date(scheduledStart);
                 scheduledEnd.setMinutes(scheduledEnd.getMinutes() + durationMinutes);
                 
-                // Get user's timezone from Slack if available
-                let userTimeZone = 'UTC';
-                if (user.slackUserId) {
+                // Get user's timezone preference
+                // First try to use the user's stored timezone preference
+                let userTimeZone = user.timezone || 'UTC';
+                console.log(`Using user's stored timezone preference for calendar event: ${userTimeZone}`);
+                
+                // If not available, try to get from Slack as a fallback
+                if (userTimeZone === 'UTC' && user.slackUserId) {
                   try {
                     const { timezone } = await getUserTimezone(user.slackUserId);
                     userTimeZone = timezone;
@@ -1166,6 +1170,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 deadlineStart.setMinutes(deadlineStart.getMinutes() - durationMinutes);
                 
                 console.log(`Using deadline-based scheduling: ${deadlineStart.toISOString()} to ${dueDateTime.toISOString()}`);
+                
+                // Make sure we have the user's timezone for deadline-based scheduling too
+                // First try to use the user's stored timezone preference
+                let userTimeZone = user.timezone || 'UTC';
+                console.log(`Using user's stored timezone preference for calendar event: ${userTimeZone}`);
+                
+                // If not available, try to get from Slack as a fallback
+                if (userTimeZone === 'UTC' && user.slackUserId) {
+                  try {
+                    const { timezone } = await getUserTimezone(user.slackUserId);
+                    userTimeZone = timezone;
+                    console.log(`Using user's Slack timezone for calendar event: ${userTimeZone}`);
+                  } catch (err) {
+                    console.error('Error getting user timezone from Slack, falling back to UTC:', err);
+                  }
+                }
                 
                 const event = await createCalendarEvent(
                   user.googleRefreshToken,
