@@ -37,6 +37,41 @@ export interface SlackMessage {
 }
 
 /**
+ * Convert Slack timezone string to IANA format for Google Calendar
+ * 
+ * @param slackTimezone - Timezone string from Slack API
+ * @returns Valid IANA timezone string for Google Calendar
+ */
+function convertToIANATimezone(slackTimezone: string): string {
+  // Slack already provides IANA format timezone strings in most cases
+  // This function provides a way to handle any exceptions
+  
+  // Map of known problematic Slack timezone strings to IANA timezone strings
+  const timezoneMap: Record<string, string> = {
+    // Commonly problematic timezone strings
+    'EST': 'America/New_York',
+    'EDT': 'America/New_York',
+    'CST': 'America/Chicago',
+    'CDT': 'America/Chicago',
+    'MST': 'America/Denver',
+    'MDT': 'America/Denver',
+    'PST': 'America/Los_Angeles',
+    'PDT': 'America/Los_Angeles',
+    // Default fallback is UTC
+    'GMT': 'UTC',
+    'UTC': 'UTC'
+  };
+  
+  console.log(`[TIMEZONE DEBUG] Converting Slack timezone: ${slackTimezone}`);
+  
+  // Return mapped timezone if it exists, otherwise return original (assuming it's valid IANA)
+  const ianaTimezone = timezoneMap[slackTimezone] || slackTimezone;
+  
+  console.log(`[TIMEZONE DEBUG] Converted to IANA timezone: ${ianaTimezone}`);
+  return ianaTimezone;
+}
+
+/**
  * Gets a user's timezone information from Slack
  * @param userId - Slack user ID
  * @returns Timezone and timezone_offset
@@ -71,13 +106,16 @@ export async function getUserTimezone(userId: string): Promise<{ timezone: strin
     }));
     
     // Default to UTC if timezone info is missing
-    const timezone = result.user.tz || 'UTC';
+    const slackTimezone = result.user.tz || 'UTC';
     const timezone_offset = result.user.tz_offset || 0;
     
-    console.log(`[TIMEZONE DEBUG] Returning timezone information: ${timezone} (offset: ${timezone_offset})`);
+    // Convert to IANA timezone format for Google Calendar
+    const ianaTimezone = convertToIANATimezone(slackTimezone);
+    
+    console.log(`[TIMEZONE DEBUG] Original Slack timezone: ${slackTimezone}, Converted IANA timezone: ${ianaTimezone}, Offset: ${timezone_offset}`);
     
     return {
-      timezone: timezone,
+      timezone: ianaTimezone,
       timezone_offset: timezone_offset
     };
   } catch (error) {
