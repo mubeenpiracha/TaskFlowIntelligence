@@ -1161,10 +1161,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
                     summary: `Task: ${title}`,
                     description: `${task.description || taskData.text}\n\nScheduled by TaskFlow\nUrgency: ${urgency}/5\nImportance: ${importance}/5`,
                     start: {
-                      dateTime: scheduledStart.toISOString()
+                      dateTime: scheduledStart.toISOString(),
+                      timeZone: userTimeZone
                     },
                     end: {
-                      dateTime: scheduledEnd.toISOString()
+                      dateTime: scheduledEnd.toISOString(),
+                      timeZone: userTimeZone
                     },
                     colorId: priority === 'high' ? '4' : priority === 'medium' ? '5' : '6', // Red, Yellow, Green
                   }
@@ -1202,10 +1204,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
                     summary: `DEADLINE: ${title}`,
                     description: `${task.description || taskData.text}\n\nAuto-scheduled by TaskFlow (no suitable slots found)\nUrgency: ${urgency}/5\nImportance: ${importance}/5`,
                     start: {
-                      dateTime: deadlineStart.toISOString()
+                      dateTime: deadlineStart.toISOString(),
+                      timeZone: userTimeZone
                     },
                     end: {
-                      dateTime: dueDateTime.toISOString()
+                      dateTime: dueDateTime.toISOString(),
+                      timeZone: userTimeZone
                     },
                     colorId: '11', // Red for deadline-based scheduling
                   }
@@ -1622,10 +1626,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
             summary: task.title,
             description: task.description || undefined,
             start: {
-              dateTime: startTime.toISOString()
+              dateTime: startTime.toISOString(),
+              timeZone: userTimeZone
             },
             end: {
-              dateTime: endTime.toISOString()
+              dateTime: endTime.toISOString(),
+              timeZone: userTimeZone
             }
           });
           
@@ -1714,11 +1720,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
             
             eventUpdate.start = {
-              dateTime: startTime.toISOString()
+              dateTime: startTime.toISOString(),
+              timeZone: userTimeZone
             };
             
             eventUpdate.end = {
-              dateTime: endTime.toISOString()
+              dateTime: endTime.toISOString(),
+              timeZone: userTimeZone
             };
           }
           
