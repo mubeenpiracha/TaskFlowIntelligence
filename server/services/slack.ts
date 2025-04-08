@@ -217,18 +217,86 @@ export async function readChannelHistory(
   }
 }
 
+// Import OpenAI integration
+import { analyzeMessageForTask, extractTaskDetails, TaskAnalysisResponse } from './openaiService';
+
+// Store task analysis results for later use when sending DMs
+const taskAnalysisCache = new Map<string, TaskAnalysisResponse>();
+
 /**
  * Analyzes a message to determine if it might contain a task
+ * Uses both heuristics and OpenAI for detection
+ * @param message - The message text to analyze
+ * @param userId - User ID to check for mentions
+ * @param messageObj - Optional full message object for OpenAI analysis
+ * @returns Boolean indicating if the message likely contains a task
+ */
+async function isLikelyTask(message: string, userId: string, messageObj?: SlackMessage): Promise<boolean> {
+  console.log(`\n================ TASK DETECTION ANALYSIS ================`);
+  console.log(`ANALYZING MESSAGE: "${message.substring(0, 100)}${message.length > 100 ? '...' : ''}"`);
+  console.log(`LOOKING FOR USER ID: ${userId}`);
+  
+  let useAI = true;
+  
+  try {
+    // Fallback to rule-based detection if AI is disabled or fails
+    if (!useAI) {
+      return isLikelyTaskRuleBased(message, userId);
+    }
+    
+    // Use OpenAI for smart task detection if we have the full message object
+    if (messageObj) {
+      console.log(`PERFORMING AI-BASED TASK DETECTION`);
+      const aiAnalysis = await analyzeMessageForTask(messageObj, userId);
+      
+      // Cache analysis for later use when sending DM
+      if (messageObj.ts) {
+        taskAnalysisCache.set(messageObj.ts, aiAnalysis);
+      }
+      
+      // Log analysis results
+      console.log(`AI TASK DETECTION RESULT: ${aiAnalysis.is_task ? 'IS A TASK' : 'NOT A TASK'}`);
+      console.log(`AI CONFIDENCE: ${(aiAnalysis.confidence * 100).toFixed(1)}%`);
+      console.log(`AI REASONING: ${aiAnalysis.reasoning}`);
+      
+      if (aiAnalysis.is_task) {
+        console.log(`AI DETECTED TASK TITLE: ${aiAnalysis.task_title || 'Not provided'}`);
+        if (aiAnalysis.deadline) {
+          console.log(`AI DETECTED DEADLINE: ${aiAnalysis.deadline} (${aiAnalysis.deadline_text || 'No text'})`);
+        }
+        if (aiAnalysis.urgency) {
+          console.log(`AI DETECTED URGENCY: ${aiAnalysis.urgency}/5`);
+        }
+        if (aiAnalysis.importance) {
+          console.log(`AI DETECTED IMPORTANCE: ${aiAnalysis.importance}/5`);
+        }
+        if (aiAnalysis.time_required_minutes) {
+          console.log(`AI ESTIMATED TIME: ${aiAnalysis.time_required_minutes} minutes`);
+        }
+      }
+      
+      console.log(`================ END TASK DETECTION ANALYSIS ================\n`);
+      return aiAnalysis.is_task;
+    }
+    
+    // Fallback to rule-based detection if no messageObj
+    return isLikelyTaskRuleBased(message, userId);
+  } catch (error) {
+    console.error(`Error in AI task detection:`, error);
+    console.log(`FALLING BACK TO RULE-BASED DETECTION DUE TO ERROR`);
+    // Fallback to rule-based detection if AI fails
+    return isLikelyTaskRuleBased(message, userId);
+  }
+}
+
+/**
+ * Original rule-based task detection as fallback
  * Uses simple heuristics to detect potential tasks
  * @param message - The message text to analyze
  * @param userId - User ID to check for mentions
  * @returns Boolean indicating if the message likely contains a task
  */
-function isLikelyTask(message: string, userId: string): boolean {
-  console.log(`\n================ TASK DETECTION ANALYSIS ================`);
-  console.log(`ANALYZING MESSAGE: "${message.substring(0, 100)}${message.length > 100 ? '...' : ''}"`);
-  console.log(`LOOKING FOR USER ID: ${userId}`);
-  
+function isLikelyTaskRuleBased(message: string, userId: string): boolean {
   // Check for task-related keywords
   const taskKeywords = [
     'todo', 'to-do', 'to do', 
@@ -285,7 +353,7 @@ function isLikelyTask(message: string, userId: string): boolean {
   
   const isTask = condition1 || condition2;
   
-  console.log(`TASK DETECTION RESULT: ${isTask ? 'IS A TASK' : 'NOT A TASK'}`);
+  console.log(`RULE-BASED DETECTION RESULT: ${isTask ? 'IS A TASK' : 'NOT A TASK'}`);
   console.log(`DETECTION REASON: ${condition1 ? 'User mentioned + task keywords' : (condition2 ? 'Strong task indicators' : 'No conditions matched')}`);
   console.log(`================ END TASK DETECTION ANALYSIS ================\n`);
   
@@ -344,16 +412,45 @@ export async function detectTasks(
         
         // Filter messages to those that likely contain tasks
         console.log(`\n=== ANALYZING MESSAGES FROM ${channelName} (${channelId}) ===`);
-        const taskMessages = recentMessages.filter(msg => {
+        
+        // Process messages sequentially to avoid rate limits with OpenAI API
+        const taskPromises = [];
+        for (const msg of recentMessages) {
           console.log(`\nMessage [${msg.ts}] from user: ${msg.user || 'unknown'}`);
           console.log(`First 80 chars: "${msg.text?.substring(0, 80)}${msg.text?.length > 80 ? '...' : ''}"`);
           
-          const result = isLikelyTask(msg.text, userId);
+          // Add channel ID to the message object for context
+          msg.channelId = channelId;
           
-          // Extra logging with timestamp for easy correlation in logs
-          console.log(`DETECTION RESULT [${msg.ts}]: ${result ? 'IS TASK' : 'NOT TASK'}`);
-          return result;
-        });
+          // Create a promise for each message analysis
+          taskPromises.push(
+            (async () => {
+              try {
+                // Pass the full message object to enable AI-powered detection
+                const result = await isLikelyTask(msg.text, userId, msg);
+                
+                // Extra logging with timestamp for easy correlation in logs
+                console.log(`DETECTION RESULT [${msg.ts}]: ${result ? 'IS TASK' : 'NOT TASK'}`);
+                
+                // Only return the message if it's a task
+                if (result) {
+                  return msg;
+                } else {
+                  return null;
+                }
+              } catch (error) {
+                console.error(`Error analyzing message [${msg.ts}]:`, error);
+                return null;
+              }
+            })()
+          );
+        }
+        
+        // Wait for all promises to resolve
+        const taskResults = await Promise.all(taskPromises);
+        
+        // Filter out null results
+        const taskMessages = taskResults.filter(Boolean) as SlackMessage[];
         
         console.log(`Found ${taskMessages.length} potential tasks in ${channelName} (${channelId})`);
         console.log(`=== END ANALYSIS FOR ${channelName} ===\n`);
@@ -528,21 +625,76 @@ export async function sendTaskDetectionDM(
     console.log(`MESSAGE_ID: ${message.ts}`);
     console.log(`FULL_MESSAGE: "${message.text}"`);
     
+    // Try to get cached OpenAI analysis if available
+    let aiTaskDetails = null;
+    if (message.ts && taskAnalysisCache.has(message.ts)) {
+      console.log(`TASK_EXTRACTION: Using cached AI analysis for message ${message.ts}`);
+      aiTaskDetails = taskAnalysisCache.get(message.ts);
+    }
+    
+    // If not in cache, perform a new analysis
+    if (!aiTaskDetails) {
+      try {
+        console.log(`TASK_EXTRACTION: Performing new AI analysis for message ${message.ts}`);
+        // Using OpenAI to extract task details
+        aiTaskDetails = await extractTaskDetails(message.text);
+        
+        // Cache the analysis
+        if (message.ts) {
+          taskAnalysisCache.set(message.ts, aiTaskDetails);
+        }
+      } catch (error) {
+        console.error(`TASK_EXTRACTION: Error in AI analysis, falling back to rule-based extraction`, error);
+        // AI analysis failed, continue with rule-based extraction
+      }
+    }
+    
+    // Extract details using AI or fall back to rule-based methods
     console.log(`EXTRACTING_TITLE...`);
-    const extractedTitle = extractTaskTitle(message.text);
+    const extractedTitle = aiTaskDetails?.task_title || extractTaskTitle(message.text);
     console.log(`EXTRACTED_TITLE: "${extractedTitle}"`);
     
     console.log(`EXTRACTING_DUE_DATE...`);
-    const extractedDueDate = extractDueDate(message.text);
-    console.log(`EXTRACTED_DUE_DATE: ${extractedDueDate ? `${extractedDueDate.dueDate} at ${extractedDueDate.dueTime}` : 'None found'}`);
+    let extractedDueDate = null;
+    
+    if (aiTaskDetails?.deadline) {
+      extractedDueDate = {
+        dueDate: aiTaskDetails.deadline,
+        dueTime: '17:00' // Default to 5pm if AI didn't provide a time
+      };
+      console.log(`EXTRACTED_DUE_DATE (AI): ${extractedDueDate.dueDate} at ${extractedDueDate.dueTime}`);
+      console.log(`ORIGINAL_DEADLINE_TEXT (AI): ${aiTaskDetails.deadline_text || 'Not specified'}`);
+    } else {
+      extractedDueDate = extractDueDate(message.text);
+      console.log(`EXTRACTED_DUE_DATE (rule-based): ${extractedDueDate ? `${extractedDueDate.dueDate} at ${extractedDueDate.dueTime}` : 'None found'}`);
+    }
     
     console.log(`DETERMINING_PRIORITY...`);
-    const initialPriority = determinePriority(message.text);
+    const initialPriority = aiTaskDetails?.importance ? 
+      (aiTaskDetails.importance >= 4 ? 'high' : (aiTaskDetails.importance >= 2 ? 'medium' : 'low')) : 
+      determinePriority(message.text);
     console.log(`DETERMINED_PRIORITY: ${initialPriority}`);
     
     console.log(`ESTIMATING_TIME_REQUIRED...`);
-    const initialTimeRequired = estimateTimeRequired(message.text);
-    console.log(`ESTIMATED_TIME_REQUIRED: ${initialTimeRequired}`);
+    let initialTimeRequired = estimateTimeRequired(message.text);
+    
+    if (aiTaskDetails?.time_required_minutes) {
+      // Convert minutes to HH:MM format
+      const hours = Math.floor(aiTaskDetails.time_required_minutes / 60);
+      const minutes = aiTaskDetails.time_required_minutes % 60;
+      initialTimeRequired = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+      console.log(`ESTIMATED_TIME_REQUIRED (AI): ${initialTimeRequired} (${aiTaskDetails.time_required_minutes} minutes)`);
+    } else {
+      console.log(`ESTIMATED_TIME_REQUIRED (rule-based): ${initialTimeRequired}`);
+    }
+    
+    console.log(`TASK_DESCRIPTION...`);
+    const taskDescription = aiTaskDetails?.task_description || message.text;
+    console.log(`TASK_DESCRIPTION: ${taskDescription.substring(0, 100)}${taskDescription.length > 100 ? '...' : ''}`);
+    
+    console.log(`TASK_CONFIDENCE: ${aiTaskDetails?.confidence || 'N/A'}`);
+    console.log(`TASK_REASONING: ${aiTaskDetails?.reasoning || 'N/A'}`);
+    
     console.log(`=============== END TASK_EXTRACTION_DETAILS ===============`);
     
     // Get channel name for context
