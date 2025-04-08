@@ -2,6 +2,7 @@ import { storage } from '../storage';
 import { sendMessage, slack, getUserTimezone } from './slack';
 import { createCalendarEvent } from './google';
 import { notifyTaskDetection } from './websocket';
+import { format, parseISO } from 'date-fns';
 import type { SlackMessage } from '../services/slack';
 import type { Task, InsertTask } from '@shared/schema';
 
@@ -358,15 +359,7 @@ export async function createTaskFromSlackMessage(
         const [dueHours, dueMinutes] = createdTask.dueTime.split(':').map(Number);
         const [reqHours, reqMinutes] = (createdTask.timeRequired || '01:00').split(':').map(Number);
         
-        const startDate = new Date(`${createdTask.dueDate}T${createdTask.dueTime}`);
-        
-        // For backward scheduling, we calculate the start time by subtracting the duration from the due time
-        startDate.setHours(startDate.getHours() - reqHours);
-        startDate.setMinutes(startDate.getMinutes() - reqMinutes);
-        
-        const endDate = new Date(`${createdTask.dueDate}T${createdTask.dueTime}`);
-        
-        // Get user's timezone from Slack if available
+        // First, get user's timezone from Slack if available
         let userTimeZone = 'UTC';
         console.log(`Creating calendar event for user ${user.id}, slack user ID: ${user.slackUserId || 'not connected'}`);
         
@@ -382,6 +375,24 @@ export async function createTaskFromSlackMessage(
         } else {
           console.log('[TIMEZONE DEBUG] No Slack user ID available, using default timezone: UTC');
         }
+
+        // Create due date in ISO format
+        const dueDateTimeString = `${createdTask.dueDate}T${createdTask.dueTime}:00`;
+        console.log(`[TIMEZONE DEBUG] Raw due date time string: ${dueDateTimeString}`);
+        
+        // Create end date exactly at the due time
+        const endDate = new Date(`${createdTask.dueDate}T${createdTask.dueTime}`);
+        
+        // Create start date by subtracting task duration from end date
+        const startDate = new Date(endDate);
+        startDate.setHours(startDate.getHours() - reqHours);
+        startDate.setMinutes(startDate.getMinutes() - reqMinutes);
+        
+        // Format dates for debugging
+        console.log(`[TIMEZONE DEBUG] Start date (local): ${startDate.toString()}`);
+        console.log(`[TIMEZONE DEBUG] End date (local): ${endDate.toString()}`);
+        console.log(`[TIMEZONE DEBUG] Start date (ISO): ${startDate.toISOString()}`);
+        console.log(`[TIMEZONE DEBUG] End date (ISO): ${endDate.toISOString()}`);
         
         // Create an event on the user's calendar
         const event = await createCalendarEvent(
