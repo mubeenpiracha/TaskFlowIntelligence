@@ -225,6 +225,10 @@ export async function readChannelHistory(
  * @returns Boolean indicating if the message likely contains a task
  */
 function isLikelyTask(message: string, userId: string): boolean {
+  console.log(`\n================ TASK DETECTION ANALYSIS ================`);
+  console.log(`ANALYZING MESSAGE: "${message.substring(0, 100)}${message.length > 100 ? '...' : ''}"`);
+  console.log(`LOOKING FOR USER ID: ${userId}`);
+  
   // Check for task-related keywords
   const taskKeywords = [
     'todo', 'to-do', 'to do', 
@@ -242,20 +246,50 @@ function isLikelyTask(message: string, userId: string): boolean {
   // Check for user mention
   const userMention = `<@${userId}>`;
   const containsMention = message.includes(userMention);
+  console.log(`USER MENTION CHECK: ${containsMention ? 'FOUND' : 'NOT FOUND'} "${userMention}"`);
   
   // Check if message contains task keywords
-  const containsTaskKeyword = taskKeywords.some(keyword => 
-    message.toLowerCase().includes(keyword.toLowerCase())
-  );
+  let foundKeywords: string[] = [];
+  taskKeywords.forEach(keyword => {
+    if (message.toLowerCase().includes(keyword.toLowerCase())) {
+      foundKeywords.push(keyword);
+    }
+  });
   
-  // Simple heuristic: Message is likely a task if it mentions the user AND contains task keywords
-  // OR if it has very strong task indicators (e.g., "TODO", "deadline", "ASAP")
+  const containsTaskKeyword = foundKeywords.length > 0;
+  console.log(`TASK KEYWORD CHECK: ${containsTaskKeyword ? 'FOUND' : 'NOT FOUND'}`);
+  if (containsTaskKeyword) {
+    console.log(`MATCHED KEYWORDS: ${foundKeywords.join(', ')}`);
+  }
+  
+  // Check for strong task indicators
   const strongTaskIndicators = ['todo', 'deadline', 'asap', 'due', 'urgent'];
-  const hasStrongIndicator = strongTaskIndicators.some(keyword => 
-    message.toLowerCase().includes(keyword.toLowerCase())
-  );
+  let foundStrongIndicators: string[] = [];
   
-  return (containsMention && containsTaskKeyword) || hasStrongIndicator;
+  strongTaskIndicators.forEach(keyword => {
+    if (message.toLowerCase().includes(keyword.toLowerCase())) {
+      foundStrongIndicators.push(keyword);
+    }
+  });
+  
+  const hasStrongIndicator = foundStrongIndicators.length > 0;
+  console.log(`STRONG INDICATOR CHECK: ${hasStrongIndicator ? 'FOUND' : 'NOT FOUND'}`);
+  if (hasStrongIndicator) {
+    console.log(`MATCHED STRONG INDICATORS: ${foundStrongIndicators.join(', ')}`);
+  }
+  
+  // First condition: mentioned AND has task keyword
+  const condition1 = containsMention && containsTaskKeyword;
+  // Second condition: has strong indicator (even without mention)
+  const condition2 = hasStrongIndicator;
+  
+  const isTask = condition1 || condition2;
+  
+  console.log(`TASK DETECTION RESULT: ${isTask ? 'IS A TASK' : 'NOT A TASK'}`);
+  console.log(`DETECTION REASON: ${condition1 ? 'User mentioned + task keywords' : (condition2 ? 'Strong task indicators' : 'No conditions matched')}`);
+  console.log(`================ END TASK DETECTION ANALYSIS ================\n`);
+  
+  return isTask;
 }
 
 /**
@@ -309,8 +343,20 @@ export async function detectTasks(
         console.log(`Found ${recentMessages.length} messages from the last 24 hours in ${channelName}`);
         
         // Filter messages to those that likely contain tasks
-        const taskMessages = recentMessages.filter(msg => isLikelyTask(msg.text, userId));
-        console.log(`Found ${taskMessages.length} potential tasks in ${channelName}`);
+        console.log(`\n=== ANALYZING MESSAGES FROM ${channelName} (${channelId}) ===`);
+        const taskMessages = recentMessages.filter(msg => {
+          console.log(`\nMessage [${msg.ts}] from user: ${msg.user || 'unknown'}`);
+          console.log(`First 80 chars: "${msg.text?.substring(0, 80)}${msg.text?.length > 80 ? '...' : ''}"`);
+          
+          const result = isLikelyTask(msg.text, userId);
+          
+          // Extra logging with timestamp for easy correlation in logs
+          console.log(`DETECTION RESULT [${msg.ts}]: ${result ? 'IS TASK' : 'NOT TASK'}`);
+          return result;
+        });
+        
+        console.log(`Found ${taskMessages.length} potential tasks in ${channelName} (${channelId})`);
+        console.log(`=== END ANALYSIS FOR ${channelName} ===\n`);
         
         // Add channel name to each message for context
         return taskMessages.map(msg => ({
@@ -477,11 +523,27 @@ export async function sendTaskDetectionDM(
     console.log(`TASK DM: Message text: "${message.text.substring(0, 50)}..."`);
     console.log(`TASK DM: Using bot token: ${process.env.SLACK_BOT_TOKEN ? 'Available (starts with ' + process.env.SLACK_BOT_TOKEN.substring(0, 5) + '...)' : 'MISSING'}`);
     
-    // Extract initial task information
+    // Extract initial task information with detailed logging
+    console.log(`=============== TASK_EXTRACTION_DETAILS ===============`);
+    console.log(`MESSAGE_ID: ${message.ts}`);
+    console.log(`FULL_MESSAGE: "${message.text}"`);
+    
+    console.log(`EXTRACTING_TITLE...`);
     const extractedTitle = extractTaskTitle(message.text);
+    console.log(`EXTRACTED_TITLE: "${extractedTitle}"`);
+    
+    console.log(`EXTRACTING_DUE_DATE...`);
     const extractedDueDate = extractDueDate(message.text);
+    console.log(`EXTRACTED_DUE_DATE: ${extractedDueDate ? `${extractedDueDate.dueDate} at ${extractedDueDate.dueTime}` : 'None found'}`);
+    
+    console.log(`DETERMINING_PRIORITY...`);
     const initialPriority = determinePriority(message.text);
+    console.log(`DETERMINED_PRIORITY: ${initialPriority}`);
+    
+    console.log(`ESTIMATING_TIME_REQUIRED...`);
     const initialTimeRequired = estimateTimeRequired(message.text);
+    console.log(`ESTIMATED_TIME_REQUIRED: ${initialTimeRequired}`);
+    console.log(`=============== END TASK_EXTRACTION_DETAILS ===============`);
     
     // Get channel name for context
     const channelReference = message.channelName 

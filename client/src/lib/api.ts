@@ -203,6 +203,40 @@ export const checkTasksNow = async (): Promise<MonitoringCheckResult> => {
   return res.json();
 };
 
+export const forceScanSlack = async (): Promise<{
+  success: boolean;
+  message: string;
+  result: {
+    success: boolean;
+    tasksDetected: number;
+    usersProcessed: number;
+    error?: string;
+  };
+}> => {
+  try {
+    const res = await apiRequest('POST', '/api/system/slack/scan');
+    
+    if (!res.ok) {
+      const errorData = await res.json();
+      throw new Error(errorData.message || 'Failed to force Slack scan');
+    }
+    
+    return res.json();
+  } catch (error: any) {
+    console.error('Error in forceScanSlack:', error);
+    return {
+      success: false,
+      message: error.message || 'Failed to force Slack scan',
+      result: {
+        success: false,
+        tasksDetected: 0,
+        usersProcessed: 0,
+        error: error.toString()
+      }
+    };
+  }
+};
+
 // Test Slack DM capability 
 export const testSlackDM = async (): Promise<{
   message: string;

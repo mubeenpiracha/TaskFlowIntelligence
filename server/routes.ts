@@ -1353,6 +1353,48 @@ export async function registerRoutes(app: Express): Promise<Server> {
     });
   });
   
+  // Manually trigger the Slack task scanning for testing
+  app.post('/api/system/slack/scan', requireAuth, async (req, res) => {
+    try {
+      console.log("Manually triggering task detection from API endpoint...");
+      const result = await checkForNewTasksManually();
+      console.log("Manual task detection completed with result:", result);
+      res.json({
+        success: true,
+        message: 'Slack task scanning completed successfully',
+        result
+      });
+    } catch (error) {
+      console.error("Error during manual task detection:", error);
+      res.status(500).json({ 
+        success: false,
+        message: 'Failed to scan for new tasks',
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+  
+  // Simple GET endpoint for testing task detection without auth (development only)
+  app.get('/api/test/slack/scan', async (req, res) => {
+    try {
+      console.log("TEST ENDPOINT: Manually triggering task detection...");
+      const result = await checkForNewTasksManually();
+      console.log("TEST ENDPOINT: Manual task detection completed with result:", result);
+      res.json({
+        success: true,
+        message: 'Test scan completed successfully',
+        result
+      });
+    } catch (error) {
+      console.error("TEST ENDPOINT: Error during manual task detection:", error);
+      res.status(500).json({ 
+        success: false,
+        message: 'Failed to scan for new tasks',
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
+  });
+  
   // System maintenance endpoints - admin access only
   app.post('/api/system/slack/reset', requireAuth, async (req, res) => {
     try {

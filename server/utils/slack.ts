@@ -162,9 +162,21 @@ async function detectTasks(channelIds: string[] | string, userId: string) {
           const userMention = `<@${userId}>`;
           if (!message.text?.includes(userMention)) return false;
           
+          console.log(`TASK_DETECTION: Analyzing message in ${channelName} (${message.ts}): "${message.text?.slice(0, 50)}${message.text?.length > 50 ? '...' : ''}"`);
+          
           // Look for task-like language
           const taskKeywords = ['can you', 'please', 'need', 'todo', 'to-do', 'task', 'by', 'due', 'deadline'];
-          return taskKeywords.some(keyword => message.text?.toLowerCase().includes(keyword));
+          
+          // Log which keywords are found
+          const foundKeywords = taskKeywords.filter(keyword => message.text?.toLowerCase().includes(keyword));
+          
+          if (foundKeywords.length > 0) {
+            console.log(`TASK_DETECTION: Found keywords [${foundKeywords.join(', ')}] in message: "${message.text?.slice(0, 50)}${message.text?.length > 50 ? '...' : ''}"`);
+            return true;
+          }
+          
+          console.log(`TASK_DETECTION: No task keywords found in message: "${message.text?.slice(0, 50)}${message.text?.length > 50 ? '...' : ''}"`);
+          return false;
         }).map(message => ({
           ...message,
           channel: channelId,

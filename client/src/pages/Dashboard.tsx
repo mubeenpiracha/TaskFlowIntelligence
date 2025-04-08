@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Calendar, AlertTriangle, MessageSquare, RefreshCw, Wifi, WifiOff } from "lucide-react";
+import { Plus, Calendar, AlertTriangle, MessageSquare, RefreshCw, Wifi, WifiOff, Radar, ThumbsUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiRequest } from "@/lib/queryClient";
@@ -16,7 +16,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useWebSocket } from "@/hooks/use-websocket";
 import { useAuth } from "@/hooks/use-auth";
 import { Badge } from "@/components/ui/badge";
-import { checkTasksNow } from "@/lib/api";
+import { checkTasksNow, forceScanSlack } from "@/lib/api";
 
 export default function Dashboard() {
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
@@ -114,6 +114,30 @@ export default function Dashboard() {
       toast({
         title: "Slack Scan Failed",
         description: "There was an error scanning for tasks in Slack. Please try again.",
+        variant: "destructive",
+      });
+    }
+  });
+  
+  // Mutation for force scanning with the new backend endpoint
+  const forceScanMutation = useMutation({
+    mutationFn: forceScanSlack,
+    onSuccess: (data) => {
+      // Invalidate the slack tasks query to refresh the data
+      queryClient.invalidateQueries({ queryKey: ['/api/slack/detect-tasks'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/tasks/today'] });
+      
+      toast({
+        title: "Deep Slack Scan Complete",
+        description: `Processed ${data.result.tasksDetected} messages for ${data.result.usersProcessed} user(s). Check for new task notifications.`,
+        variant: data.success ? "default" : "destructive",
+      });
+    },
+    onError: (error) => {
+      console.error("Error forcing deep Slack scan:", error);
+      toast({
+        title: "Deep Slack Scan Failed",
+        description: "There was an error performing a deep scan of Slack messages. Please try again.",
         variant: "destructive",
       });
     }
@@ -238,10 +262,22 @@ export default function Dashboard() {
               </p>
             </div>
             <div className="flex space-x-2">
+              {/* Button for deep scanning using the new backend endpoint */}
+              <Button
+                onClick={() => forceScanMutation.mutate()}
+                disabled={forceScanMutation.isPending || checkNowMutation.isPending || detectTasksMutation.isPending}
+                variant="outline"
+                className="flex items-center bg-[#E01D5A] hover:bg-opacity-90 text-white border-none"
+                size="sm"
+              >
+                <Radar className={`h-4 w-4 mr-2 ${forceScanMutation.isPending ? 'animate-spin' : ''}`} />
+                {forceScanMutation.isPending ? 'Deep Scan...' : 'Deep Scan'}
+              </Button>
+            
               {/* Button for immediate backend task check */}
               <Button
                 onClick={() => checkNowMutation.mutate()}
-                disabled={checkNowMutation.isPending}
+                disabled={checkNowMutation.isPending || forceScanMutation.isPending || detectTasksMutation.isPending}
                 variant="outline"
                 className="flex items-center bg-[#36C5F0] hover:bg-opacity-90 text-white border-none"
                 size="sm"
@@ -253,13 +289,13 @@ export default function Dashboard() {
               {/* Button for UI-based task detection */}
               <Button
                 onClick={() => detectTasksMutation.mutate()}
-                disabled={detectTasksMutation.isPending}
+                disabled={detectTasksMutation.isPending || forceScanMutation.isPending || checkNowMutation.isPending}
                 variant="outline"
                 className="flex items-center bg-[#4A154B] hover:bg-opacity-90 text-white border-none"
                 size="sm"
               >
-                <RefreshCw className={`h-4 w-4 mr-2 ${detectTasksMutation.isPending ? 'animate-spin' : ''}`} />
-                {detectTasksMutation.isPending ? 'Detecting...' : 'Detect Tasks'}
+                <ThumbsUp className={`h-4 w-4 mr-2 ${detectTasksMutation.isPending ? 'animate-spin' : ''}`} />
+                {detectTasksMutation.isPending ? 'Detecting...' : 'Quick Check'}
               </Button>
             </div>
           </div>

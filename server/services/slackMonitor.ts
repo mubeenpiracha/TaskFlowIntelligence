@@ -284,13 +284,25 @@ async function checkUserTasks(
         try {
           // Skip messages we've already processed
           if (await isTaskAlreadyProcessed(task.ts)) {
+            console.log(`TASK_PROCESSING: Skipping already processed message ${task.ts}`);
             continue;
           }
 
+          console.log(`=========== PROCESSING POTENTIAL TASK ===========`);
+          console.log(`TASK_PROCESSING: Processing message with ID: ${task.ts}`);
+          console.log(`TASK_PROCESSING: From channel: ${task.channelName || task.channelId}`);
+          console.log(`TASK_PROCESSING: Message content: "${task.text?.slice(0, 100)}${task.text?.length > 100 ? '...' : ''}"`);
+          // The userProfile field might be called differently depending on API version
+          const profileName = task.user_profile?.real_name || 
+                              (task as any)?.userProfile?.real_name || 
+                              'Unknown';
+          console.log(`TASK_PROCESSING: Sender: ${task.user} (${profileName})`);
+
           // Test if we can send DMs to this user first
+          console.log(`TASK_PROCESSING: Testing DM capability for user ${slackUserId}...`);
           let canSendDM = await testDirectMessage(slackUserId);
           if (!canSendDM) {
-            console.error(`Cannot send DMs to Slack user ${slackUserId}. Skipping task notification.`);
+            console.error(`TASK_PROCESSING: Cannot send DMs to Slack user ${slackUserId}. Skipping task notification.`);
             // Mark as processed to avoid retries
             await markTaskAsProcessed(
               task.ts,
@@ -298,20 +310,29 @@ async function checkUserTasks(
               task.channelId || "",
               task.text
             );
+            console.log(`TASK_PROCESSING: Marked as processed to avoid future retries`);
             continue;
           }
           
+          console.log(`TASK_PROCESSING: DM capability test passed for user ${slackUserId}`);
+          
           // Send an interactive DM to the user
-          console.log(`Sending task detection DM for message ${task.ts}`);
+          console.log(`TASK_PROCESSING: Sending task detection DM for message ${task.ts}`);
           await sendTaskDetectionDM(slackUserId, task);
 
           // Mark this message as processed to avoid duplicates
-          await markTaskAsProcessed(
-            task.ts,
-            userId,
-            task.channelId || "",
-            task.text,
-          );
+          console.log(`TASK_PROCESSING: Marking message ${task.ts} as processed in database`);
+          try {
+            await markTaskAsProcessed(
+              task.ts,
+              userId,
+              task.channelId || "",
+              task.text,
+            );
+            console.log(`TASK_PROCESSING: Successfully marked task ${task.ts} as processed in database`);
+          } catch (processError) {
+            console.error(`TASK_PROCESSING: Failed to mark task ${task.ts} as processed in database:`, processError);
+          }
 
           // If we got here without error, we can slightly decrease the delay
           // but not below the minimum
@@ -435,8 +456,11 @@ async function markTaskAsProcessed(
   messageText: string,
 ) {
   try {
+    console.log(`TASK_MARKING: Starting to mark message ${messageTs} as processed`);
+    
     // First, add to our in-memory set to prevent re-processing during this session
     processedMessages.add(messageTs);
+    console.log(`TASK_MARKING: Added message ${messageTs} to in-memory processed set`);
 
     // Then, create a task record with status="pending" to make this persistent
     // Use a trimmed version of the message as the title (first 50 chars)
@@ -444,15 +468,34 @@ async function markTaskAsProcessed(
       messageText.length > 50
         ? messageText.substring(0, 47) + "..."
         : messageText;
-
-    await storage.createPendingTask(userId, messageTs, slackChannelId, title);
+    
+    console.log(`TASK_MARKING: Creating pending task in DB for message ${messageTs} with title: "${title.substring(0, 30)}${title.length > 30 ? '...' : ''}"`);
+    console.log(`TASK_MARKING: Task data - userId: ${userId}, channelId: ${slackChannelId}, messageTs: ${messageTs}`);
+    
+    try {
+      const task = await storage.createPendingTask(userId, messageTs, slackChannelId, title);
+      console.log(`TASK_MARKING: Successfully created pending task in DB with ID ${task?.id || 'unknown'}`);
+    } catch (error) {
+      const dbError = error as Error;
+      console.error(`TASK_MARKING: Database error creating pending task for message ${messageTs}:`, dbError);
+      
+      // Check if this is a duplicate key error (task might already exist)
+      if (dbError.message && dbError.message.includes('duplicate key')) {
+        console.log(`TASK_MARKING: Task appears to already exist in DB for message ${messageTs}, skipping creation`);
+      } else {
+        // Re-throw to be handled by the outer catch
+        throw dbError;
+      }
+    }
     
     // We no longer save to the file as we rely on the database
     // This helps prevent spamming the user with old messages
+    console.log(`TASK_MARKING: Completed marking message ${messageTs} as processed`);
   } catch (error) {
-    console.error("Error marking task as processed:", error);
+    console.error(`TASK_MARKING: Error marking task as processed for message ${messageTs}:`, error);
     // Still add to memory even if DB operation fails
     processedMessages.add(messageTs);
+    console.log(`TASK_MARKING: Added message ${messageTs} to in-memory set despite error`);
   }
 }
 
