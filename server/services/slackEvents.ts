@@ -6,6 +6,11 @@ import { sendTaskDetectionDM } from './slack';
 import { User } from '@shared/schema';
 import { addProcessedMessageId, isMessageAlreadyProcessed } from './slack';
 
+// Force development mode for webhook testing
+process.env.NODE_ENV = 'development';
+process.env.PROCESS_ALL_MESSAGES = 'true';
+process.env.PROCESS_SELF_MESSAGES = 'true';
+
 // Track webhook health metrics
 let webhookMetrics = {
   eventsReceived: 0,
@@ -161,10 +166,17 @@ export async function processMessageEvent(event: any): Promise<void> {
         webhookMetrics.userMentions.withoutMention++;
       }
       
-      // Skip messages sent by the user themselves
+      // Skip messages sent by the user themselves (except in development mode)
       if (isFromUser) {
         console.log(`[SLACK EVENT] Skipping message from user ${user.slackUserId} (self)`);
-        continue;
+        
+        // Only for development/testing: log that we would normally skip this message
+        // but allow processing to continue
+        if (process.env.NODE_ENV === 'development' || process.env.PROCESS_SELF_MESSAGES === 'true') {
+          console.log(`[SLACK EVENT] Processing self message anyway (development mode)`);
+        } else {
+          continue;
+        }
       }
       
       console.log(`[SLACK EVENT] Processing message for user ${user.slackUserId} (mention: ${isUserMentioned})`);
@@ -178,16 +190,41 @@ export async function processMessageEvent(event: any): Promise<void> {
       };
       
       // Skip if not directly mentioned and no strong task indicators
-      if (!isUserMentioned) {
+      // Check different formats of mentions to be more robust
+      const userMentionFormats = [
+        `<@${user.slackUserId}>`,  // Standard format
+        `<@${user.slackUserId}|`, // User mention with display name
+        `@${user.username}`,      // Simple @ mention with username
+      ];
+      
+      // Check if any mention format is found in the text
+      const userIsReallyMentioned = userMentionFormats.some(format => 
+        text.includes(format)
+      );
+      
+      if (!userIsReallyMentioned) {
         // Check for strong task indicators
-        const strongTaskIndicators = ['todo', 'deadline', 'asap', 'due', 'urgent'];
+        const strongTaskIndicators = [
+          'todo', 'deadline', 'asap', 'due', 'urgent', 
+          'task', 'finish', 'complete', 'required', 'need',
+          'please', 'can you', 'could you', 'will you',
+          'by tomorrow', 'by monday', 'by tuesday', 'by wednesday',
+          'by thursday', 'by friday', 'by saturday', 'by sunday'
+        ];
         let hasStrongIndicator = false;
         
         for (const indicator of strongTaskIndicators) {
           if (text.toLowerCase().includes(indicator.toLowerCase())) {
             hasStrongIndicator = true;
+            console.log(`[SLACK EVENT] Found task indicator: "${indicator}" in message`);
             break;
           }
+        }
+        
+        // For testing: always process in development mode
+        if (process.env.NODE_ENV === 'development' || process.env.PROCESS_ALL_MESSAGES === 'true') {
+          console.log(`[SLACK EVENT] Processing message without mention (development mode)`);
+          hasStrongIndicator = true;
         }
         
         if (!hasStrongIndicator) {
