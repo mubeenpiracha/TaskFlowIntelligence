@@ -20,6 +20,37 @@ import {
   getSlackAuthUrl,
   exchangeCodeForToken
 } from "./services/slackOAuth";
+
+/**
+ * Helper function to ensure timezone is in valid IANA format for Google Calendar
+ * Google Calendar requires IANA format timezones like 'America/New_York'
+ * 
+ * Note: We're no longer using this as we rely on Google Calendar's default timezone handling
+ */
+function validateTimezone(timezone: string): string {
+  // Check if the timezone appears to be in IANA format (Continent/City)
+  if (/^[A-Za-z]+\/[A-Za-z_]+$/.test(timezone)) {
+    return timezone; // Already valid IANA format
+  }
+  
+  // Map common non-IANA formats to IANA
+  const timezoneMap: Record<string, string> = {
+    'EST': 'America/New_York',
+    'EDT': 'America/New_York',
+    'CST': 'America/Chicago',
+    'CDT': 'America/Chicago',
+    'MST': 'America/Denver',
+    'MDT': 'America/Denver', 
+    'PST': 'America/Los_Angeles',
+    'PDT': 'America/Los_Angeles',
+    'GMT': 'UTC',
+    'UTC': 'UTC'
+  };
+  
+  console.log(`[TIMEZONE DEBUG] Mapping timezone: ${timezone} to IANA format`);
+  return timezoneMap[timezone] || 'UTC'; // Return mapped value or default to UTC
+}
+
 import { GOOGLE_LOGIN_REDIRECT_URL, GOOGLE_CALENDAR_REDIRECT_URL, SLACK_OAUTH_REDIRECT_URL } from './config';
 import { getChannelPreferences, saveChannelPreferences } from './services/channelPreferences';
 import { createTaskFromSlackMessage, sendTaskConfirmation } from './services/taskCreation';
@@ -1130,12 +1161,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
                     summary: `Task: ${title}`,
                     description: `${task.description || taskData.text}\n\nScheduled by TaskFlow\nUrgency: ${urgency}/5\nImportance: ${importance}/5`,
                     start: {
-                      dateTime: scheduledStart.toISOString(),
-                      timeZone: userTimeZone
+                      dateTime: scheduledStart.toISOString()
                     },
                     end: {
-                      dateTime: scheduledEnd.toISOString(),
-                      timeZone: userTimeZone
+                      dateTime: scheduledEnd.toISOString()
                     },
                     colorId: priority === 'high' ? '4' : priority === 'medium' ? '5' : '6', // Red, Yellow, Green
                   }
@@ -1173,12 +1202,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
                     summary: `DEADLINE: ${title}`,
                     description: `${task.description || taskData.text}\n\nAuto-scheduled by TaskFlow (no suitable slots found)\nUrgency: ${urgency}/5\nImportance: ${importance}/5`,
                     start: {
-                      dateTime: deadlineStart.toISOString(),
-                      timeZone: userTimeZone
+                      dateTime: deadlineStart.toISOString()
                     },
                     end: {
-                      dateTime: dueDateTime.toISOString(),
-                      timeZone: userTimeZone
+                      dateTime: dueDateTime.toISOString()
                     },
                     colorId: '11', // Red for deadline-based scheduling
                   }
@@ -1595,12 +1622,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
             summary: task.title,
             description: task.description || undefined,
             start: {
-              dateTime: startTime.toISOString(),
-              timeZone: userTimeZone
+              dateTime: startTime.toISOString()
             },
             end: {
-              dateTime: endTime.toISOString(),
-              timeZone: userTimeZone
+              dateTime: endTime.toISOString()
             }
           });
           
@@ -1689,13 +1714,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
             
             eventUpdate.start = {
-              dateTime: startTime.toISOString(),
-              timeZone: userTimeZone
+              dateTime: startTime.toISOString()
             };
             
             eventUpdate.end = {
-              dateTime: endTime.toISOString(),
-              timeZone: userTimeZone
+              dateTime: endTime.toISOString()
             };
           }
           

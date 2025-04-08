@@ -109,15 +109,41 @@ export async function createCalendarEvent(
 ): Promise<calendar_v3.Schema$Event> {
   const calendar = createCalendarClient(refreshToken);
   
+  // Log the event payload for debugging
+  console.log('[CALENDAR DEBUG] Creating calendar event with the following payload:');
+  console.log(JSON.stringify(event, null, 2));
+  
+  // Note: We're no longer specifying timezones in the events
+  // Google Calendar will use the user's calendar timezone settings automatically
+  // This ensures consistent timezone behavior without requiring timezone validation
+  
+  if (event.start?.timeZone) {
+    console.log(`[CALENDAR DEBUG] Start timezone specified: ${event.start.timeZone} (Note: Consider removing this)`);
+  }
+  
+  if (event.end?.timeZone) {
+    console.log(`[CALENDAR DEBUG] End timezone specified: ${event.end.timeZone} (Note: Consider removing this)`);
+  }
+  
+  // Log the start and end times
+  console.log(`[CALENDAR DEBUG] Start time: ${event.start.dateTime}`);
+  console.log(`[CALENDAR DEBUG] End time: ${event.end.dateTime}`);
+  
   try {
     const response = await calendar.events.insert({
       calendarId: 'primary',
       requestBody: event,
     });
     
+    console.log('[CALENDAR DEBUG] Calendar event created successfully, event ID:', response.data.id);
     return response.data;
   } catch (error) {
-    console.error('Error creating calendar event:', error);
+    console.error('[CALENDAR DEBUG] Error creating calendar event:', error);
+    // Log more detailed error info if available
+    if (error.response) {
+      console.error('[CALENDAR DEBUG] Error response data:', error.response.data);
+      console.error('[CALENDAR DEBUG] Error response status:', error.response.status);
+    }
     throw error;
   }
 }
