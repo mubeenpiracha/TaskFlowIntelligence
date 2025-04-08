@@ -2,13 +2,23 @@ import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Home, Calendar, CheckSquare, Settings, Beaker } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { User } from "@shared/schema";
+import { getMe } from "@/lib/api";
 
 export default function Sidebar() {
   const [location] = useLocation();
 
   // Check integrations status
-  const { data: user } = useQuery({
+  const { data: user } = useQuery<User | null>({
     queryKey: ['/api/auth/me'],
+    queryFn: async () => {
+      try {
+        return await getMe();
+      } catch (error) {
+        console.error('Error fetching user data:', error);
+        return null;
+      }
+    }
   });
 
   const isSlackConnected = !!user?.slackUserId;

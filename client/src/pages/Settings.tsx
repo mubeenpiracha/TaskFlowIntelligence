@@ -29,7 +29,7 @@ import {
   type SlackChannel,
   type SystemStatus
 } from "@/lib/api";
-import { ExternalLink, Calendar, AlertCircle, MessageSquare, RefreshCw, LogOut, Activity, Webhook, Radio } from "lucide-react";
+import { ExternalLink, Calendar, Clock, AlertCircle, MessageSquare, RefreshCw, LogOut, Activity, Webhook, Radio, Settings as SettingsIcon } from "lucide-react";
 import WorkingHoursModal from "@/components/modals/WorkingHoursModal";
 
 // System Status Section Component
@@ -589,6 +589,26 @@ export default function Settings() {
           </CardContent>
         </Card>
         
+        {/* Timezone Settings */}
+        <Card id="timezone-settings-card">
+          <CardHeader>
+            <CardTitle className="flex items-center">
+              <Clock className="w-6 h-6 mr-2" />
+              Timezone Settings
+            </CardTitle>
+            <CardDescription>
+              Set your timezone for accurate scheduling
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {isLoadingUser ? (
+              <Skeleton className="h-10 w-full" />
+            ) : (
+              <TimezoneSelector currentTimezone={user?.timezone || "UTC"} />
+            )}
+          </CardContent>
+        </Card>
+        
         {/* Google Calendar Integration */}
         <Card>
           <CardHeader>
@@ -839,7 +859,17 @@ export default function Settings() {
                 {isLoadingUser ? (
                   <Skeleton className="h-10 w-full" />
                 ) : (
-                  <TimezoneSelector currentTimezone={user?.timezone || 'UTC'} />
+                  <div className="p-3 bg-gray-50 rounded-md text-gray-600 flex items-center justify-between">
+                    <span>Current timezone: {user?.timezone || 'UTC'}</span>
+                    <Button 
+                      variant="outline" 
+                      size="sm" 
+                      onClick={() => document.getElementById('timezone-settings-card')?.scrollIntoView({ behavior: 'smooth' })}
+                    >
+                      <Settings className="w-4 h-4 mr-2" />
+                      Configure
+                    </Button>
+                  </div>
                 )}
               </div>
             </div>

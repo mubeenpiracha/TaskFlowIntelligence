@@ -109,9 +109,14 @@ export default function Dashboard() {
           variant: "default",
         });
       } else {
+        // Handle differently based on the response type
+        const numTasks = 'tasks' in tasks && Array.isArray(tasks.tasks) 
+          ? tasks.tasks.length 
+          : Array.isArray(tasks) ? tasks.length : 0;
+        
         toast({
           title: "Task Detection Complete",
-          description: `Found ${tasks.length} potential tasks in your Slack channels.`,
+          description: `Found ${numTasks} potential tasks in your Slack channels.`,
           variant: "default",
         });
       }
