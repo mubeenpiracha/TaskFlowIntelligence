@@ -252,16 +252,46 @@ export interface SystemStatus {
     active: boolean;
     total_connections: number;
   };
+  app_updates?: {
+    method: string;
+    active: boolean;
+    polling_interval: string;
+  };
 }
 
 export const getSystemStatus = async (): Promise<SystemStatus> => {
-  const res = await apiRequest('GET', '/api/system/status');
-  
-  if (!res.ok) {
-    throw new Error('Failed to get system status');
+  try {
+    const res = await apiRequest('GET', '/api/system/status');
+    
+    if (!res.ok) {
+      console.error(`Failed to get system status: ${res.status}`);
+      throw new Error('Failed to get system status');
+    }
+    
+    return await res.json();
+  } catch (error) {
+    console.error('Error in getSystemStatus:', error);
+    // Return a fallback status object if there's an error
+    return {
+      slack_monitoring: {
+        isMonitoring: false,
+        lastStarted: null,
+        messagesProcessed: 0,
+        tasksDetected: 0
+      },
+      slack_webhook: {
+        enabled: false,
+        configured: false,
+        url: '',
+        status: 'unconfigured'
+      },
+      app_updates: {
+        method: 'polling',
+        active: true,
+        polling_interval: '30s'
+      }
+    };
   }
-  
-  return res.json();
 };
 
 export const checkTasksNow = async (): Promise<MonitoringCheckResult> => {
