@@ -40,7 +40,14 @@ const SystemStatusSection = () => {
   const { toast } = useToast();
   const { data: systemStatus, isLoading, error, refetch } = useQuery({
     queryKey: ['/api/system/status'],
-    queryFn: getSystemStatus,
+    queryFn: async () => {
+      try {
+        return await getSystemStatus();
+      } catch (error) {
+        console.error("Error fetching system status:", error);
+        return null;
+      }
+    },
     refetchInterval: 60000, // Refresh every minute
   });
 
