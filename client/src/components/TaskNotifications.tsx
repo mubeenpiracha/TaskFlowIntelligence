@@ -1,6 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useToast } from '@/hooks/use-toast';
-import { useWebSocket } from '@/hooks/use-websocket';
 import { MessageSquare, Calendar, Flag, Clock, AlertCircle, CheckCircle2 } from 'lucide-react';
 import {
   Alert,
@@ -19,35 +18,36 @@ interface TaskNotification extends Task {
 
 export default function TaskNotifications() {
   const [notifications, setNotifications] = useState<TaskNotification[]>([]);
-  const { lastMessage, isConnected } = useWebSocket();
   const { toast } = useToast();
-
-  // Process incoming WebSocket messages
-  useEffect(() => {
-    if (lastMessage && lastMessage.type === 'task_detected') {
-      // Add the new task to notifications with isNew flag
-      const newTask = { ...lastMessage.task, isNew: true };
-      setNotifications(prev => [newTask, ...prev].slice(0, 5)); // Keep only 5 most recent
-      
-      // Also show a toast notification
-      toast({
-        title: 'New Task Detected',
-        description: `"${lastMessage.task.title}" from Slack`,
-        variant: 'default',
-      });
-      
-      // Remove the isNew flag after 5 seconds
-      setTimeout(() => {
-        setNotifications(prev => 
-          prev.map(task => 
-            task.id === newTask.id ? { ...task, isNew: false } : task
-          )
-        );
-      }, 5000);
+  
+  // Fetch latest tasks and use them for notifications
+  const fetchLatestTasks = useCallback(async () => {
+    try {
+      const res = await fetch('/api/tasks/recent?limit=5');
+      if (res.ok) {
+        const data = await res.json();
+        // Keep only newest 5 tasks
+        setNotifications(data.slice(0, 5).map((task: Task) => ({...task, isNew: false})));
+      }
+    } catch (error) {
+      console.error('Error fetching latest tasks:', error);
     }
-  }, [lastMessage, toast]);
+  }, []);
+  
+  // Set up polling for new tasks
+  useEffect(() => {
+    // Initial fetch
+    fetchLatestTasks();
+    
+    // Polling interval 
+    const pollingInterval = setInterval(() => {
+      fetchLatestTasks();
+    }, 30000); // Poll every 30 seconds
+    
+    return () => clearInterval(pollingInterval);
+  }, [fetchLatestTasks]);
 
-  if (!isConnected) return null;
+  // Always show the component instead of checking WebSocket connection
   
   if (notifications.length === 0) {
     return (

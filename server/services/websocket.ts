@@ -329,14 +329,14 @@ export function sendToUser(userId: number, message: any): number {
 
 /**
  * Broadcast a notification about a new task detection to the user
+ * This function is now a stub as we've moved to polling-based updates
  * @param userId - User ID
  * @param task - Task details
  */
 export function notifyTaskDetection(userId: number, task: any) {
-  return sendToUser(userId, {
-    type: 'task_detected',
-    task
-  });
+  // Log the task detection but don't send via websocket
+  console.log(`Task detection for user ${userId}: ${task.title} - Using polling instead of WebSocket`);
+  return 0; // Return 0 to indicate no clients were notified (as WebSockets are disabled)
 }
 
 /**

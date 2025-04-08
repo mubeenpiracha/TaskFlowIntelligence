@@ -1,6 +1,6 @@
 import { useState, useEffect } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus, Calendar, AlertTriangle, MessageSquare, RefreshCw, Wifi, WifiOff, Radar, ThumbsUp } from "lucide-react";
+import { Plus, Calendar, AlertTriangle, MessageSquare, RefreshCw, Radar, ThumbsUp, Clock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { apiRequest } from "@/lib/queryClient";
@@ -13,7 +13,6 @@ import TaskNotifications from "@/components/TaskNotifications";
 import { Link } from "wouter";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
-import { useWebSocket } from "@/hooks/use-websocket";
 import { useAuth } from "@/hooks/use-auth";
 import { Badge } from "@/components/ui/badge";
 import { checkTasksNow, forceScanSlack } from "@/lib/api";
@@ -22,16 +21,19 @@ export default function Dashboard() {
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const { isConnected, lastMessage } = useWebSocket();
+  // Polling is used instead of WebSockets
   
-  // When a new task is detected via WebSocket, refresh the task list
+  // Set up polling instead of using websockets to refresh task data
   useEffect(() => {
-    if (lastMessage?.type === 'task_detected') {
-      // Invalidate both tasks and Slack messages queries
+    // Set up polling every 30 seconds to refresh task data
+    const pollInterval = setInterval(() => {
+      // Invalidate both tasks and Slack messages queries to trigger refetch
       queryClient.invalidateQueries({ queryKey: ['/api/tasks/today'] });
       queryClient.invalidateQueries({ queryKey: ['/api/slack/detect-tasks'] });
-    }
-  }, [lastMessage, queryClient]);
+    }, 30000); // 30 seconds
+    
+    return () => clearInterval(pollInterval);
+  }, [queryClient]);
 
   // Fetch current user data
   const { data: user } = useQuery({
@@ -247,18 +249,10 @@ export default function Dashboard() {
               <h3 className="text-lg leading-6 font-medium text-[#1D1C1D]">Recently Detected Tasks</h3>
               <p className="mt-1 text-sm text-gray-500">
                 Tasks detected from Slack messages in the last 24 hours
-                {isConnected && (
-                  <Badge variant="outline" className="ml-2 bg-green-100 text-green-800 border-green-300">
-                    <Wifi className="h-3 w-3 mr-1" />
-                    Real-time
-                  </Badge>
-                )}
-                {!isConnected && user?.slackUserId && (
-                  <Badge variant="outline" className="ml-2 bg-amber-100 text-amber-800 border-amber-300">
-                    <WifiOff className="h-3 w-3 mr-1" />
-                    Offline
-                  </Badge>
-                )}
+                <Badge variant="outline" className="ml-2 bg-blue-100 text-blue-800 border-blue-300">
+                  <Clock className="h-3 w-3 mr-1" />
+                  Auto-Refresh
+                </Badge>
               </p>
             </div>
             <div className="flex space-x-2">
@@ -333,20 +327,20 @@ export default function Dashboard() {
         {/* Calendar View */}
         <CalendarView tasks={todayTasks} />
         
-        {/* Real-time Task Notifications */}
-        {isConnected && user?.slackUserId && (
+        {/* Task Notifications */}
+        {user?.slackUserId && (
           <div className="bg-white overflow-hidden shadow rounded-lg">
             <div className="px-4 py-5 sm:px-6 border-b border-gray-200">
               <div className="flex justify-between items-center">
                 <div>
-                  <h3 className="text-lg leading-6 font-medium text-[#1D1C1D]">Real-time Notifications</h3>
+                  <h3 className="text-lg leading-6 font-medium text-[#1D1C1D]">Recent Task Notifications</h3>
                   <p className="mt-1 text-sm text-gray-500">
-                    Live task notifications from Slack
+                    Most recent task notifications from Slack
                   </p>
                 </div>
-                <Badge variant="outline" className="bg-green-100 text-green-800 border-green-300">
-                  <Wifi className="h-3 w-3 mr-1" />
-                  Connected
+                <Badge variant="outline" className="bg-blue-100 text-blue-800 border-blue-300">
+                  <Clock className="h-3 w-3 mr-1" />
+                  Auto-Refresh
                 </Badge>
               </div>
             </div>

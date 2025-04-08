@@ -22,7 +22,7 @@ import {
 import { GOOGLE_LOGIN_REDIRECT_URL, GOOGLE_CALENDAR_REDIRECT_URL, SLACK_OAUTH_REDIRECT_URL } from './config';
 import { getChannelPreferences, saveChannelPreferences } from './services/channelPreferences';
 import { createTaskFromSlackMessage, sendTaskConfirmation } from './services/taskCreation';
-import { setupWebSocketServer } from './services/websocket';
+
 import { handleSlackEvent, getWebhookHealthStatus } from './services/slackEvents';
 import { 
   startSlackMonitoring, 
@@ -1055,6 +1055,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
+  // Endpoint for retrieving the most recent tasks (for notifications)
+  app.get('/api/tasks/recent', requireAuth, async (req, res) => {
+    try {
+      const userId = req.session.userId!;
+      const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 5;
+      
+      // Get all tasks for the user
+      const allTasks = await storage.getTasksByUser(userId);
+      
+      // Sort by created date, newest first
+      const sortedTasks = allTasks.sort((a, b) => {
+        return new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime();
+      });
+      
+      // Return only the requested number of tasks
+      res.json(sortedTasks.slice(0, limit));
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ message: 'Failed to fetch recent tasks' });
+    }
+  });
+  
   app.get('/api/tasks/:date', requireAuth, async (req, res) => {
     try {
       const { date } = z.object({
@@ -1334,8 +1356,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   const httpServer = createServer(app);
   
-  // Initialize WebSocket server for real-time updates
-  const wsServer = setupWebSocketServer(httpServer);
+  // No longer need to set up WebSockets - we've moved to a polling-based approach
   
   // Start Slack monitoring service
   const stopMonitoring = startSlackMonitoring();
@@ -1368,9 +1389,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         url: `${req.protocol}://${req.get('host')}/slack/events`,
         status: webhookStatus
       },
-      websocket: {
-        active: wsServer.clients.size > 0,
-        total_connections: wsServer.clients.size
+      app_updates: {
+        method: 'polling',
+        active: true,
+        polling_interval: '30s'
       }
     });
   });
