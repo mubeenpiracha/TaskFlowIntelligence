@@ -417,6 +417,52 @@ export async function sendMessage(
 }
 
 /**
+ * Tests if the bot can send a direct message to a user
+ * @param slackUserId - Slack user ID to test DM with
+ * @returns Promise resolving to boolean indicating if DM is possible
+ */
+export async function testDirectMessage(slackUserId: string): Promise<boolean> {
+  try {
+    console.log(`Testing direct message capability to user ${slackUserId}`);
+    const response = await slack.conversations.open({
+      users: slackUserId
+    });
+    
+    if (!response.ok) {
+      console.error(`Failed to open conversation with user ${slackUserId}:`, response.error);
+      return false;
+    }
+    
+    const channelId = response.channel?.id;
+    if (!channelId) {
+      console.error(`No channel ID returned when opening conversation with ${slackUserId}`);
+      return false;
+    }
+    
+    console.log(`Successfully opened conversation with user ${slackUserId} in channel ${channelId}`);
+    
+    // Send a test message that will be invisible to the user (using ephemeral)
+    // This ensures we have proper permissions without bothering the user
+    const message = await slack.chat.postEphemeral({
+      channel: channelId,
+      user: slackUserId,
+      text: "Task detection system test message (only visible to you)"
+    });
+    
+    if (!message.ok) {
+      console.error(`Failed to send test message to user ${slackUserId}:`, message.error);
+      return false;
+    }
+    
+    console.log(`Successfully sent test message to user ${slackUserId}`);
+    return true;
+  } catch (error) {
+    console.error(`Error testing DM capability with user ${slackUserId}:`, error);
+    return false;
+  }
+}
+
+/**
  * Sends an interactive message to a user with task details and action buttons
  * @param slackUserId - Slack user ID to send the DM to
  * @param message - The detected Slack message that contains a potential task
@@ -427,6 +473,10 @@ export async function sendTaskDetectionDM(
   message: SlackMessage
 ): Promise<string | undefined> {
   try {
+    console.log(`TASK DM: Starting to send task detection DM to user ${slackUserId}`);
+    console.log(`TASK DM: Message text: "${message.text.substring(0, 50)}..."`);
+    console.log(`TASK DM: Using bot token: ${process.env.SLACK_BOT_TOKEN ? 'Available (starts with ' + process.env.SLACK_BOT_TOKEN.substring(0, 5) + '...)' : 'MISSING'}`);
+    
     // Extract initial task information
     const extractedTitle = extractTaskTitle(message.text);
     const extractedDueDate = extractDueDate(message.text);
@@ -610,6 +660,22 @@ export async function sendTaskDetectionDM(
         
         return response.ts;
       } catch (error: any) {
+        // Enhanced error logging for debugging
+        console.error('SLACK ERROR DETAILS:', {
+          message: error.message || 'No error message',
+          code: error.code || 'No error code',
+          data: error.data || 'No error data',
+          stack: error.stack || 'No stack trace'
+        });
+        
+        if (error.data && error.data.error) {
+          console.error(`SLACK API ERROR: ${error.data.error}`);
+        }
+        
+        if (error.data && error.data.response_metadata) {
+          console.error(`SLACK METADATA: ${JSON.stringify(error.data.response_metadata)}`);
+        }
+        
         // Check if the error is rate limiting related
         const isRateLimit = error.code === 'slack_webapi_platform_error' && 
                             error.data && error.data.error === 'ratelimited';

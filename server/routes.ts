@@ -4,7 +4,7 @@ import session from "express-session";
 import { storage } from "./storage";
 import { z } from "zod";
 import { insertTaskSchema, insertUserSchema, insertWorkingHoursSchema } from "@shared/schema";
-import { detectTasks, sendMessage, listUserChannels, sendTaskDetectionDM, type SlackChannel, type SlackMessage } from "./services/slack";
+import { detectTasks, sendMessage, listUserChannels, sendTaskDetectionDM, testDirectMessage, type SlackChannel, type SlackMessage } from "./services/slack";
 import { 
   getCalendarAuthUrl, 
   getLoginAuthUrl,
@@ -567,6 +567,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // If requested, send interactive DMs for each detected task
       if (sendDMs) {
+        // First test if we can send DMs to this user
+        if (user.slackUserId) {
+          console.log(`Testing DM capability for user ${user.slackUserId} before sending task notifications`);
+          const canSendDM = await testDirectMessage(user.slackUserId);
+          
+          if (!canSendDM) {
+            console.error(`Cannot send DMs to Slack user ${user.slackUserId}. Skipping all task notifications.`);
+            return res.status(403).json({
+              message: 'Cannot send DMs to your Slack account. This may be due to permission issues or Slack workspace settings.',
+              code: 'SLACK_DM_PERMISSION_ERROR' 
+            });
+          }
+          
+          console.log(`Successfully tested DM capability for user ${user.slackUserId}, proceeding with task notifications`);
+        }
+      
         // Process each detected task
         await Promise.all(tasks.map(async (task) => {
           try {
@@ -575,12 +591,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
             if (!existingTask) {
               // Send an interactive DM to the user about this detected task
               if (user.slackUserId) {
+                console.log(`Sending task detection DM for task from message ${task.ts}`);
                 // Use bot token from environment variable instead of user token
                 await sendTaskDetectionDM(user.slackUserId, task);
               }
             }
           } catch (dmError) {
             console.error('Error sending task detection DM:', dmError);
+            console.error('Error details:', dmError.stack || 'No stack trace available');
             // Continue with other tasks even if one fails
           }
         }));

@@ -1,5 +1,5 @@
 import { WebClient } from "@slack/web-api";
-import { detectTasks, sendTaskDetectionDM } from "./slack";
+import { detectTasks, sendTaskDetectionDM, testDirectMessage } from "./slack";
 import { storage } from "../storage";
 import { getChannelPreferences } from "./channelPreferences";
 import { User } from "@shared/schema";
@@ -287,6 +287,20 @@ async function checkUserTasks(
             continue;
           }
 
+          // Test if we can send DMs to this user first
+          let canSendDM = await testDirectMessage(slackUserId);
+          if (!canSendDM) {
+            console.error(`Cannot send DMs to Slack user ${slackUserId}. Skipping task notification.`);
+            // Mark as processed to avoid retries
+            await markTaskAsProcessed(
+              task.ts,
+              userId,
+              task.channelId || "",
+              task.text
+            );
+            continue;
+          }
+          
           // Send an interactive DM to the user
           console.log(`Sending task detection DM for message ${task.ts}`);
           await sendTaskDetectionDM(slackUserId, task);
