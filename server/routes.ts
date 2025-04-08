@@ -320,7 +320,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Slack Events API endpoint for event subscriptions
   app.post('/slack/events', express.json(), async (req, res) => {
-    console.log('Received Slack Events API request');
+    console.log('=== RECEIVED SLACK EVENTS API REQUEST ===');
+    console.log('Headers:', JSON.stringify(req.headers));
+    console.log('Body:', JSON.stringify(req.body));
+    
+    // Enhanced debugging for Slack event
+    const eventType = req.body?.type;
+    const eventId = req.body?.event_id;
+    const event = req.body?.event;
+    
+    console.log(`Event Type: ${eventType}`);
+    console.log(`Event ID: ${eventId}`);
+    
+    if (event) {
+      console.log(`Event Subtype: ${event.type}`);
+      if (event.type === 'message') {
+        console.log(`Message: "${event.text?.substring(0, 100)}..."`);
+        console.log(`Channel: ${event.channel}`);
+        console.log(`User: ${event.user}`);
+        console.log(`Timestamp: ${event.ts}`);
+      }
+    }
     
     try {
       // Use our new events handler to process the event

@@ -10,6 +10,7 @@ import { addProcessedMessageId, isMessageAlreadyProcessed } from './slack';
 process.env.NODE_ENV = 'development';
 process.env.PROCESS_ALL_MESSAGES = 'true';
 process.env.PROCESS_SELF_MESSAGES = 'true';
+process.env.SKIP_SLACK_VERIFICATION = 'true';
 
 // Reset message processing cache for testing on every server restart
 console.log('DEVELOPMENT MODE: Clearing message processing cache for easier testing!');
@@ -54,13 +55,39 @@ const slack = new WebClient(process.env.SLACK_BOT_TOKEN || '');
  * @param req - Express request object
  * @returns Boolean indicating if the request is valid
  */
+import * as crypto from 'crypto';
+
 export function verifySlackRequest(req: Request): boolean {
-  // In a production environment, you should implement proper
-  // signature verification using the Slack signing secret
-  // See: https://api.slack.com/authentication/verifying-requests-from-slack
+  // In development mode, we skip verification for testing
+  if (process.env.NODE_ENV === 'development' && process.env.SKIP_SLACK_VERIFICATION === 'true') {
+    console.log('DEVELOPMENT MODE: Skipping Slack request verification');
+    return true;
+  }
   
-  // For now, we'll just check if the request has a body
-  return !!req.body;
+  // Skip verification if this is a URL verification challenge
+  if (req.body?.type === 'url_verification') {
+    return true;
+  }
+  
+  try {
+    // Check if basic requirements are met
+    if (!req.body) {
+      console.error('Missing request body');
+      return false;
+    }
+    
+    // For logging purposes in case of problems
+    console.log('Headers received:', JSON.stringify(req.headers));
+    console.log('Raw request body:', typeof req.body === 'string' ? req.body.substring(0, 200) : JSON.stringify(req.body).substring(0, 200));
+    
+    // Development bypass - always accept the request for now
+    // In a production environment, we would implement proper signature verification
+    console.log('DEVELOPMENT MODE: Accepting all Slack requests for testing');
+    return true;
+  } catch (error) {
+    console.error('Error verifying Slack request:', error);
+    return false;
+  }
 }
 
 /**
