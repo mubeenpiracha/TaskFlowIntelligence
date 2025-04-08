@@ -126,7 +126,7 @@ async function preloadProcessedMessages(): Promise<void> {
 
 /**
  * Starts the background monitoring service for Slack messages
- * Preloads processed messages and sets up interval for periodic checks
+ * Only preloads processed messages (no polling)
  * @returns A cleanup function to stop monitoring
  */
 export function startSlackMonitoring(): () => void {
@@ -137,19 +137,12 @@ export function startSlackMonitoring(): () => void {
     return () => stopSlackMonitoring();
   }
 
-  console.log("Starting Slack monitoring service");
+  console.log("Starting Slack monitoring service (webhook-only mode)");
   isMonitoringActive = true;
 
   // Preload processed messages before starting
   void preloadProcessedMessages().then(() => {
-    // Run initial check immediately after preloading
-    console.log("Running initial task check...");
-    void checkForNewTasks();
-
-    // Set up recurring monitoring with shorter interval
-    monitoringInterval = setInterval(async () => {
-      void checkForNewTasks();
-    }, MONITORING_INTERVAL);
+    console.log("Processed message cache loaded - system ready for webhook events");
   });
 
   // Return a cleanup function
@@ -160,9 +153,13 @@ export function startSlackMonitoring(): () => void {
  * Stops the Slack monitoring service
  */
 function stopSlackMonitoring() {
-  console.log("Stopping Slack monitoring service");
+  console.log("Stopping Slack monitoring service (webhook-only mode)");
   isMonitoringActive = false;
-
+  
+  // Save processed messages to file before stopping
+  saveProcessedMessagesToFile();
+  
+  // The interval is not used in webhook-only mode, but we'll clear it just in case
   if (monitoringInterval) {
     clearInterval(monitoringInterval);
     monitoringInterval = null;
@@ -556,20 +553,28 @@ function updateLastCheckedTimestamps(channelIds: string[]) {
 export function getMonitoringStatus() {
   return {
     active: isMonitoringActive,
+    mode: "webhook-only",
     monitoredChannelsCount: lastCheckedTimestamps.size,
     processedMessagesCount: processedMessages.size,
-    monitoring: {
-      interval: MONITORING_INTERVAL / 1000, // Convert to seconds for readability
-      lastCheckedTimestamps: Object.fromEntries(
-        lastCheckedTimestamps.entries(),
-      ),
-      batchProcessingEnabled: true,
-      batchSize: 3, // Corresponds to the BATCH_SIZE in checkUserTasks
-      batchDelay: 5000, // ms between batches
-      messageDelay: 2000, // ms between messages
-      maxTasksPerCheck: 25, // Max tasks processed per check from detectTasks
-      rateLimitingEnabled: true,
-      adaptiveBackoff: true,
+    processedMessages: {
+      inMemoryCacheSize: processedMessages.size,
+      pruningThreshold: 10000,
+      pruningTarget: 5000,
+    },
+    webhookSupport: {
+      enabled: true,
+      taskProcessingConfig: {
+        batchSize: 3, // Corresponds to the BATCH_SIZE in checkUserTasks
+        batchDelay: 5000, // ms between batches
+        messageDelay: 2000, // ms between messages
+        maxTasksPerCheck: 25, // Max tasks processed per check
+        rateLimitingEnabled: true,
+        adaptiveBackoff: true,
+      }
+    },
+    pollingSupport: {
+      enabled: false,
+      description: "Fully migrated to webhook-based event processing"
     },
     memoryUsage: process.memoryUsage(),
   };
@@ -645,18 +650,30 @@ export function clearProcessedMessages(keepCount: number = 0): number {
 
 /**
  * Manually trigger task detection immediately
- * This is useful for forcing a scan when a user requests it
- * @returns Promise with results of the check
+ * In webhook-only mode, this is primarily to check the current status and configuration
+ * It still performs a legacy check for backward compatibility and manual testing
+ * @returns Promise with results of the check and webhook status
  */
 export async function checkForNewTasksManually(): Promise<{
   success: boolean;
-  tasksDetected: number;
-  usersProcessed: number;
+  mode: string;
+  processedMessages: number;
+  webhookStatus: {
+    enabled: boolean;
+    description: string;
+  };
+  legacyPollResult?: {
+    tasksDetected: number;
+    usersProcessed: number;
+  };
   error?: string;
 }> {
   try {
-    // Run the task check
-    console.log("Manually triggering Slack task detection...");
+    console.log("Checking Slack monitoring status (webhook-only mode)...");
+    
+    // For debugging and testing purposes, we'll still run the legacy check
+    // This is useful for manual verification of workspace connectivity
+    console.log("Running legacy check for manual verification...");
     await checkForNewTasks();
 
     // Get the user count with Slack integration
@@ -664,15 +681,27 @@ export async function checkForNewTasksManually(): Promise<{
 
     return {
       success: true,
-      tasksDetected: processedMessages.size,
-      usersProcessed: users.length,
+      mode: "webhook-only",
+      processedMessages: processedMessages.size,
+      webhookStatus: {
+        enabled: true,
+        description: "System is using Slack Events API webhooks for real-time event processing"
+      },
+      legacyPollResult: {
+        tasksDetected: processedMessages.size,
+        usersProcessed: users.length
+      }
     };
   } catch (error) {
-    console.error("Error in manual task detection:", error);
+    console.error("Error in manual Slack status check:", error);
     return {
       success: false,
-      tasksDetected: 0,
-      usersProcessed: 0,
+      mode: "webhook-only",
+      processedMessages: processedMessages.size,
+      webhookStatus: {
+        enabled: true,
+        description: "Error occurred during manual status check"
+      },
       error: error instanceof Error ? error.message : String(error),
     };
   }

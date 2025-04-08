@@ -1348,14 +1348,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     
     // Get the webhook health status - a healthy webhook has received events in the past 24 hours
     // This is stored in the slackEvents service
-    const { eventsReceived, lastEventTime } = getWebhookHealthStatus();
+    const webhookMetrics = getWebhookHealthStatus();
+    
+    // Determine health status
     const webhookStatus = slackConfigured ? 
-      (eventsReceived > 0 && lastEventTime && (Date.now() - lastEventTime) < 24 * 60 * 60 * 1000 ? 'healthy' : 'unhealthy') : 
-      'unconfigured';
+      (webhookMetrics.events.total > 0 && 
+       webhookMetrics.lastActive && 
+       (Date.now() - new Date(webhookMetrics.lastActive).getTime()) < 24 * 60 * 60 * 1000 
+          ? 'healthy' 
+          : 'unhealthy'
+      ) : 'unconfigured';
     
     res.json({
       slack_monitoring: getMonitoringStatus(),
       slack_webhook: {
+        ...webhookMetrics,
         enabled: true, // The webhooks are always enabled on the server side
         configured: slackConfigured,
         url: `${req.protocol}://${req.get('host')}/slack/events`,

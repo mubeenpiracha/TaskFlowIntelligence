@@ -11,7 +11,31 @@ let webhookMetrics = {
   eventsReceived: 0,
   lastEventTime: null as number | null,
   messageEvents: 0,
-  otherEvents: 0
+  otherEvents: 0,
+  taskDetections: 0,
+  errors: 0,
+  processingTime: {
+    totalMs: 0,
+    count: 0,
+    avgMs: 0
+  },
+  aiAnalysis: {
+    tasksDetected: 0,
+    nonTasksFiltered: 0,
+    avgConfidence: 0,
+    totalConfidence: 0,
+    count: 0
+  },
+  userMentions: {
+    withMention: 0,
+    withoutMention: 0
+  },
+  channelTypes: {
+    public: 0,
+    private: 0,
+    dm: 0,
+    mpim: 0
+  }
 };
 
 // Initialize the Slack WebClient with the bot token
@@ -51,6 +75,8 @@ export function handleUrlVerification(req: Request, res: Response): boolean {
  * @param event - Slack message event object
  */
 export async function processMessageEvent(event: any): Promise<void> {
+  const processingStart = Date.now();
+  
   try {
     // Skip bot messages, thread replies, and message edits/deletes
     if (
@@ -66,6 +92,17 @@ export async function processMessageEvent(event: any): Promise<void> {
     const channelId = event.channel;
     const userId = event.user;
     const text = event.text;
+    
+    // Track channel type
+    if (channelId.startsWith('C')) {
+      webhookMetrics.channelTypes.public++;
+    } else if (channelId.startsWith('G')) {
+      webhookMetrics.channelTypes.private++;
+    } else if (channelId.startsWith('D')) {
+      webhookMetrics.channelTypes.dm++;
+    } else if (channelId.startsWith('M')) {
+      webhookMetrics.channelTypes.mpim++;
+    }
     
     console.log(`[SLACK EVENT] Received message: ${text?.substring(0, 50)}${text?.length > 50 ? '...' : ''}`);
     
@@ -110,6 +147,13 @@ export async function processMessageEvent(event: any): Promise<void> {
       const isUserMentioned = text.includes(userMention);
       const isFromUser = userId === user.slackUserId;
       
+      // Update mention metrics
+      if (isUserMentioned) {
+        webhookMetrics.userMentions.withMention++;
+      } else {
+        webhookMetrics.userMentions.withoutMention++;
+      }
+      
       // Skip messages sent by the user themselves
       if (isFromUser) {
         console.log(`[SLACK EVENT] Skipping message from user ${user.slackUserId} (self)`);
@@ -152,6 +196,19 @@ export async function processMessageEvent(event: any): Promise<void> {
       console.log(`[SLACK EVENT] Analyzing message with OpenAI`);
       const aiAnalysis = await analyzeMessageForTask(messageObj, user.slackUserId!);
       
+      // Update AI analysis metrics
+      webhookMetrics.aiAnalysis.count++;
+      webhookMetrics.aiAnalysis.totalConfidence += aiAnalysis.confidence;
+      webhookMetrics.aiAnalysis.avgConfidence = 
+        webhookMetrics.aiAnalysis.totalConfidence / webhookMetrics.aiAnalysis.count;
+      
+      if (aiAnalysis.is_task) {
+        webhookMetrics.aiAnalysis.tasksDetected++;
+        webhookMetrics.taskDetections++;
+      } else {
+        webhookMetrics.aiAnalysis.nonTasksFiltered++;
+      }
+      
       // Log the analysis results
       console.log(`[SLACK EVENT] AI TASK DETECTION: ${aiAnalysis.is_task ? 'IS A TASK' : 'NOT A TASK'} (${(aiAnalysis.confidence * 100).toFixed(1)}%)`);
       console.log(`[SLACK EVENT] REASONING: ${aiAnalysis.reasoning}`);
@@ -172,11 +229,22 @@ export async function processMessageEvent(event: any): Promise<void> {
           console.log(`[SLACK EVENT] Successfully sent task detection DM to ${user.slackUserId}`);
         } catch (error) {
           console.error(`[SLACK EVENT] Error sending task detection DM:`, error);
+          webhookMetrics.errors++;
         }
       }
     }
   } catch (error) {
     console.error('[SLACK EVENT] Error processing message event:', error);
+    webhookMetrics.errors++;
+  } finally {
+    // Update processing time metrics
+    const processingTime = Date.now() - processingStart;
+    webhookMetrics.processingTime.totalMs += processingTime;
+    webhookMetrics.processingTime.count++;
+    webhookMetrics.processingTime.avgMs = 
+      webhookMetrics.processingTime.totalMs / webhookMetrics.processingTime.count;
+    
+    console.log(`[SLACK EVENT] Message processing completed in ${processingTime}ms`);
   }
 }
 
@@ -203,14 +271,47 @@ async function getChannelName(channelId: string): Promise<string> {
 
 /**
  * Get webhook health status
- * @returns Webhook health status metrics
+ * @returns Detailed webhook health status metrics
  */
 export function getWebhookHealthStatus() {
   return {
-    eventsReceived: webhookMetrics.eventsReceived,
-    lastEventTime: webhookMetrics.lastEventTime,
-    messageEvents: webhookMetrics.messageEvents,
-    otherEvents: webhookMetrics.otherEvents,
+    status: "active",
+    mode: "webhook-only",
+    lastActive: webhookMetrics.lastEventTime 
+      ? new Date(webhookMetrics.lastEventTime).toISOString()
+      : null,
+    events: {
+      total: webhookMetrics.eventsReceived,
+      messages: webhookMetrics.messageEvents,
+      other: webhookMetrics.otherEvents,
+      lastEventTime: webhookMetrics.lastEventTime,
+    },
+    taskProcessing: {
+      tasksDetected: webhookMetrics.taskDetections,
+      errors: webhookMetrics.errors,
+      processingTime: {
+        avgMs: Math.round(webhookMetrics.processingTime.avgMs),
+        count: webhookMetrics.processingTime.count
+      }
+    },
+    aiAnalysis: {
+      processed: webhookMetrics.aiAnalysis.count,
+      tasksDetected: webhookMetrics.aiAnalysis.tasksDetected,
+      nonTasksFiltered: webhookMetrics.aiAnalysis.nonTasksFiltered,
+      avgConfidence: webhookMetrics.aiAnalysis.count > 0 
+        ? Math.round(webhookMetrics.aiAnalysis.avgConfidence * 100) / 100 
+        : 0
+    },
+    userInteractions: {
+      withMention: webhookMetrics.userMentions.withMention,
+      withoutMention: webhookMetrics.userMentions.withoutMention
+    },
+    channelTypes: {
+      public: webhookMetrics.channelTypes.public,
+      private: webhookMetrics.channelTypes.private,
+      directMessage: webhookMetrics.channelTypes.dm,
+      multiPersonIm: webhookMetrics.channelTypes.mpim
+    }
   };
 }
 
