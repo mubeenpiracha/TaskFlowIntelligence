@@ -40,15 +40,11 @@ const SystemStatusSection = () => {
   const { toast } = useToast();
   const { data: systemStatus, isLoading, error, refetch } = useQuery({
     queryKey: ['/api/system/status'],
-    queryFn: async () => {
-      try {
-        return await getSystemStatus();
-      } catch (error) {
-        console.error("Error fetching system status:", error);
-        return null;
-      }
-    },
+    queryFn: getSystemStatus,
     refetchInterval: 60000, // Refresh every minute
+    refetchOnWindowFocus: false,
+    retry: 1,
+    staleTime: 30000
   });
 
   if (isLoading) {
@@ -61,7 +57,7 @@ const SystemStatusSection = () => {
     );
   }
 
-  if (error || !systemStatus) {
+  if (error) {
     return (
       <div className="p-4 border border-red-200 rounded-md bg-red-50 text-red-800 flex items-center gap-2">
         <AlertCircle size={20} />
@@ -92,16 +88,16 @@ const SystemStatusSection = () => {
           <div className="flex flex-col">
             <span className="text-sm text-gray-500">Status</span>
             <div className="flex items-center gap-2 mt-1">
-              <Badge variant={systemStatus.slack_webhook.configured ? "default" : "destructive"} className={systemStatus.slack_webhook.configured ? "bg-green-100 text-green-800 hover:bg-green-100" : ""}>
-                {systemStatus.slack_webhook.configured ? 'Configured' : 'Not Configured'}
+              <Badge variant={systemStatus?.slack_webhook?.configured ? "default" : "destructive"} className={systemStatus?.slack_webhook?.configured ? "bg-green-100 text-green-800 hover:bg-green-100" : ""}>
+                {systemStatus?.slack_webhook?.configured ? 'Configured' : 'Not Configured'}
               </Badge>
             </div>
           </div>
           <div className="flex flex-col">
             <span className="text-sm text-gray-500">Health</span>
             <div className="flex items-center gap-2 mt-1">
-              <Badge variant={systemStatus.slack_webhook.status === 'healthy' ? "default" : "destructive"} className={systemStatus.slack_webhook.status === 'healthy' ? "bg-green-100 text-green-800 hover:bg-green-100" : ""}>
-                {systemStatus.slack_webhook.status === 'healthy' ? 'Healthy' : 'Unhealthy'}
+              <Badge variant={systemStatus?.slack_webhook?.status === 'healthy' ? "default" : "destructive"} className={systemStatus?.slack_webhook?.status === 'healthy' ? "bg-green-100 text-green-800 hover:bg-green-100" : ""}>
+                {systemStatus?.slack_webhook?.status === 'healthy' ? 'Healthy' : 'Unhealthy'}
               </Badge>
             </div>
           </div>
@@ -118,22 +114,22 @@ const SystemStatusSection = () => {
           <div className="flex flex-col">
             <span className="text-sm text-gray-500">Active</span>
             <div className="flex items-center gap-2 mt-1">
-              <Badge variant={systemStatus.slack_monitoring.isMonitoring ? "default" : "destructive"} className={systemStatus.slack_monitoring.isMonitoring ? "bg-green-100 text-green-800 hover:bg-green-100" : ""}>
-                {systemStatus.slack_monitoring.isMonitoring ? 'Yes' : 'No'}
+              <Badge variant={systemStatus?.slack_monitoring?.isMonitoring ? "default" : "destructive"} className={systemStatus?.slack_monitoring?.isMonitoring ? "bg-green-100 text-green-800 hover:bg-green-100" : ""}>
+                {systemStatus?.slack_monitoring?.isMonitoring ? 'Yes' : 'No'}
               </Badge>
             </div>
           </div>
           <div className="flex flex-col">
             <span className="text-sm text-gray-500">Last Started</span>
-            <span className="text-sm">{formatDate(systemStatus.slack_monitoring.lastStarted)}</span>
+            <span className="text-sm">{formatDate(systemStatus?.slack_monitoring?.lastStarted)}</span>
           </div>
           <div className="flex flex-col">
             <span className="text-sm text-gray-500">Messages Processed</span>
-            <span className="text-sm">{systemStatus.slack_monitoring.messagesProcessed}</span>
+            <span className="text-sm">{systemStatus?.slack_monitoring?.messagesProcessed || 0}</span>
           </div>
           <div className="flex flex-col">
             <span className="text-sm text-gray-500">Tasks Detected</span>
-            <span className="text-sm">{systemStatus.slack_monitoring.tasksDetected}</span>
+            <span className="text-sm">{systemStatus?.slack_monitoring?.tasksDetected || 0}</span>
           </div>
         </div>
       </div>
@@ -149,13 +145,13 @@ const SystemStatusSection = () => {
             <span className="text-sm text-gray-500">WebSocket</span>
             <div className="flex items-center gap-2 mt-1">
               <Badge variant={"default"} className="bg-yellow-100 text-yellow-800 hover:bg-yellow-100">
-                {systemStatus.app_updates?.method === 'polling' ? 'Polling' : 'Inactive'}
+                {systemStatus?.app_updates?.method === 'polling' ? 'Polling' : 'Inactive'}
               </Badge>
             </div>
           </div>
           <div className="flex flex-col">
             <span className="text-sm text-gray-500">Update Interval</span>
-            <span className="text-sm">{systemStatus.app_updates?.polling_interval || 'N/A'}</span>
+            <span className="text-sm">{systemStatus?.app_updates?.polling_interval || 'N/A'}</span>
           </div>
         </div>
       </div>
@@ -181,13 +177,27 @@ export default function Settings() {
   const [selectedChannels, setSelectedChannels] = useState<string[]>([]);
   const [isLoadingChannels, setIsLoadingChannels] = useState(false);
   
-  // Fetch user data
+  // Fetch user data - with simplified error handling
   const { data: user, isLoading: isLoadingUser } = useQuery({
     queryKey: ['/api/auth/me'],
     queryFn: async () => {
-      const res = await apiRequest('GET', '/api/auth/me');
-      return res.json();
-    }
+      try {
+        const res = await apiRequest('GET', '/api/auth/me');
+        if (!res.ok) {
+          if (res.status === 401) {
+            setLocation('/login');
+            return null;
+          }
+          throw new Error('Failed to fetch user data');
+        }
+        return await res.json();
+      } catch (error) {
+        console.error('Error fetching user:', error);
+        return null;
+      }
+    },
+    refetchOnWindowFocus: false,
+    retry: 1
   });
   
   // Update form state when user data is available
@@ -353,13 +363,9 @@ export default function Settings() {
       }
     },
     enabled: false, // Don't fetch on component mount
-    retry: (failureCount, error: any) => {
-      // Don't retry on authentication errors
-      if (error?.message?.includes('SLACK_AUTH_ERROR')) {
-        return false;
-      }
-      return failureCount < 2; // Only retry twice for other errors
-    }
+    staleTime: 300000, // Cache data for 5 minutes
+    refetchOnWindowFocus: false,
+    retry: 1
   });
   
   // Fetch channel preferences
@@ -374,7 +380,10 @@ export default function Settings() {
         return { channelIds: [] };
       }
     },
-    enabled: isSlackConnected
+    enabled: isSlackConnected,
+    staleTime: 300000, // Cache data for 5 minutes
+    refetchOnWindowFocus: false,
+    retry: 1
   });
   
   // Save channel preferences mutation
