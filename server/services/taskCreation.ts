@@ -368,14 +368,19 @@ export async function createTaskFromSlackMessage(
         
         // Get user's timezone from Slack if available
         let userTimeZone = 'UTC';
+        console.log(`Creating calendar event for user ${user.id}, slack user ID: ${user.slackUserId || 'not connected'}`);
+        
         if (user.slackUserId) {
           try {
-            const { timezone } = await getUserTimezone(user.slackUserId);
+            console.log(`Fetching timezone information for Slack user ID: ${user.slackUserId}`);
+            const { timezone, timezone_offset } = await getUserTimezone(user.slackUserId);
             userTimeZone = timezone;
-            console.log(`Using user's Slack timezone: ${userTimeZone}`);
+            console.log(`[TIMEZONE DEBUG] Got timezone from Slack: ${userTimeZone} (offset: ${timezone_offset})`);
           } catch (err) {
-            console.error('Error getting user timezone from Slack, falling back to UTC:', err);
+            console.error('[TIMEZONE DEBUG] Error getting user timezone from Slack, falling back to UTC:', err);
           }
+        } else {
+          console.log('[TIMEZONE DEBUG] No Slack user ID available, using default timezone: UTC');
         }
         
         // Create an event on the user's calendar

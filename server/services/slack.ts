@@ -42,26 +42,46 @@ export interface SlackMessage {
  * @returns Timezone and timezone_offset
  */
 export async function getUserTimezone(userId: string): Promise<{ timezone: string; timezone_offset: number }> {
+  console.log(`[TIMEZONE DEBUG] getUserTimezone called for userId: ${userId}`);
+  
   if (!slack) {
+    console.error('[TIMEZONE DEBUG] Slack client not initialized');
     throw new Error("Slack client not initialized - check SLACK_BOT_TOKEN environment variable");
   }
   
   try {
+    console.log(`[TIMEZONE DEBUG] Making Slack API call to users.info for user: ${userId}`);
     const result = await slack.users.info({
       user: userId
     });
     
     if (!result.user) {
+      console.error(`[TIMEZONE DEBUG] User not found in Slack response: ${userId}`);
       throw new Error(`User not found: ${userId}`);
     }
     
+    // Log the complete user object for debugging
+    console.log(`[TIMEZONE DEBUG] Full Slack user object for debugging:`, JSON.stringify({
+      id: result.user.id,
+      name: result.user.name,
+      real_name: result.user.real_name,
+      tz: result.user.tz,
+      tz_offset: result.user.tz_offset,
+      tz_label: result.user.tz_label
+    }));
+    
     // Default to UTC if timezone info is missing
+    const timezone = result.user.tz || 'UTC';
+    const timezone_offset = result.user.tz_offset || 0;
+    
+    console.log(`[TIMEZONE DEBUG] Returning timezone information: ${timezone} (offset: ${timezone_offset})`);
+    
     return {
-      timezone: result.user.tz || 'UTC',
-      timezone_offset: result.user.tz_offset || 0
+      timezone: timezone,
+      timezone_offset: timezone_offset
     };
   } catch (error) {
-    console.error('Error getting Slack user timezone:', error);
+    console.error('[TIMEZONE DEBUG] Error getting Slack user timezone:', error);
     // Return UTC as fallback
     return { timezone: 'UTC', timezone_offset: 0 };
   }
