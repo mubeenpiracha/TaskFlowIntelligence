@@ -1,6 +1,10 @@
 import { WebClient } from '@slack/web-api';
 import type { ConversationsHistoryResponse } from '@slack/web-api';
 import { extractTaskTitle, extractDueDate, determinePriority, estimateTimeRequired } from './taskCreation';
+import { storage } from '../storage';
+import * as fs from 'fs';
+import * as path from 'path';
+import { fileURLToPath } from 'url';
 
 if (!process.env.SLACK_BOT_TOKEN) {
   console.warn("SLACK_BOT_TOKEN environment variable is not set - Slack bot operations will not work");
@@ -223,6 +227,99 @@ import { analyzeMessageForTask, extractTaskDetails, TaskAnalysisResponse } from 
 // Store task analysis results for later use when sending DMs
 const taskAnalysisCache = new Map<string, TaskAnalysisResponse>();
 
+// Set to track processed message IDs for optimization
+const processedMessageIds = new Set<string>();
+
+/**
+ * Add a message ID to the processed set for optimization
+ * Used by slackMonitor.ts to update this cache when processing messages
+ * @param messageId - The message ID to add
+ */
+export function addProcessedMessageId(messageId: string): void {
+  processedMessageIds.add(messageId);
+  console.log(`Added message ${messageId} to processedMessageIds cache for OpenAI optimization`);
+}
+
+/**
+ * Clear the processed message IDs set
+ * Used by slackMonitor.ts when clearing processed messages
+ * @param keepCount - Optional number of most recent entries to keep
+ * @returns Number of cleared entries
+ */
+export function clearProcessedMessageIds(keepCount: number = 0): number {
+  const originalSize = processedMessageIds.size;
+  
+  if (keepCount <= 0) {
+    // Clear all
+    processedMessageIds.clear();
+    console.log(`Cleared all ${originalSize} message IDs from OpenAI optimization cache`);
+    return originalSize;
+  } else {
+    // Keep the most recent n messages
+    const messagesArray = Array.from(processedMessageIds);
+    const toKeep = Math.min(keepCount, messagesArray.length);
+    const newMessages = new Set(
+      messagesArray.slice(messagesArray.length - toKeep)
+    );
+
+    // Calculate how many were removed
+    const removedCount = originalSize - newMessages.size;
+
+    // Replace the set
+    processedMessageIds.clear();
+    newMessages.forEach(m => processedMessageIds.add(m));
+
+    console.log(
+      `Cleared ${removedCount} message IDs from OpenAI optimization cache, kept ${newMessages.size} most recent`
+    );
+    return removedCount;
+  }
+}
+
+// Load processed messages from file
+try {
+  const __filename = fileURLToPath(import.meta.url);
+  const __dirname = path.dirname(__filename);
+  const processedMessagesPath = path.join(__dirname, '../../processed_messages.json');
+  
+  if (fs.existsSync(processedMessagesPath)) {
+    const data = JSON.parse(fs.readFileSync(processedMessagesPath, 'utf8'));
+    if (Array.isArray(data)) {
+      data.forEach(id => processedMessageIds.add(id));
+      console.log(`Loaded ${processedMessageIds.size} processed message IDs for optimization`);
+    }
+  }
+} catch (error) {
+  console.error('Error loading processed message IDs for optimization:', error);
+}
+
+/**
+ * Checks if a message has already been processed
+ * Used to decide whether to use OpenAI API or rule-based detection
+ * @param messageId Message ID (ts) to check
+ * @returns Promise resolving to true if the message has been processed
+ */
+async function isMessageProcessed(messageId: string): Promise<boolean> {
+  // First check in-memory cache for performance
+  if (processedMessageIds.has(messageId)) {
+    return true;
+  }
+  
+  // Then check database
+  try {
+    const existingTask = await storage.getTasksBySlackMessageId(messageId);
+    if (existingTask) {
+      // Add to in-memory cache for next time
+      processedMessageIds.add(messageId);
+      return true;
+    }
+  } catch (error) {
+    console.error(`Error checking if message ${messageId} is processed:`, error);
+  }
+  
+  return false;
+}
+
 /**
  * Analyzes a message to determine if it might contain a task
  * Uses both heuristics and OpenAI for detection
@@ -426,17 +523,35 @@ export async function detectTasks(
           taskPromises.push(
             (async () => {
               try {
-                // Pass the full message object to enable AI-powered detection
-                const result = await isLikelyTask(msg.text, userId, msg);
+                // Check if the message has been processed before using OpenAI
+                const isProcessed = await isMessageProcessed(msg.ts);
                 
-                // Extra logging with timestamp for easy correlation in logs
-                console.log(`DETECTION RESULT [${msg.ts}]: ${result ? 'IS TASK' : 'NOT TASK'}`);
-                
-                // Only return the message if it's a task
-                if (result) {
-                  return msg;
+                if (isProcessed) {
+                  console.log(`DETECTION OPTIMIZATION: Skipping OpenAI analysis for already processed message [${msg.ts}]`);
+                  // Use rule-based detection for processed messages to save API calls
+                  const result = isLikelyTaskRuleBased(msg.text, userId);
+                  console.log(`DETECTION RESULT [${msg.ts}] (rule-based): ${result ? 'IS TASK' : 'NOT TASK'}`);
+                  
+                  if (result) {
+                    return msg;
+                  } else {
+                    return null;
+                  }
                 } else {
-                  return null;
+                  // Only use OpenAI for unprocessed messages
+                  console.log(`DETECTION OPTIMIZATION: Using OpenAI analysis for unprocessed message [${msg.ts}]`);
+                  // Pass the full message object to enable AI-powered detection
+                  const result = await isLikelyTask(msg.text, userId, msg);
+                  
+                  // Extra logging with timestamp for easy correlation in logs
+                  console.log(`DETECTION RESULT [${msg.ts}] (AI-based): ${result ? 'IS TASK' : 'NOT TASK'}`);
+                  
+                  // Only return the message if it's a task
+                  if (result) {
+                    return msg;
+                  } else {
+                    return null;
+                  }
                 }
               } catch (error) {
                 console.error(`Error analyzing message [${msg.ts}]:`, error);

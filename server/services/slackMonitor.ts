@@ -461,6 +461,16 @@ async function markTaskAsProcessed(
     // First, add to our in-memory set to prevent re-processing during this session
     processedMessages.add(messageTs);
     console.log(`TASK_MARKING: Added message ${messageTs} to in-memory processed set`);
+    
+    // Also update the processedMessageIds set in slack.ts for OpenAI optimization
+    try {
+      // Import dynamically to avoid circular dependencies
+      const { addProcessedMessageId } = await import('./slack');
+      addProcessedMessageId(messageTs);
+      console.log(`TASK_MARKING: Updated processedMessageIds cache in slack.ts for OpenAI optimization`);
+    } catch (error) {
+      console.error(`TASK_MARKING: Error updating processedMessageIds cache:`, error);
+    }
 
     // Then, create a task record with status="pending" to make this persistent
     // Use a trimmed version of the message as the title (first 50 chars)
@@ -496,6 +506,15 @@ async function markTaskAsProcessed(
     // Still add to memory even if DB operation fails
     processedMessages.add(messageTs);
     console.log(`TASK_MARKING: Added message ${messageTs} to in-memory set despite error`);
+    
+    // Also update the processedMessageIds set in slack.ts despite the error
+    try {
+      const { addProcessedMessageId } = await import('./slack');
+      addProcessedMessageId(messageTs);
+      console.log(`TASK_MARKING: Updated processedMessageIds cache in slack.ts despite error`);
+    } catch (updateError) {
+      console.error(`TASK_MARKING: Error updating processedMessageIds cache:`, updateError);
+    }
   }
 }
 
@@ -569,6 +588,22 @@ export function clearProcessedMessages(keepCount: number = 0): number {
     // Clear all
     processedMessages.clear();
     console.log(`Cleared all ${originalSize} processed messages`);
+    
+    // Also clear the processed message IDs in slack.ts
+    try {
+      // Import dynamically to avoid circular dependencies
+      import('./slack').then(slackModule => {
+        if (slackModule.clearProcessedMessageIds) {
+          slackModule.clearProcessedMessageIds(0);
+          console.log(`Also cleared OpenAI optimization cache in slack.ts`);
+        }
+      }).catch(error => {
+        console.error(`Error clearing OpenAI optimization cache:`, error);
+      });
+    } catch (error) {
+      console.error(`Error importing slack module to clear cache:`, error);
+    }
+    
     return originalSize;
   } else {
     // Keep the most recent n messages
@@ -588,6 +623,22 @@ export function clearProcessedMessages(keepCount: number = 0): number {
     console.log(
       `Cleared ${removedCount} processed messages, kept ${newMessages.size} most recent`,
     );
+    
+    // Also clear the processed message IDs in slack.ts
+    try {
+      // Import dynamically to avoid circular dependencies
+      import('./slack').then(slackModule => {
+        if (slackModule.clearProcessedMessageIds) {
+          slackModule.clearProcessedMessageIds(toKeep);
+          console.log(`Also cleared OpenAI optimization cache in slack.ts with ${toKeep} kept`);
+        }
+      }).catch(error => {
+        console.error(`Error clearing OpenAI optimization cache:`, error);
+      });
+    } catch (error) {
+      console.error(`Error importing slack module to clear cache:`, error);
+    }
+    
     return removedCount;
   }
 }
