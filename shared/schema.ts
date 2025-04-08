@@ -48,6 +48,12 @@ export const tasks = pgTable("tasks", {
   googleEventId: text("google_event_id"),
   status: text("status").notNull().default("pending"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
+  // New fields for scheduling
+  scheduledStart: text("scheduled_start"),
+  scheduledEnd: text("scheduled_end"),
+  // Fields for task analytics
+  importance: integer("importance"),
+  urgency: integer("urgency"),
 });
 
 export const insertUserSchema = createInsertSchema(users).pick({
@@ -92,6 +98,10 @@ export const insertTaskSchema = createInsertSchema(tasks).pick({
   slackChannelId: true,
   googleEventId: true,
   status: true,
+  scheduledStart: true,
+  scheduledEnd: true,
+  importance: true,
+  urgency: true,
 });
 
 export type InsertUser = z.infer<typeof insertUserSchema>;

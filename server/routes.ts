@@ -5,6 +5,7 @@ import { storage } from "./storage";
 import { z } from "zod";
 import { insertTaskSchema, insertUserSchema, insertWorkingHoursSchema } from "@shared/schema";
 import { detectTasks, sendMessage, listUserChannels, sendTaskDetectionDM, testDirectMessage, type SlackChannel, type SlackMessage } from "./services/slack";
+import { analyzeMessageForTask, type TaskAnalysisResponse } from "./services/openaiService";
 import { 
   getCalendarAuthUrl, 
   getLoginAuthUrl,
@@ -805,8 +806,327 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Handle different action types
-      if (action.action_id === 'create_task') {
-        // User clicked "Create Task" button
+      if (action.action_id === 'create_task_detailed') {
+        // User clicked "Create & Schedule Task" button from the detailed form
+        try {
+          console.log('Create detailed task action received');
+          console.log('Values from state:', payload.state?.values);
+          
+          // Parse the task data from the button value and state values
+          const taskData = JSON.parse(action.value);
+          
+          // Get values from the form fields
+          const title = payload.state.values.task_title_block.task_title_input.value;
+          const dueDate = payload.state.values.task_deadline_block.task_deadline_date.selected_date;
+          const dueTime = payload.state.values.task_deadline_time_block.task_deadline_time.selected_time;
+          const urgencyValue = payload.state.values.task_urgency_block.task_urgency_select.selected_option.value;
+          const importanceValue = payload.state.values.task_importance_block.task_importance_select.selected_option.value;
+          const timeRequired = payload.state.values.task_time_required_block.task_time_required_select.selected_option.value;
+          
+          // Map urgency to priority value
+          const urgencyToPriority: Record<string, string> = {
+            '1': 'low',
+            '2': 'low',
+            '3': 'medium',
+            '4': 'high',
+            '5': 'high'
+          };
+          
+          // Convert the numeric urgency to priority string
+          const priority = urgencyToPriority[urgencyValue] || 'medium';
+          
+          console.log(`Task details received: Title: ${title}, Due: ${dueDate} at ${dueTime}, Urgency: ${urgencyValue}, Importance: ${importanceValue}, Time: ${timeRequired}`);
+          
+          // Create a SlackMessage object with the enhanced task data
+          const slackMessage = {
+            ts: taskData.ts,
+            text: taskData.text,
+            user: taskData.user,
+            channelId: taskData.channelId,
+            channelName: taskData.channelName,
+            // Add custom values from the form
+            customTitle: title,
+            customPriority: priority,
+            customTimeRequired: timeRequired,
+            customDueDate: dueDate,
+            customDueTime: dueTime,
+            customUrgency: parseInt(urgencyValue, 10),
+            customImportance: parseInt(importanceValue, 10)
+          };
+          
+          console.log('Creating task for user ID:', dbUserQuery.id);
+          
+          // Create the task in the database
+          const task = await createTaskFromSlackMessage(slackMessage, dbUserQuery.id);
+          
+          console.log('Task created successfully:', task.id);
+          
+          // Find available time slot in Google Calendar based on task details
+          const user = await storage.getUser(dbUserQuery.id);
+          
+          // If the user has Google Calendar connected, attempt to find an optimal slot and schedule
+          if (user?.googleRefreshToken && user.googleRefreshToken.trim() !== '') {
+            try {
+              // Use working hours if available, otherwise use default business hours
+              const workingHours = await storage.getWorkingHours(dbUserQuery.id);
+              
+              // Get importance and urgency from the form
+              const importance = parseInt(importanceValue, 10);
+              const urgency = parseInt(urgencyValue, 10);
+              
+              // Parse time required into minutes
+              const [reqHours, reqMinutes] = timeRequired.split(':').map(Number);
+              const durationMinutes = (reqHours * 60) + reqMinutes;
+              
+              console.log(`Finding optimal time slot with parameters: Importance=${importance}, Urgency=${urgency}, Duration=${durationMinutes} minutes`);
+              
+              // Determine scheduling window based on urgency
+              const now = new Date();
+              const dueDateTime = new Date(`${dueDate}T${dueTime}`);
+              
+              // Calculate scheduling window - more urgent tasks get a tighter window
+              const daysToDeadline = Math.max(1, Math.ceil((dueDateTime.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)));
+              const schedulingWindowDays = Math.min(
+                daysToDeadline, 
+                urgency === 5 ? 1 : // Very urgent: Today only
+                urgency === 4 ? 2 : // Urgent: Within 2 days
+                urgency === 3 ? 3 : // Moderate: Within 3 days
+                urgency === 2 ? 5 : // Low urgency: Within 5 days
+                7 // Very low urgency: Within a week
+              );
+              
+              console.log(`Scheduling window: ${schedulingWindowDays} days (${daysToDeadline} days to deadline)`);
+              
+              // Set time window to look for available slots
+              const timeMin = now.toISOString();
+              const schedulingEndDate = new Date(now);
+              schedulingEndDate.setDate(schedulingEndDate.getDate() + schedulingWindowDays);
+              const timeMax = schedulingEndDate.toISOString();
+              
+              // Fetch existing calendar events to find gaps
+              const existingEvents = await listCalendarEvents(
+                user.googleRefreshToken,
+                timeMin,
+                timeMax
+              );
+              
+              console.log(`Found ${existingEvents.length} existing events in the scheduling window`);
+              
+              // Determine working hours for each day
+              const defaultStart = workingHours?.startTime || '09:00';
+              const defaultEnd = workingHours?.endTime || '17:00';
+              
+              // Find an optimal slot based on working hours and existing events
+              let foundSlot = false;
+              let scheduledStart: Date | null = null;
+              let scheduledEnd: Date | null = null;
+              
+              // Start by trying to schedule today, then move forward
+              for (let day = 0; day < schedulingWindowDays && !foundSlot; day++) {
+                const currentDate = new Date(now);
+                currentDate.setDate(currentDate.getDate() + day);
+                
+                // Skip weekends if specified in working hours
+                const dayOfWeek = currentDate.getDay(); // 0 is Sunday, 6 is Saturday
+                if (workingHours && (
+                  (dayOfWeek === 0 && !workingHours.sunday) ||
+                  (dayOfWeek === 1 && !workingHours.monday) ||
+                  (dayOfWeek === 2 && !workingHours.tuesday) ||
+                  (dayOfWeek === 3 && !workingHours.wednesday) ||
+                  (dayOfWeek === 4 && !workingHours.thursday) ||
+                  (dayOfWeek === 5 && !workingHours.friday) ||
+                  (dayOfWeek === 6 && !workingHours.saturday)
+                )) {
+                  console.log(`Skipping day ${currentDate.toISOString().split('T')[0]} - not a working day`);
+                  continue;
+                }
+                
+                // Set working hours start/end for this day
+                const workingStart = new Date(`${currentDate.toISOString().split('T')[0]}T${defaultStart}`);
+                const workingEnd = new Date(`${currentDate.toISOString().split('T')[0]}T${defaultEnd}`);
+                
+                // Adjust for current time if this is today
+                if (day === 0) {
+                  // For today, don't try to schedule in the past
+                  if (now > workingStart) {
+                    // Start from now if within working hours, or next day
+                    if (now < workingEnd) {
+                      workingStart.setTime(now.getTime());
+                    } else {
+                      // Past working hours for today, skip to tomorrow
+                      continue;
+                    }
+                  }
+                }
+                
+                // Get events only for this day
+                const dayStart = new Date(currentDate);
+                dayStart.setHours(0, 0, 0, 0);
+                
+                const dayEnd = new Date(currentDate);
+                dayEnd.setHours(23, 59, 59, 999);
+                
+                const dayEvents = existingEvents.filter(event => {
+                  const eventStart = event.start?.dateTime ? new Date(event.start.dateTime) : null;
+                  return eventStart && eventStart >= dayStart && eventStart <= dayEnd;
+                });
+                
+                console.log(`Checking day ${currentDate.toISOString().split('T')[0]} - ${dayEvents.length} events`);
+                
+                // Sort events by start time
+                dayEvents.sort((a, b) => {
+                  const aStart = a.start?.dateTime ? new Date(a.start.dateTime).getTime() : 0;
+                  const bStart = b.start?.dateTime ? new Date(b.start.dateTime).getTime() : 0;
+                  return aStart - bStart;
+                });
+                
+                // Find gaps between events
+                let potentialStart = new Date(workingStart);
+                
+                for (let i = 0; i <= dayEvents.length; i++) {
+                  const gapEnd = i < dayEvents.length && dayEvents[i].start?.dateTime 
+                    ? new Date(dayEvents[i].start.dateTime) 
+                    : workingEnd;
+                  
+                  const gapDuration = (gapEnd.getTime() - potentialStart.getTime()) / (1000 * 60);
+                  
+                  if (gapDuration >= durationMinutes) {
+                    // We found a gap that fits our task!
+                    scheduledStart = new Date(potentialStart);
+                    foundSlot = true;
+                    break;
+                  }
+                  
+                  // Move to the end of this event for the next gap
+                  if (i < dayEvents.length && dayEvents[i].end?.dateTime) {
+                    potentialStart = new Date(dayEvents[i].end.dateTime);
+                  }
+                }
+                
+                if (foundSlot) {
+                  console.log(`Found available slot on ${scheduledStart!.toISOString()}`);
+                  break;
+                }
+              }
+              
+              // If we found a slot, create calendar event
+              if (foundSlot && scheduledStart) {
+                scheduledEnd = new Date(scheduledStart);
+                scheduledEnd.setMinutes(scheduledEnd.getMinutes() + durationMinutes);
+                
+                const event = await createCalendarEvent(
+                  user.googleRefreshToken,
+                  {
+                    summary: `Task: ${title}`,
+                    description: `${task.description || taskData.text}\n\nScheduled by TaskFlow\nUrgency: ${urgency}/5\nImportance: ${importance}/5`,
+                    start: {
+                      dateTime: scheduledStart.toISOString(),
+                      timeZone: 'UTC'
+                    },
+                    end: {
+                      dateTime: scheduledEnd.toISOString(),
+                      timeZone: 'UTC'
+                    },
+                    colorId: priority === 'high' ? '4' : priority === 'medium' ? '5' : '6', // Red, Yellow, Green
+                  }
+                );
+                
+                // Update task with Google Calendar event ID
+                if (event?.id) {
+                  await storage.updateTask(task.id, { 
+                    googleEventId: event.id,
+                    scheduledStart: scheduledStart.toISOString(),
+                    scheduledEnd: scheduledEnd.toISOString()
+                  });
+                  
+                  console.log(`Successfully scheduled task in calendar at ${scheduledStart.toISOString()}`);
+                }
+              } else {
+                console.log('Could not find a suitable time slot within the scheduling window');
+                
+                // Even if we couldn't find a slot, we still create a deadline-focused event
+                // at the deadline time minus task duration
+                const deadlineStart = new Date(dueDateTime);
+                deadlineStart.setMinutes(deadlineStart.getMinutes() - durationMinutes);
+                
+                console.log(`Using deadline-based scheduling: ${deadlineStart.toISOString()} to ${dueDateTime.toISOString()}`);
+                
+                const event = await createCalendarEvent(
+                  user.googleRefreshToken,
+                  {
+                    summary: `DEADLINE: ${title}`,
+                    description: `${task.description || taskData.text}\n\nAuto-scheduled by TaskFlow (no suitable slots found)\nUrgency: ${urgency}/5\nImportance: ${importance}/5`,
+                    start: {
+                      dateTime: deadlineStart.toISOString(),
+                      timeZone: 'UTC'
+                    },
+                    end: {
+                      dateTime: dueDateTime.toISOString(),
+                      timeZone: 'UTC'
+                    },
+                    colorId: '11', // Red for deadline-based scheduling
+                  }
+                );
+                
+                // Update task with Google Calendar event ID
+                if (event?.id) {
+                  await storage.updateTask(task.id, { 
+                    googleEventId: event.id,
+                    scheduledStart: deadlineStart.toISOString(),
+                    scheduledEnd: dueDateTime.toISOString()
+                  });
+                  
+                  console.log(`Created deadline-based event for task at ${deadlineStart.toISOString()}`);
+                }
+              }
+            } catch (error) {
+              console.error('Failed to schedule task in Google Calendar:', error);
+            }
+          } else {
+            console.log('User does not have Google Calendar connected, skipping calendar scheduling');
+          }
+          
+          // Use the response_url to update the original message if available
+          if (response_url) {
+            try {
+              // Check if the response_url is a valid URL (for development environment testing)
+              if (response_url.startsWith('http')) {
+                try {
+                  // Make direct request to response_url
+                  const updateResponse = await fetch(response_url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      text: 'Task created and scheduled successfully!',
+                      replace_original: true
+                    })
+                  });
+                  console.log('Response URL update status:', updateResponse.status);
+                } catch (fetchError) {
+                  // Don't let this error break the flow, just log it
+                  console.log('Could not reach Slack response_url (expected in development):', fetchError.message);
+                }
+              } else {
+                console.log('Skipping response_url update: URL appears invalid');
+              }
+            } catch (updateError) {
+              console.error('Error handling response_url update:', updateError);
+            }
+          }
+          
+          // Send confirmation to the user using the bot token
+          await sendTaskConfirmation(
+            task,
+            user.id, // Send directly to the user as a DM
+            true
+          );
+        } catch (error) {
+          console.error('Error creating task from detailed interaction:', error);
+          // Use user token if available, otherwise fall back to bot token
+          await sendMessage(user.id, 'Sorry, there was an error creating your task. Please try again.', undefined, dbUserQuery.slackAccessToken || undefined);
+        }
+      } else if (action.action_id === 'create_task') {
+        // Legacy handler for the simple "Create Task" button (keeping for backward compatibility)
         try {
           console.log('Create task action value:', action.value);
           
@@ -1539,6 +1859,65 @@ app.post('/api/system/slack/clear-cache', requireAuth, async (req, res) => {
     } catch (error) {
       console.error('Error clearing processed messages:', error);
       res.status(500).json({ message: 'Failed to clear processed messages' });
+    }
+  });
+  
+  // TEST ENDPOINT: Force task detection test
+  app.post('/api/slack/test-task-detection', requireAuth, async (req, res) => {
+    try {
+      const user = await storage.getUser(req.session.userId!);
+      
+      if (!user || !user.slackUserId) {
+        return res.status(400).json({ message: 'Slack integration not configured' });
+      }
+      
+      const { text } = req.body;
+      
+      if (!text) {
+        return res.status(400).json({ message: 'Message text is required' });
+      }
+      
+      console.log(`TEST ENDPOINT: Manually triggering task detection for text: "${text}"`);
+      
+      // Create a test message object
+      const testMessage = {
+        ts: `test-${Date.now()}`,
+        text,
+        user: user.slackUserId,
+        channelId: 'test-channel',
+        channelName: 'test-channel'
+      };
+      
+      // Run the message through the OpenAI analysis
+      const aiAnalysis = await analyzeMessageForTask(testMessage, user.slackUserId);
+      
+      console.log('OpenAI Analysis Result:', JSON.stringify(aiAnalysis, null, 2));
+      
+      // Check if it's a task
+      if (aiAnalysis.is_task) {
+        console.log(`TEST ENDPOINT: Analysis detected a task with confidence ${aiAnalysis.confidence}`);
+        
+        // Send task detection DM
+        await sendTaskDetectionDM(user.slackUserId, testMessage);
+        
+        return res.status(200).json({ 
+          success: true, 
+          is_task: true,
+          analysis: aiAnalysis,
+          message: 'Task detected and DM sent'
+        });
+      } else {
+        console.log(`TEST ENDPOINT: Analysis did NOT detect a task. Confidence: ${aiAnalysis.confidence}`);
+        return res.status(200).json({ 
+          success: true, 
+          is_task: false,
+          analysis: aiAnalysis,
+          message: 'Not detected as a task' 
+        });
+      }
+    } catch (error) {
+      console.error('Error in test task detection endpoint:', error);
+      res.status(500).json({ message: 'Error testing task detection' });
     }
   });
 

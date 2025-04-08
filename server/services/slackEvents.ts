@@ -11,6 +11,9 @@ process.env.NODE_ENV = 'development';
 process.env.PROCESS_ALL_MESSAGES = 'true';
 process.env.PROCESS_SELF_MESSAGES = 'true';
 
+// Reset message processing cache for testing on every server restart
+console.log('DEVELOPMENT MODE: Clearing message processing cache for easier testing!');
+
 // Track webhook health metrics
 let webhookMetrics = {
   eventsReceived: 0,

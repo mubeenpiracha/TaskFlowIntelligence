@@ -8,6 +8,7 @@ import Calendar from "@/pages/Calendar";
 import Tasks from "@/pages/Tasks";
 import Settings from "@/pages/Settings";
 import Login from "@/pages/Login";
+import TaskDetectionTest from "@/pages/TaskDetectionTest";
 import Layout from "@/components/Layout";
 import { useEffect, useState } from "react";
 import { apiRequest } from "./lib/queryClient";
@@ -51,6 +52,7 @@ function Router() {
       <PrivateRoute path="/calendar" component={Calendar} />
       <PrivateRoute path="/tasks" component={Tasks} />
       <PrivateRoute path="/settings" component={Settings} />
+      <PrivateRoute path="/test-task-detection" component={TaskDetectionTest} />
       <Route component={NotFound} />
     </Switch>
   );

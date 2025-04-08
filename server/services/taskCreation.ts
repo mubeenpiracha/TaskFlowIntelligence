@@ -241,6 +241,10 @@ export async function createTaskFromSlackMessage(
     customTimeRequired?: string;
     customDueDate?: string;
     customDueTime?: string;
+    customUrgency?: number;
+    customImportance?: number;
+    scheduledStart?: string;
+    scheduledEnd?: string;
   }, 
   userId: number
 ): Promise<Task> {
@@ -333,7 +337,11 @@ export async function createTaskFromSlackMessage(
       completed: false,
       slackMessageId: message.ts,
       slackChannelId: message.channelId || null,
-      googleEventId: null
+      googleEventId: null,
+      urgency: message.customUrgency || null,
+      importance: message.customImportance || null,
+      scheduledStart: message.scheduledStart || null,
+      scheduledEnd: message.scheduledEnd || null
     };
     
     // Create the task in storage
@@ -446,6 +454,37 @@ export async function sendTaskConfirmation(
           {
             type: "mrkdwn",
             text: `*Estimated time*\n${task.timeRequired || '1 hour'}`
+          }
+        ]
+      },
+      {
+        type: "section",
+        fields: [
+          {
+            type: "mrkdwn",
+            text: `*Importance*\n${task.importance ? `${task.importance}/5` : 'Not specified'}`
+          },
+          {
+            type: "mrkdwn",
+            text: `*Urgency*\n${task.urgency ? `${task.urgency}/5` : 'Not specified'}`
+          },
+          {
+            type: "mrkdwn",
+            text: `*Scheduled*\n${
+              task.scheduledStart && task.scheduledEnd
+                ? `${new Date(task.scheduledStart).toLocaleString('en-US', { 
+                    month: 'short', 
+                    day: 'numeric', 
+                    hour: 'numeric', 
+                    minute: '2-digit',
+                    hour12: true
+                  })} - ${new Date(task.scheduledEnd).toLocaleString('en-US', {
+                    hour: 'numeric',
+                    minute: '2-digit',
+                    hour12: true
+                  })}`
+                : 'Not scheduled yet'
+            }`
           }
         ]
       },

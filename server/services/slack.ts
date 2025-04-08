@@ -853,40 +853,319 @@ export async function sendTaskDetectionDM(
         type: "section",
         text: {
           type: "mrkdwn",
-          text: "*Would you like me to create a task from this message?*"
+          text: "*Please review and customize the task details:*"
+        }
+      },
+      {
+        type: "input",
+        block_id: "task_title_block",
+        label: {
+          type: "plain_text",
+          text: "Task Title",
+          emoji: true
+        },
+        element: {
+          type: "plain_text_input",
+          action_id: "task_title_input",
+          initial_value: extractedTitle,
+          placeholder: {
+            type: "plain_text",
+            text: "Enter a title for this task"
+          }
+        }
+      },
+      {
+        type: "input",
+        block_id: "task_deadline_block",
+        label: {
+          type: "plain_text",
+          text: "Deadline Date",
+          emoji: true
+        },
+        element: {
+          type: "datepicker",
+          action_id: "task_deadline_date",
+          initial_date: extractedDueDate?.dueDate || new Date().toISOString().split('T')[0],
+          placeholder: {
+            type: "plain_text",
+            text: "Select a deadline date"
+          }
+        }
+      },
+      {
+        type: "input",
+        block_id: "task_deadline_time_block",
+        label: {
+          type: "plain_text",
+          text: "Deadline Time",
+          emoji: true
+        },
+        element: {
+          type: "timepicker",
+          action_id: "task_deadline_time",
+          initial_time: extractedDueDate?.dueTime || "17:00",
+          placeholder: {
+            type: "plain_text",
+            text: "Select a deadline time"
+          }
+        }
+      },
+      {
+        type: "input",
+        block_id: "task_urgency_block",
+        label: {
+          type: "plain_text",
+          text: "Urgency (1-5)",
+          emoji: true
+        },
+        element: {
+          type: "static_select",
+          action_id: "task_urgency_select",
+          initial_option: {
+            text: {
+              type: "plain_text",
+              text: initialPriority === 'high' ? "5 - Very Urgent" : 
+                    initialPriority === 'medium' ? "3 - Moderate" : "1 - Not Urgent",
+              emoji: true
+            },
+            value: initialPriority === 'high' ? "5" : 
+                  initialPriority === 'medium' ? "3" : "1"
+          },
+          options: [
+            {
+              text: {
+                type: "plain_text",
+                text: "1 - Not Urgent",
+                emoji: true
+              },
+              value: "1"
+            },
+            {
+              text: {
+                type: "plain_text",
+                text: "2 - Slightly Urgent",
+                emoji: true
+              },
+              value: "2"
+            },
+            {
+              text: {
+                type: "plain_text",
+                text: "3 - Moderate",
+                emoji: true
+              },
+              value: "3"
+            },
+            {
+              text: {
+                type: "plain_text",
+                text: "4 - Urgent",
+                emoji: true
+              },
+              value: "4"
+            },
+            {
+              text: {
+                type: "plain_text",
+                text: "5 - Very Urgent",
+                emoji: true
+              },
+              value: "5"
+            }
+          ]
+        }
+      },
+      {
+        type: "input",
+        block_id: "task_importance_block",
+        label: {
+          type: "plain_text",
+          text: "Importance (1-5)",
+          emoji: true
+        },
+        element: {
+          type: "static_select",
+          action_id: "task_importance_select",
+          initial_option: {
+            text: {
+              type: "plain_text",
+              text: initialPriority === 'high' ? "5 - Very Important" : 
+                    initialPriority === 'medium' ? "3 - Moderately Important" : "1 - Not Important",
+              emoji: true
+            },
+            value: initialPriority === 'high' ? "5" : 
+                  initialPriority === 'medium' ? "3" : "1"
+          },
+          options: [
+            {
+              text: {
+                type: "plain_text",
+                text: "1 - Not Important",
+                emoji: true
+              },
+              value: "1"
+            },
+            {
+              text: {
+                type: "plain_text",
+                text: "2 - Slightly Important",
+                emoji: true
+              },
+              value: "2"
+            },
+            {
+              text: {
+                type: "plain_text",
+                text: "3 - Moderately Important",
+                emoji: true
+              },
+              value: "3"
+            },
+            {
+              text: {
+                type: "plain_text",
+                text: "4 - Important",
+                emoji: true
+              },
+              value: "4"
+            },
+            {
+              text: {
+                type: "plain_text",
+                text: "5 - Very Important",
+                emoji: true
+              },
+              value: "5"
+            }
+          ]
+        }
+      },
+      {
+        type: "input",
+        block_id: "task_time_required_block",
+        label: {
+          type: "plain_text",
+          text: "Time Required",
+          emoji: true
+        },
+        element: {
+          type: "static_select",
+          action_id: "task_time_required_select",
+          initial_option: {
+            text: {
+              type: "plain_text",
+              text: initialTimeRequired === "00:30" ? "30 minutes" :
+                    initialTimeRequired === "01:00" ? "1 hour" :
+                    initialTimeRequired === "01:30" ? "1.5 hours" :
+                    initialTimeRequired === "02:00" ? "2 hours" : "2 hours",
+              emoji: true
+            },
+            value: initialTimeRequired || "02:00"
+          },
+          options: [
+            {
+              text: {
+                type: "plain_text",
+                text: "15 minutes",
+                emoji: true
+              },
+              value: "00:15"
+            },
+            {
+              text: {
+                type: "plain_text",
+                text: "30 minutes",
+                emoji: true
+              },
+              value: "00:30"
+            },
+            {
+              text: {
+                type: "plain_text",
+                text: "1 hour",
+                emoji: true
+              },
+              value: "01:00"
+            },
+            {
+              text: {
+                type: "plain_text",
+                text: "1.5 hours",
+                emoji: true
+              },
+              value: "01:30"
+            },
+            {
+              text: {
+                type: "plain_text",
+                text: "2 hours",
+                emoji: true
+              },
+              value: "02:00"
+            },
+            {
+              text: {
+                type: "plain_text",
+                text: "3 hours",
+                emoji: true
+              },
+              value: "03:00"
+            },
+            {
+              text: {
+                type: "plain_text",
+                text: "4 hours",
+                emoji: true
+              },
+              value: "04:00"
+            },
+            {
+              text: {
+                type: "plain_text",
+                text: "8 hours (full day)",
+                emoji: true
+              },
+              value: "08:00"
+            }
+          ]
         }
       },
       {
         type: "actions",
+        block_id: "task_actions",
         elements: [
           {
             type: "button",
             text: {
               type: "plain_text",
-              text: "Yes, create task",
+              text: "Create & Schedule Task",
               emoji: true
             },
             style: "primary",
             value: JSON.stringify({
-              action: "create_task",
+              action: "create_task_detailed",
               ts: message.ts,
               text: message.text,
               user: message.user,
               channelId: message.channelId,
               channelName: message.channelName,
-              title: extractedTitle,
-              priority: initialPriority,
-              timeRequired: initialTimeRequired,
-              dueDate: extractedDueDate?.dueDate,
-              dueTime: extractedDueDate?.dueTime
+              // Include pre-detected values for reference
+              detectedTitle: extractedTitle,
+              detectedPriority: initialPriority,
+              detectedTimeRequired: initialTimeRequired,
+              detectedDueDate: extractedDueDate?.dueDate,
+              detectedDueTime: extractedDueDate?.dueTime,
+              // Include any AI insights
+              aiUrgency: aiTaskDetails?.urgency,
+              aiImportance: aiTaskDetails?.importance
             }),
-            action_id: "create_task"
+            action_id: "create_task_detailed"
           },
           {
             type: "button",
             text: {
               type: "plain_text",
-              text: "No, ignore",
+              text: "Ignore",
               emoji: true
             },
             value: JSON.stringify({
@@ -900,63 +1179,11 @@ export async function sendTaskDetectionDM(
         ]
       },
       {
-        type: "section",
-        text: {
-          type: "mrkdwn",
-          text: "*Task details*"
-        }
-      },
-      {
-        type: "section",
-        fields: [
-          {
-            type: "mrkdwn",
-            text: `*Title*\n${extractedTitle}`
-          },
-          {
-            type: "mrkdwn",
-            text: `*Priority*\n${
-              initialPriority === 'high' ? ':red_circle: High' :
-              initialPriority === 'medium' ? ':large_yellow_circle: Medium' :
-              ':large_green_circle: Low'
-            }`
-          },
-          {
-            type: "mrkdwn",
-            text: `*Due*\n${extractedDueDate ? 
-              `${extractedDueDate.dueDate}${extractedDueDate.dueTime ? ` at ${extractedDueDate.dueTime}` : ''}` : 
-              'No due date detected'}`
-          },
-          {
-            type: "mrkdwn",
-            text: `*Estimated time*\n${initialTimeRequired}`
-          }
-        ]
-      },
-      {
-        type: "actions",
+        type: "context",
         elements: [
           {
-            type: "button",
-            text: {
-              type: "plain_text",
-              text: "Edit details",
-              emoji: true
-            },
-            value: JSON.stringify({
-              action: "edit_task",
-              ts: message.ts,
-              text: message.text,
-              user: message.user,
-              channelId: message.channelId,
-              channelName: message.channelName,
-              title: extractedTitle,
-              priority: initialPriority,
-              timeRequired: initialTimeRequired,
-              dueDate: extractedDueDate?.dueDate,
-              dueTime: extractedDueDate?.dueTime
-            }),
-            action_id: "edit_task"
+            type: "mrkdwn",
+            text: ":calendar: *Task Scheduling*: Tasks will be automatically scheduled in your Google Calendar based on working hours, Urgency, Importance, and available slots. More urgent tasks will be scheduled sooner. Higher importance tasks will be prioritized for ideal time slots."
           }
         ]
       },
@@ -965,7 +1192,7 @@ export async function sendTaskDetectionDM(
         elements: [
           {
             type: "mrkdwn",
-            text: "Tasks you create will be added to your TaskFlow dashboard and scheduled in your calendar if connected."
+            text: ":bulb: *Smart Scheduling*: The system will analyze your calendar to find the best available time slot that fits the task duration within your working hours, respecting existing appointments and prioritizing based on urgency/importance."
           }
         ]
       }

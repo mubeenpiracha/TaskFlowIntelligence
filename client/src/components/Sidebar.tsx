@@ -1,6 +1,6 @@
 import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
-import { Home, Calendar, CheckSquare, Settings } from "lucide-react";
+import { Home, Calendar, CheckSquare, Settings, Beaker } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export default function Sidebar() {
@@ -38,6 +38,12 @@ export default function Sidebar() {
       href: '/settings',
       icon: Settings,
       current: location === '/settings'
+    },
+    {
+      name: 'Task Detection Test',
+      href: '/test-task-detection',
+      icon: Beaker,
+      current: location === '/test-task-detection'
     },
   ];
 

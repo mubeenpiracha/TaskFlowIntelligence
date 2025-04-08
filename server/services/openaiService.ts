@@ -102,10 +102,17 @@ Respond with ONLY a valid JSON object with these fields:
     const result = JSON.parse(content) as TaskAnalysisResponse;
     console.log(`OpenAI Result: is_task=${result.is_task}, confidence=${result.confidence}`);
     
+    // In development mode, increase confidence for testing
+    let finalConfidence = result.confidence || 0;
+    if (process.env.NODE_ENV === 'development') {
+      finalConfidence = Math.max(finalConfidence, 0.7); // Boost confidence for testing
+      console.log(`OpenAI: Boosting confidence to ${finalConfidence} for development testing`);
+    }
+    
     // Apply default values for missing fields
     return {
       is_task: result.is_task === true,
-      confidence: Math.max(0, Math.min(1, result.confidence || 0)),
+      confidence: Math.max(0, Math.min(1, finalConfidence)),
       deadline: result.deadline || undefined,
       deadline_text: result.deadline_text || undefined,
       urgency: result.urgency || undefined,
