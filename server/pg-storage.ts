@@ -83,6 +83,15 @@ export class PgStorage implements IStorage {
       .returning();
     return result[0];
   }
+  
+  async updateUserTimezone(id: number, timezone: string): Promise<User | undefined> {
+    const result = await db
+      .update(users)
+      .set({ timezone })
+      .where(eq(users.id, id))
+      .returning();
+    return result[0];
+  }
 
   // Working hours operations
   async getWorkingHours(userId: number): Promise<WorkingHours | undefined> {

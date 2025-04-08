@@ -166,6 +166,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
+  // Endpoint to update user timezone
+  app.post('/api/user/timezone', requireAuth, async (req, res) => {
+    try {
+      const timezoneSchema = z.object({
+        timezone: z.string().min(1)
+      });
+      
+      const parseResult = timezoneSchema.safeParse(req.body);
+      
+      if (!parseResult.success) {
+        return res.status(400).json({ 
+          message: 'Invalid timezone format',
+          errors: parseResult.error.errors
+        });
+      }
+      
+      const { timezone } = parseResult.data;
+      
+      // Validate that the timezone is a valid IANA timezone identifier
+      try {
+        // This will throw if the timezone is invalid
+        Intl.DateTimeFormat(undefined, { timeZone: timezone });
+      } catch (error) {
+        return res.status(400).json({ message: 'Invalid timezone identifier' });
+      }
+      
+      // Update user timezone
+      const updatedUser = await storage.updateUserTimezone(req.session.userId!, timezone);
+      
+      if (!updatedUser) {
+        return res.status(404).json({ message: 'User not found' });
+      }
+      
+      // Return success with the new timezone
+      const { password, ...userWithoutPassword } = updatedUser;
+      res.json(userWithoutPassword);
+      
+      console.log(`[TIMEZONE] User ${req.session.userId} updated timezone to ${timezone}`);
+    } catch (error) {
+      console.error('[TIMEZONE] Error updating user timezone:', error);
+      res.status(500).json({ message: 'Server error' });
+    }
+  });
+  
   // Google OAuth routes
   // 1. Connect calendar for existing user
   app.get('/api/auth/google/calendar/url', requireAuth, (req, res) => {

@@ -217,6 +217,12 @@ export const getCalendarEvents = async (start: string, end: string) => {
   return res.json();
 };
 
+// User settings API
+export const updateUserTimezone = async (timezone: string): Promise<User> => {
+  const res = await apiRequest('POST', '/api/user/timezone', { timezone });
+  return res.json();
+};
+
 // System monitoring API
 export interface MonitoringCheckResult {
   success: boolean;

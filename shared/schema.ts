@@ -12,6 +12,7 @@ export const users = pgTable("users", {
   googleRefreshToken: text("google_refresh_token"),
   slackWorkspace: text("slack_workspace"),
   slackChannelPreferences: text("slack_channel_preferences"),
+  timezone: text("timezone").default("UTC").notNull(),
 });
 
 export const workingHours = pgTable("working_hours", {
@@ -65,6 +66,7 @@ export const insertUserSchema = createInsertSchema(users).pick({
   googleRefreshToken: true,
   slackWorkspace: true,
   slackChannelPreferences: true,
+  timezone: true,
 });
 
 export const insertWorkingHoursSchema = createInsertSchema(workingHours).pick({

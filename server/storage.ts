@@ -19,6 +19,7 @@ export interface IStorage {
   updateUserSlackInfo(id: number, slackUserId: string, workspace: string, accessToken: string | null): Promise<User | undefined>;
   disconnectUserSlack(id: number): Promise<User | undefined>;
   updateUserSlackChannelPreferences(id: number, channelPreferences: string): Promise<User | undefined>;
+  updateUserTimezone(id: number, timezone: string): Promise<User | undefined>;
 
   // Working hours operations
   getWorkingHours(userId: number): Promise<WorkingHours | undefined>;
@@ -145,6 +146,15 @@ export class MemStorage implements IStorage {
     if (!user) return undefined;
     
     const updatedUser = { ...user, slackChannelPreferences: channelPreferences };
+    this.users.set(id, updatedUser);
+    return updatedUser;
+  }
+  
+  async updateUserTimezone(id: number, timezone: string): Promise<User | undefined> {
+    const user = this.users.get(id);
+    if (!user) return undefined;
+    
+    const updatedUser = { ...user, timezone };
     this.users.set(id, updatedUser);
     return updatedUser;
   }

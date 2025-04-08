@@ -159,6 +159,7 @@ const SystemStatusSection = () => {
   );
 };
 import TestSlackDMButton from "@/components/TestSlackDMButton";
+import TimezoneSelector from "@/components/TimezoneSelector";
 import { useLocation } from "wouter";
 
 export default function Settings() {
@@ -827,6 +828,19 @@ export default function Settings() {
                   <p className="text-sm text-gray-500">Prevent scheduling tasks outside working hours</p>
                 </div>
                 <Switch id="work-life-balance" />
+              </div>
+              
+              <Separator />
+              
+              <div>
+                <h3 className="text-base font-medium mb-2">Timezone</h3>
+                <p className="text-sm text-gray-500 mb-4">Set your local timezone for accurate task scheduling</p>
+                
+                {isLoadingUser ? (
+                  <Skeleton className="h-10 w-full" />
+                ) : (
+                  <TimezoneSelector currentTimezone={user?.timezone || 'UTC'} />
+                )}
               </div>
             </div>
           </CardContent>
