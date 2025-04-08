@@ -1118,21 +1118,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 scheduledEnd = new Date(scheduledStart);
                 scheduledEnd.setMinutes(scheduledEnd.getMinutes() + durationMinutes);
                 
-                // Get user's timezone preference
-                // First try to use the user's stored timezone preference
-                let userTimeZone = user.timezone || 'UTC';
-                console.log(`Using user's stored timezone preference for calendar event: ${userTimeZone}`);
-                
-                // If not available, try to get from Slack as a fallback
-                if (userTimeZone === 'UTC' && user.slackUserId) {
-                  try {
-                    const { timezone } = await getUserTimezone(user.slackUserId);
-                    userTimeZone = timezone;
-                    console.log(`Using user's Slack timezone for calendar event: ${userTimeZone}`);
-                  } catch (err) {
-                    console.error('Error getting user timezone from Slack, falling back to UTC:', err);
-                  }
-                }
+                // Get user's timezone preference directly from user settings
+                // The timezone is already stored in the user record in IANA format
+                // Google Calendar requires valid IANA timezone strings like 'America/New_York'
+                const userTimeZone = user.timezone || 'UTC';
+                console.log(`Using user's stored timezone for calendar event: ${userTimeZone}`);
                 
                 const event = await createCalendarEvent(
                   user.googleRefreshToken,
@@ -1171,21 +1161,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 
                 console.log(`Using deadline-based scheduling: ${deadlineStart.toISOString()} to ${dueDateTime.toISOString()}`);
                 
-                // Make sure we have the user's timezone for deadline-based scheduling too
-                // First try to use the user's stored timezone preference
-                let userTimeZone = user.timezone || 'UTC';
-                console.log(`Using user's stored timezone preference for calendar event: ${userTimeZone}`);
-                
-                // If not available, try to get from Slack as a fallback
-                if (userTimeZone === 'UTC' && user.slackUserId) {
-                  try {
-                    const { timezone } = await getUserTimezone(user.slackUserId);
-                    userTimeZone = timezone;
-                    console.log(`Using user's Slack timezone for calendar event: ${userTimeZone}`);
-                  } catch (err) {
-                    console.error('Error getting user timezone from Slack, falling back to UTC:', err);
-                  }
-                }
+                // Get user's timezone preference directly from user settings
+                // The timezone is already stored in the user record in IANA format
+                // Google Calendar requires valid IANA timezone strings like 'America/New_York'
+                const userTimeZone = user.timezone || 'UTC';
+                console.log(`Using user's stored timezone for calendar event: ${userTimeZone}`);
                 
                 const event = await createCalendarEvent(
                   user.googleRefreshToken,
