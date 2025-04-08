@@ -318,16 +318,50 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Slack Events API endpoint for event subscriptions
-  app.post('/slack/events', express.json(), async (req, res) => {
+  // Slack Events API endpoint for event subscriptions - with enhanced logging
+  app.post('/slack/events', express.raw({ type: '*/*' }), async (req, res) => {
     console.log('=== RECEIVED SLACK EVENTS API REQUEST ===');
     console.log('Headers:', JSON.stringify(req.headers));
-    console.log('Body:', JSON.stringify(req.body));
+    
+    let body;
+    try {
+      // If it's a string (raw body), try to parse it as JSON
+      if (typeof req.body === 'string' || Buffer.isBuffer(req.body)) {
+        const rawBody = req.body.toString();
+        console.log('Raw body (first 500 chars):', rawBody.substring(0, 500));
+        
+        try {
+          body = JSON.parse(rawBody);
+          // Attach the parsed body for further processing
+          req.body = body;
+        } catch (parseError) {
+          console.log('Body is not valid JSON, using as-is');
+          console.log('Raw body type:', typeof rawBody);
+          console.log('Raw body length:', rawBody.length);
+          // For URL encoded form data
+          if (req.headers['content-type']?.includes('application/x-www-form-urlencoded')) {
+            const urlParams = new URLSearchParams(rawBody);
+            const formData: Record<string, string> = {};
+            urlParams.forEach((value, key) => {
+              formData[key] = value;
+            });
+            body = formData;
+            req.body = body;
+          }
+        }
+      } else {
+        body = req.body;
+        console.log('Body (parsed):', JSON.stringify(body).substring(0, 500));
+      }
+    } catch (error) {
+      console.error('Error handling/parsing request body:', error);
+      body = req.body;
+    }
     
     // Enhanced debugging for Slack event
-    const eventType = req.body?.type;
-    const eventId = req.body?.event_id;
-    const event = req.body?.event;
+    const eventType = body?.type;
+    const eventId = body?.event_id;
+    const event = body?.event;
     
     console.log(`Event Type: ${eventType}`);
     console.log(`Event ID: ${eventId}`);
@@ -342,15 +376,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
     }
     
+    // Handle URL verification directly here for more robust processing
+    if (body?.type === 'url_verification') {
+      console.log('Handling URL verification directly');
+      return res.status(200).json({ challenge: body.challenge });
+    }
+    
     try {
-      // Use our new events handler to process the event
+      // Use our events handler to process the event
       await handleSlackEvent(req, res);
     } catch (error) {
       console.error('Error handling Slack event:', error);
       
       // Only send response if not already sent
       if (!res.headersSent) {
-        res.status(500).send('Error processing event');
+        res.status(200).send('Event received');  // Always return 200 to Slack
       }
     }
   });
