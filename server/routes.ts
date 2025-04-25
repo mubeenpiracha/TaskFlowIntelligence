@@ -1642,13 +1642,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           });
         } catch (error) {
           console.error('Failed to create Google Calendar event:', error);
-          // Handle token expired cases
-          if (error.message && (
-            error.message.includes('invalid_grant') || 
-            error.message.includes('unauthorized_client') || 
-            error.message.includes('invalid_token')
-          )) {
-            console.warn('Google token appears to be invalid or expired');
+          
+          // Check if this is a token expired error
+          if (error instanceof TokenExpiredError) {
+            console.warn('Google Calendar token has expired');
+            // We don't want to fail the task creation entirely, just log the error
+          } else {
+            console.error('Other error creating calendar event:', error);
           }
         }
       }
@@ -1736,13 +1736,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
         } catch (error) {
           console.error('Failed to update Google Calendar event:', error);
-          // Handle token expired cases
-          if (error.message && (
-            error.message.includes('invalid_grant') || 
-            error.message.includes('unauthorized_client') || 
-            error.message.includes('invalid_token')
-          )) {
-            console.warn('Google token appears to be invalid or expired');
+          
+          // Check if this is a token expired error
+          if (error instanceof TokenExpiredError) {
+            console.warn('Google Calendar token has expired');
+            // We don't want to fail the task update entirely, just log the error
+          } else {
+            console.error('Other error updating calendar event:', error);
           }
         }
       }
@@ -1778,13 +1778,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
             await deleteCalendarEvent(user.googleRefreshToken, task.googleEventId);
           } catch (error) {
             console.error('Failed to delete Google Calendar event:', error);
-            // Handle token expired cases
-            if (error.message && (
-              error.message.includes('invalid_grant') || 
-              error.message.includes('unauthorized_client') || 
-              error.message.includes('invalid_token')
-            )) {
-              console.warn('Google token appears to be invalid or expired');
+            
+            // Check if this is a token expired error
+            if (error instanceof TokenExpiredError) {
+              console.warn('Google Calendar token has expired');
+              // We don't want to fail the task deletion entirely, just log the error
+            } else {
+              console.error('Other error deleting calendar event:', error);
             }
           }
         }
