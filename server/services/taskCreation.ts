@@ -351,76 +351,14 @@ export async function createTaskFromSlackMessage(
     // Send real-time notification via WebSocket
     notifyTaskDetection(userId, createdTask);
     
-    // Check if user has Google Calendar connected and create calendar event
-    const user = await storage.getUser(userId);
-    if (user?.googleRefreshToken && createdTask.dueDate && createdTask.dueTime) {
-      try {
-        // Calculate end time based on time required
-        const [dueHours, dueMinutes] = createdTask.dueTime.split(':').map(Number);
-        const [reqHours, reqMinutes] = (createdTask.timeRequired || '01:00').split(':').map(Number);
-        
-        // First, get user's timezone from Slack if available
-        let userTimeZone = 'UTC';
-        console.log(`Creating calendar event for user ${user.id}, slack user ID: ${user.slackUserId || 'not connected'}`);
-        
-        if (user.slackUserId) {
-          try {
-            console.log(`Fetching timezone information for Slack user ID: ${user.slackUserId}`);
-            const { timezone, timezone_offset } = await getUserTimezone(user.slackUserId);
-            userTimeZone = timezone;
-            console.log(`[TIMEZONE DEBUG] Got timezone from Slack: ${userTimeZone} (offset: ${timezone_offset})`);
-          } catch (err) {
-            console.error('[TIMEZONE DEBUG] Error getting user timezone from Slack, falling back to UTC:', err);
-          }
-        } else {
-          console.log('[TIMEZONE DEBUG] No Slack user ID available, using default timezone: UTC');
-        }
-
-        // Create due date in ISO format
-        const dueDateTimeString = `${createdTask.dueDate}T${createdTask.dueTime}:00`;
-        console.log(`[TIMEZONE DEBUG] Raw due date time string: ${dueDateTimeString}`);
-        
-        // Create end date exactly at the due time
-        const endDate = new Date(`${createdTask.dueDate}T${createdTask.dueTime}`);
-        
-        // Create start date by subtracting task duration from end date
-        const startDate = new Date(endDate);
-        startDate.setHours(startDate.getHours() - reqHours);
-        startDate.setMinutes(startDate.getMinutes() - reqMinutes);
-        
-        // Format dates for debugging
-        console.log(`[TIMEZONE DEBUG] Start date (local): ${startDate.toString()}`);
-        console.log(`[TIMEZONE DEBUG] End date (local): ${endDate.toString()}`);
-        console.log(`[TIMEZONE DEBUG] Start date (ISO): ${startDate.toISOString()}`);
-        console.log(`[TIMEZONE DEBUG] End date (ISO): ${endDate.toISOString()}`);
-        
-        // Create an event on the user's calendar
-        const event = await createCalendarEvent(
-          user.googleRefreshToken,
-          {
-            summary: `Task: ${createdTask.title}`,
-            description: createdTask.description || '',
-            start: {
-              dateTime: startDate.toISOString().replace('Z',''),
-              timeZone: userTimeZone
-            },
-            end: {
-              dateTime: endDate.toISOString().replace('Z',''),
-              timeZone: userTimeZone
-            },
-            colorId: priority === 'high' ? '4' : priority === 'medium' ? '5' : '6', // Red, Yellow, Green
-          }
-        );
-        
-        // Store the Google Calendar event ID with the task
-        if (event?.id) {
-          await storage.updateTask(createdTask.id, { googleEventId: event.id });
-        }
-      } catch (error) {
-        console.error('Error creating Google Calendar event:', error);
-        // Continue without calendar event if there's an error
-      }
-    }
+    // We no longer create calendar events here - this is now handled by the intelligent scheduling in routes.ts
+    // This prevents duplicate calendar events from being created
+    
+    // Log that we're skipping calendar event creation at this stage
+    console.log(`Task ${createdTask.id} created successfully. Calendar scheduling will be handled by intelligent scheduler.`);
+    
+    // Note: We still return the created task without a calendar event
+    // The intelligent scheduling logic in routes.ts will handle finding optimal slots and creating the calendar event
     
     return createdTask;
   } catch (error) {
