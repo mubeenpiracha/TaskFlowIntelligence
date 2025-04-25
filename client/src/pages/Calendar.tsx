@@ -241,7 +241,7 @@ export default function Calendar() {
         
         {/* Calendar error alert */}
         {calendarError && (
-          <Alert variant="destructive" className="mb-4">
+          <Alert variant={calendarError.code === 'CALENDAR_AUTH_EXPIRED' ? "destructive" : "warning"} className="mb-4">
             <AlertCircle className="h-4 w-4" />
             <AlertTitle>
               {calendarError.code === 'CALENDAR_AUTH_EXPIRED' 
@@ -252,10 +252,21 @@ export default function Calendar() {
             </AlertTitle>
             <AlertDescription className="flex flex-col">
               <span>{calendarError.message}</span>
-              {(calendarError.code === 'CALENDAR_AUTH_EXPIRED' || calendarError.code === 'CALENDAR_NOT_CONNECTED') && (
-                <Button asChild variant="outline" size="sm" className="mt-2 w-fit">
-                  <Link to="/settings">Go to Settings</Link>
-                </Button>
+              {calendarError.code === 'CALENDAR_AUTH_EXPIRED' && (
+                <div className="mt-2 flex flex-col gap-2">
+                  <p className="text-sm">Your Google Calendar access has expired. You need to reconnect to view and manage events.</p>
+                  <Button asChild variant="outline" size="sm" className="w-fit">
+                    <Link to="/settings#google-calendar">Reconnect Calendar</Link>
+                  </Button>
+                </div>
+              )}
+              {calendarError.code === 'CALENDAR_NOT_CONNECTED' && (
+                <div className="mt-2 flex flex-col gap-2">
+                  <p className="text-sm">Connect your Google Calendar to see all your events alongside your tasks.</p>
+                  <Button asChild variant="outline" size="sm" className="w-fit">
+                    <Link to="/settings#google-calendar">Connect Calendar</Link>
+                  </Button>
+                </div>
               )}
             </AlertDescription>
           </Alert>

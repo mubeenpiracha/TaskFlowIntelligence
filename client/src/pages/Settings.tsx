@@ -349,7 +349,7 @@ export default function Settings() {
         </Card>
         
         {/* Google Calendar Integration */}
-        <Card>
+        <Card id="google-calendar">
           <CardHeader>
             <CardTitle className="flex items-center">
               <Calendar className="w-6 h-6 mr-2" />
@@ -374,6 +374,17 @@ export default function Settings() {
                     <span>{isGoogleConnected ? 'Connected' : 'Not connected'}</span>
                   </div>
                 </div>
+                
+                {/* Show a special message if this was linked from the calendar page */}
+                {window.location.hash === '#google-calendar' && !isGoogleConnected && (
+                  <Alert className="mb-4">
+                    <ExternalLink className="h-4 w-4" />
+                    <AlertTitle>Google Calendar Access Required</AlertTitle>
+                    <AlertDescription>
+                      Connect or reconnect your Google Calendar using the button below to continue viewing and managing events.
+                    </AlertDescription>
+                  </Alert>
+                )}
                 
                 {!isGoogleConnected ? (
                   <Button 
