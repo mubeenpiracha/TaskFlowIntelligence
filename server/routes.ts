@@ -1720,12 +1720,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
             
             eventUpdate.start = {
-              dateTime: startTime.toISOString(),
+              dateTime: startTime.toISOString().replace('Z', ''),
               timeZone: userTimeZone
             };
             
             eventUpdate.end = {
-              dateTime: endTime.toISOString(),
+              dateTime: endTime.toISOString().replace('Z', ''),
               timeZone: userTimeZone
             };
           }
