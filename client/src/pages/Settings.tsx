@@ -381,7 +381,17 @@ export default function Settings() {
                     <ExternalLink className="h-4 w-4" />
                     <AlertTitle>Google Calendar Access Required</AlertTitle>
                     <AlertDescription>
-                      Connect or reconnect your Google Calendar using the button below to continue viewing and managing events.
+                      Connect your Google Calendar using the button below to continue viewing and managing events.
+                    </AlertDescription>
+                  </Alert>
+                )}
+                
+                {window.location.hash === '#google-calendar' && isGoogleConnected && (
+                  <Alert className="mb-4" variant="warning">
+                    <RefreshCw className="h-4 w-4" />
+                    <AlertTitle>Reconnection Recommended</AlertTitle>
+                    <AlertDescription>
+                      If you're experiencing calendar issues, try disconnecting and then reconnecting your Google Calendar to refresh the authentication.
                     </AlertDescription>
                   </Alert>
                 )}
@@ -422,9 +432,16 @@ export default function Settings() {
                         )}
                       </Button>
                     </div>
-                    <p className="text-xs text-gray-500">
-                      If you're having issues with calendar integration, you can reconnect or disconnect it entirely.
-                    </p>
+                    <div className="text-xs text-gray-500 space-y-2">
+                      <p>
+                        <strong>Troubleshooting Calendar Issues:</strong>
+                      </p>
+                      <ol className="list-decimal pl-4 space-y-1">
+                        <li>If calendar events aren't showing, try <strong>reconnecting</strong> first.</li>
+                        <li>If that doesn't work, <strong>disconnect</strong> and then connect again.</li>
+                        <li>Make sure your Google account has calendar permissions enabled.</li>
+                      </ol>
+                    </div>
                   </div>
                 )}
               </div>
