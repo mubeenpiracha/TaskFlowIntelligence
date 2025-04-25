@@ -14,7 +14,8 @@ import {
   createCalendarEvent, 
   updateCalendarEvent, 
   deleteCalendarEvent, 
-  listCalendarEvents 
+  listCalendarEvents,
+  TokenExpiredError
 } from "./services/google";
 import { 
   getSlackAuthUrl,
@@ -1848,22 +1849,24 @@ export async function registerRoutes(app: Express): Promise<Server> {
       } catch (error) {
         console.error('Failed to fetch calendar events:', error);
         
-        // Handle token expired cases
-        if (error.message && (
-          error.message.includes('invalid_grant') || 
-          error.message.includes('unauthorized_client') || 
-          error.message.includes('invalid_token')
-        )) {
+        // Check for our specialized token expiration error
+        if (error instanceof TokenExpiredError) {
+          // Indicate to the frontend that the user needs to reconnect their Google Calendar
+          console.log('Received TokenExpiredError, sending appropriate response to client');
           return res.status(401).json({ 
             message: 'Google Calendar authorization expired. Please reconnect your calendar.', 
             code: 'CALENDAR_AUTH_EXPIRED' 
           });
         }
         
-        return res.status(500).json({ message: 'Failed to fetch calendar events' });
+        // Handle other errors
+        return res.status(500).json({ 
+          message: 'Failed to fetch calendar events',
+          error: error instanceof Error ? error.message : String(error)
+        });
       }
     } catch (error) {
-      console.error(error);
+      console.error('Error in calendar events endpoint:', error);
       res.status(500).json({ message: 'Failed to fetch calendar events' });
     }
   });

@@ -3,16 +3,21 @@ import { useQuery } from "@tanstack/react-query";
 import { format, addDays, subDays, startOfWeek, endOfWeek, isToday } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ChevronLeft, ChevronRight, Calendar as CalendarIcon } from "lucide-react";
+import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, AlertCircle } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import CalendarView from "@/components/CalendarView";
 import TaskDetailModal from "@/components/modals/TaskDetailModal";
 import { cn } from "@/lib/utils";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { useToast } from "@/hooks/use-toast";
+import { Link } from "wouter";
 
 export default function Calendar() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [viewType, setViewType] = useState<'day' | 'week' | 'month'>('week');
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
+  const [calendarError, setCalendarError] = useState<{message: string, code?: string} | null>(null);
+  const { toast } = useToast();
   
   // Calculate date range based on view type
   const calculateDateRange = () => {
@@ -80,8 +85,63 @@ export default function Calendar() {
     setCurrentDate(new Date());
   };
   
+  // Fetch calendar events for the selected date range
+  const { data: calendarEvents, isLoading: isLoadingCalendar } = useQuery({
+    queryKey: [`/api/calendar/events/${format(start, 'yyyy-MM-dd')}_${format(end, 'yyyy-MM-dd')}`],
+    queryFn: async () => {
+      try {
+        // Reset any previous errors
+        setCalendarError(null);
+        
+        // Format dates as ISO strings for the API
+        const startStr = start.toISOString();
+        const endStr = end.toISOString();
+        
+        const res = await apiRequest('GET', `/api/calendar/events?start=${startStr}&end=${endStr}`);
+        
+        if (!res.ok) {
+          // Parse the error response
+          const errorData = await res.json();
+          
+          // Handle known error codes
+          if (errorData.code === 'CALENDAR_AUTH_EXPIRED') {
+            setCalendarError({
+              message: errorData.message || 'Your Google Calendar connection has expired. Please reconnect.',
+              code: errorData.code
+            });
+            
+            toast({
+              title: "Calendar Connection Expired",
+              description: "Your Google Calendar authorization has expired. Please reconnect in Settings.",
+              variant: "destructive"
+            });
+            
+            return [];
+          } else if (errorData.code === 'CALENDAR_NOT_CONNECTED') {
+            setCalendarError({
+              message: 'Connect Google Calendar to view your events here.',
+              code: errorData.code
+            });
+            return [];
+          }
+          
+          // Handle other errors
+          throw new Error(errorData.message || 'Failed to fetch calendar events');
+        }
+        
+        return res.json();
+      } catch (error) {
+        console.error("Error fetching calendar events:", error);
+        setCalendarError({
+          message: error instanceof Error ? error.message : 'Failed to fetch calendar events'
+        });
+        return [];
+      }
+    }
+  });
+  
   // Fetch tasks for the selected date range
-  const { data: tasks, isLoading } = useQuery({
+  const { data: tasks, isLoading: isLoadingTasks } = useQuery({
     queryKey: [`/api/tasks/${format(start, 'yyyy-MM-dd')}_${format(end, 'yyyy-MM-dd')}`],
     queryFn: async () => {
       try {
@@ -95,6 +155,9 @@ export default function Calendar() {
       }
     }
   });
+  
+  // Combine loading states
+  const isLoading = isLoadingCalendar || isLoadingTasks;
   
   return (
     <>
@@ -176,11 +239,33 @@ export default function Calendar() {
           </div>
         </div>
         
+        {/* Calendar error alert */}
+        {calendarError && (
+          <Alert variant="destructive" className="mb-4">
+            <AlertCircle className="h-4 w-4" />
+            <AlertTitle>
+              {calendarError.code === 'CALENDAR_AUTH_EXPIRED' 
+                ? 'Calendar Authorization Expired' 
+                : calendarError.code === 'CALENDAR_NOT_CONNECTED' 
+                  ? 'Calendar Not Connected'
+                  : 'Calendar Error'}
+            </AlertTitle>
+            <AlertDescription className="flex flex-col">
+              <span>{calendarError.message}</span>
+              {(calendarError.code === 'CALENDAR_AUTH_EXPIRED' || calendarError.code === 'CALENDAR_NOT_CONNECTED') && (
+                <Button asChild variant="outline" size="sm" className="mt-2 w-fit">
+                  <Link to="/settings">Go to Settings</Link>
+                </Button>
+              )}
+            </AlertDescription>
+          </Alert>
+        )}
+        
         {/* Calendar Content */}
         {isLoading ? (
           <Skeleton className="h-[600px] w-full" />
         ) : (
-          <CalendarView tasks={tasks} />
+          <CalendarView tasks={tasks} events={calendarEvents || []} />
         )}
       </div>
       

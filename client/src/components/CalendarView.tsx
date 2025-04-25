@@ -21,32 +21,18 @@ interface CalendarEvent {
 
 interface CalendarViewProps {
   tasks?: Task[];
+  events?: CalendarEvent[];
 }
 
-export default function CalendarView({ tasks }: CalendarViewProps) {
+export default function CalendarView({ tasks, events = [] }: CalendarViewProps) {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [viewType, setViewType] = useState<'day' | 'week' | 'month'>('week');
   
   // Format date for display
   const formattedDate = format(currentDate, 'MMMM d, yyyy');
   
-  // Get start and end of current week for fetching calendar events
-  const startDate = startOfWeek(currentDate);
-  const endDate = addDays(startDate, 7);
-  
-  // Query calendar events
-  const { data: calendarEvents, isLoading } = useQuery({
-    queryKey: ['/api/calendar/events', startDate.toISOString(), endDate.toISOString()],
-    queryFn: async () => {
-      try {
-        const res = await apiRequest('GET', `/api/calendar/events?start=${startDate.toISOString()}&end=${endDate.toISOString()}`);
-        return await res.json();
-      } catch (error) {
-        console.error("Error fetching calendar events:", error);
-        return [];
-      }
-    }
-  });
+  // Use the events passed from parent component
+  const calendarEvents = events;
   
   // Days of the week
   const daysOfWeek = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -156,25 +142,20 @@ export default function CalendarView({ tasks }: CalendarViewProps) {
 
       {/* Calendar Grid */}
       <div className="bg-white px-4 py-3 sm:px-6 overflow-x-auto">
-        {isLoading ? (
-          <div className="space-y-2">
-            <Skeleton className="h-[400px] w-full" />
-          </div>
-        ) : (
-          <div className="grid grid-cols-[50px_repeat(7,_1fr)] grid-rows-[50px_repeat(11,_60px)] gap-[1px] min-w-full">
-            {/* Header */}
-            <div className="font-medium bg-slate-50"></div>
-            {daysOfWeek.map((day, index) => (
-              <div 
-                key={day} 
-                className={cn(
-                  "font-medium bg-slate-50 text-center flex flex-col justify-center", 
-                  isToday(index) && "border-2 border-[#36C5F0] rounded"
-                )}
-              >
-                {day}
-              </div>
-            ))}
+        <div className="grid grid-cols-[50px_repeat(7,_1fr)] grid-rows-[50px_repeat(11,_60px)] gap-[1px] min-w-full">
+          {/* Header */}
+          <div className="font-medium bg-slate-50"></div>
+          {daysOfWeek.map((day, index) => (
+            <div 
+              key={day} 
+              className={cn(
+                "font-medium bg-slate-50 text-center flex flex-col justify-center", 
+                isToday(index) && "border-2 border-[#36C5F0] rounded"
+              )}
+            >
+              {day}
+            </div>
+          ))}
             
             {/* Time slots */}
             {timeSlots.map(hour => (
@@ -213,7 +194,6 @@ export default function CalendarView({ tasks }: CalendarViewProps) {
               </>
             ))}
           </div>
-        )}
       </div>
     </div>
   );
