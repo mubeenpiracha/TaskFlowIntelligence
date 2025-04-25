@@ -1868,6 +1868,44 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Test endpoint for timezone handling (development only)
+  app.post('/api/test/timezone-fix', requireAuth, async (req, res) => {
+    try {
+      const user = await storage.getUser(req.session.userId!);
+      
+      if (!user || !user.googleRefreshToken || user.googleRefreshToken.trim() === '') {
+        return res.status(400).json({ 
+          message: 'Google Calendar not connected', 
+          code: 'CALENDAR_NOT_CONNECTED' 
+        });
+      }
+      
+      // Import the test function
+      const { testTimezoneHandling } = await import('./test-timezone-fix');
+      
+      // Get timezone from request or use user's default
+      const timezone = req.body.timezone || user.timezone || 'UTC';
+      
+      // Run the test
+      console.log(`Running timezone handling test with timezone: ${timezone}`);
+      const testResult = await testTimezoneHandling(user.googleRefreshToken, timezone);
+      
+      // Return the results
+      res.json({
+        success: true,
+        message: 'Timezone handling test completed',
+        results: testResult
+      });
+    } catch (error) {
+      console.error('Error running timezone handling test:', error);
+      res.status(500).json({ 
+        success: false,
+        message: 'Failed to run timezone handling test',
+        error: error instanceof Error ? error.message : String(error) 
+      });
+    }
+  });
+  
   const httpServer = createServer(app);
   
   // No longer need to set up WebSockets - we've moved to a polling-based approach

@@ -9,6 +9,7 @@ import Tasks from "@/pages/Tasks";
 import Settings from "@/pages/Settings";
 import Login from "@/pages/Login";
 import TaskDetectionTest from "@/pages/TaskDetectionTest";
+import TimezoneTest from "@/pages/TimezoneTest";
 import Layout from "@/components/Layout";
 import { useEffect, useState } from "react";
 import { apiRequest } from "./lib/queryClient";
@@ -53,6 +54,7 @@ function Router() {
       <PrivateRoute path="/tasks" component={Tasks} />
       <PrivateRoute path="/settings" component={Settings} />
       <PrivateRoute path="/test-task-detection" component={TaskDetectionTest} />
+      <PrivateRoute path="/test-timezone" component={TimezoneTest} />
       <Route component={NotFound} />
     </Switch>
   );
