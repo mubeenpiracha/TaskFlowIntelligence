@@ -130,7 +130,7 @@ export default function Calendar() {
           </div>
           
           <div className="flex items-center space-x-2">
-            <span className="text-lg font-medium">{formatDateRange()}</span>
+            <span className="text-lg font-medium">{formatDateRangeForDisplay(currentDate, viewType)}</span>
             <Button 
               variant="ghost" 
               size="icon"

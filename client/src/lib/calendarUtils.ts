@@ -1,196 +1,233 @@
 /**
- * Calendar utility functions for the client
- * Centralizes calendar-related operations and formatting
+ * Calendar utilities and helper functions
+ * Used by both the calendar service and components
  */
-import { format, addDays, subDays, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
-import { apiRequest } from './queryClient';
+import { format, parseISO, isValid, startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
 import { ErrorCode } from './errorTypes';
-import { toast } from '@/hooks/use-toast';
+import { fetchApi } from './api';
+import { CalendarEvent, getCalendarEvents } from './calendarService';
 
 /**
- * Standardized calendar error type
- */
-export interface CalendarError {
-  message: string;
-  code?: string;
-  details?: string;
-}
-
-/**
- * Format a date for display in the UI
+ * Formats a date for display in the calendar
  * 
- * @param date The date to format
- * @param formatStr Optional format string (defaults to 'MMM d, yyyy')
+ * @param date Date to format
+ * @param formatStr Format string for date-fns
  * @returns Formatted date string
  */
-export function formatDateForDisplay(date: Date, formatStr: string = 'MMM d, yyyy'): string {
+export function formatDate(date: Date, formatStr: string = 'MMM d, yyyy'): string {
+  if (!isValid(date)) return 'Invalid Date';
   return format(date, formatStr);
 }
 
 /**
- * Format a date for the Google Calendar API
- * Ensures the date is in RFC 3339 format
+ * Formats a date for the Google Calendar API
+ * Uses RFC 3339 format with timezone
  * 
- * @param date The date to format
- * @returns RFC 3339 formatted date string
+ * @param date Date to format 
+ * @returns Formatted date string in RFC 3339 format
  */
 export function formatDateForCalendarAPI(date: Date): string {
-  // Google Calendar API expects RFC 3339 format
+  if (!isValid(date)) throw new Error('Invalid date for calendar API');
   return date.toISOString();
 }
 
 /**
- * Get the date range (start and end dates) for a given view type
+ * Formats a date range for display in the calendar header
  * 
- * @param date The base date
- * @param viewType The type of calendar view (day, week, month)
- * @returns Start and end dates
+ * @param date Current date
+ * @param viewType Current view type (day, week, month)
+ * @returns Formatted date range string
+ */
+export function formatDateRangeForDisplay(date: Date, viewType: 'day' | 'week' | 'month'): string {
+  if (!isValid(date)) return 'Invalid Date Range';
+  
+  switch (viewType) {
+    case 'day':
+      return format(date, 'EEEE, MMMM d, yyyy');
+    case 'week': {
+      // Find the start and end of the week
+      const day = date.getDay();
+      const startDate = new Date(date);
+      startDate.setDate(date.getDate() - day);
+      const endDate = new Date(startDate);
+      endDate.setDate(startDate.getDate() + 6);
+      
+      // If in the same month
+      if (startDate.getMonth() === endDate.getMonth()) {
+        return `${format(startDate, 'MMM d')} - ${format(endDate, 'd, yyyy')}`;
+      }
+      
+      // If in different months
+      return `${format(startDate, 'MMM d')} - ${format(endDate, 'MMM d, yyyy')}`;
+    }
+    case 'month':
+      return format(date, 'MMMM yyyy');
+    default:
+      return format(date, 'MMMM d, yyyy');
+  }
+}
+
+/**
+ * Parses a date string from the API
+ * 
+ * @param dateStr Date string from the API
+ * @returns Parsed Date object
+ */
+export function parseAPIDate(dateStr: string): Date {
+  if (!dateStr) throw new Error('Invalid date string');
+  
+  try {
+    const date = parseISO(dateStr);
+    if (!isValid(date)) throw new Error('Invalid date format');
+    return date;
+  } catch (error) {
+    console.error('Error parsing date:', dateStr, error);
+    throw new Error('Failed to parse date from API');
+  }
+}
+
+/**
+ * Calendar-specific error type
+ */
+export interface CalendarError {
+  message: string;
+  code?: ErrorCode;
+}
+
+/**
+ * Checks if an event conflicts with existing events
+ * 
+ * @param newEvent New event to check
+ * @param existingEvents Existing events to check against
+ * @returns True if there is a conflict
+ */
+export function hasEventConflict(
+  newEvent: { startDate: Date; endDate: Date; },
+  existingEvents: { start: { dateTime: string }; end: { dateTime: string }; }[]
+): boolean {
+  const newStart = newEvent.startDate.getTime();
+  const newEnd = newEvent.endDate.getTime();
+  
+  return existingEvents.some(event => {
+    const existingStart = new Date(event.start.dateTime).getTime();
+    const existingEnd = new Date(event.end.dateTime).getTime();
+    
+    // Check for overlap
+    return (
+      (newStart >= existingStart && newStart < existingEnd) || // New event starts during existing event
+      (newEnd > existingStart && newEnd <= existingEnd) || // New event ends during existing event
+      (newStart <= existingStart && newEnd >= existingEnd) // New event completely contains existing event
+    );
+  });
+}
+
+/**
+ * Get the color for an event based on its status or type
+ * 
+ * @param event Event to get color for
+ * @returns Color string (hex or CSS color)
+ */
+export function getEventColor(event: { colorId?: string; status?: string; }): string {
+  // Google Calendar color IDs
+  const colorMap: Record<string, string> = {
+    '1': '#7986CB', // Lavender
+    '2': '#33B679', // Sage
+    '3': '#8E24AA', // Grape
+    '4': '#E67C73', // Flamingo
+    '5': '#F6BF26', // Banana
+    '6': '#F4511E', // Tangerine
+    '7': '#039BE5', // Peacock
+    '8': '#616161', // Graphite
+    '9': '#3F51B5', // Blueberry
+    '10': '#0B8043', // Basil
+    '11': '#D50000', // Tomato
+  };
+  
+  // If the event has a color ID, use it
+  if (event.colorId && colorMap[event.colorId]) {
+    return colorMap[event.colorId];
+  }
+  
+  // Otherwise, use a default based on status
+  switch (event.status) {
+    case 'confirmed':
+      return '#36C5F0'; // Slack blue
+    case 'tentative':
+      return '#ECB22E'; // Slack yellow
+    case 'cancelled':
+      return '#E01E5A'; // Slack red
+    default:
+      return '#2EB67D'; // Slack green
+  }
+}
+
+/**
+ * Get the start and end dates for a calendar view
+ * 
+ * @param date Center date for the view
+ * @param viewType Type of view (day, week, month)
+ * @returns Object with start and end dates
  */
 export function getDateRangeForView(date: Date, viewType: 'day' | 'week' | 'month'): { start: Date, end: Date } {
   switch (viewType) {
     case 'day':
-      // Just the current day
-      const dayStart = new Date(date);
-      dayStart.setHours(0, 0, 0, 0);
-      
-      const dayEnd = new Date(date);
-      dayEnd.setHours(23, 59, 59, 999);
-      
-      return { start: dayStart, end: dayEnd };
-      
+      return {
+        start: startOfDay(date),
+        end: endOfDay(date)
+      };
     case 'week':
-      // Current week
-      const weekStart = startOfWeek(date, { weekStartsOn: 0 }); // 0 = Sunday
-      const weekEnd = endOfWeek(date, { weekStartsOn: 0 });
-      return { start: weekStart, end: weekEnd };
-      
+      return {
+        start: startOfWeek(date),
+        end: endOfWeek(date)
+      };
     case 'month':
-      // Current month
-      const monthStart = startOfMonth(date);
-      const monthEnd = endOfMonth(date);
-      return { start: monthStart, end: monthEnd };
-      
+      return {
+        start: startOfMonth(date),
+        end: endOfMonth(date)
+      };
     default:
-      // Default to a day view if viewType is not recognized
-      const defaultStart = new Date(date);
-      defaultStart.setHours(0, 0, 0, 0);
-      
-      const defaultEnd = new Date(date);
-      defaultEnd.setHours(23, 59, 59, 999);
-      
-      return { start: defaultStart, end: defaultEnd };
+      return {
+        start: startOfDay(date),
+        end: endOfDay(date)
+      };
   }
 }
 
 /**
- * Format a date range for display in the UI header
+ * Wrapper around getCalendarEvents from the calendar service
+ * Used to maintain compatibility with existing component usage
  * 
- * @param date The current date
- * @param viewType The type of calendar view (day, week, month)
- * @returns Formatted date range string
- */
-export function formatDateRangeForDisplay(date: Date, viewType: 'day' | 'week' | 'month'): string {
-  const { start, end } = getDateRangeForView(date, viewType);
-  
-  switch (viewType) {
-    case 'day':
-      return format(date, 'MMMM d, yyyy');
-      
-    case 'week':
-      return `${format(start, 'MMM d')} - ${format(end, 'MMM d, yyyy')}`;
-      
-    case 'month':
-      return format(date, 'MMMM yyyy');
-      
-    default:
-      return format(date, 'MMMM d, yyyy');
-  }
-}
-
-/**
- * Fetch calendar events from the API for a given date range
- * 
- * @param start Start date
- * @param end End date
- * @param setCalendarError Function to set calendar errors
- * @returns Calendar events array or empty array on error
+ * @param startDate Start date for fetching events
+ * @param endDate End date for fetching events
+ * @param setError Optional function to set error state
+ * @returns Calendar events for the date range
  */
 export async function fetchCalendarEvents(
-  start: Date,
-  end: Date,
-  setCalendarError?: (error: CalendarError | null) => void
-) {
-  try {
-    // Reset any previous errors
-    if (setCalendarError) setCalendarError(null);
-    
-    // Format dates for the API
-    const startStr = formatDateForCalendarAPI(start);
-    const endStr = formatDateForCalendarAPI(end);
-    
-    console.log(`Fetching calendar events from ${startStr} to ${endStr}`);
-    const res = await apiRequest('GET', `/api/calendar/events?start=${startStr}&end=${endStr}`);
-    
-    if (!res.ok) {
-      // Parse the error response
-      const errorData = await res.json();
-      
-      // Handle known error codes
-      if (errorData.code === ErrorCode.CALENDAR_AUTH_EXPIRED) {
-        if (setCalendarError) {
-          setCalendarError({
-            message: errorData.message || 'Your Google Calendar connection has expired. Please reconnect.',
-            code: errorData.code
-          });
-        }
-        
-        toast({
-          title: "Calendar Connection Expired",
-          description: "Your Google Calendar authorization has expired. Please reconnect in Settings.",
-          variant: "destructive"
-        });
-        
-        return [];
-      } else if (errorData.code === ErrorCode.CALENDAR_NOT_CONNECTED) {
-        if (setCalendarError) {
-          setCalendarError({
-            message: 'Connect Google Calendar to view your events here.',
-            code: errorData.code
-          });
-        }
-        return [];
-      } else if (errorData.code === ErrorCode.CALENDAR_REQUEST_ERROR) {
-        if (setCalendarError) {
-          setCalendarError({
-            message: `Calendar request error: ${errorData.error || 'Invalid request format'}`,
-            code: errorData.code,
-            details: errorData.details
-          });
-        }
-        
-        toast({
-          title: "Calendar Request Error",
-          description: "There was a problem with the format of the calendar request. Our team has been notified.",
-          variant: "destructive"
-        });
-        
-        // Log the detailed error for debugging
-        console.error("Calendar API request format error:", errorData);
-        return [];
-      }
-      
-      // Handle other errors
-      throw new Error(errorData.message || 'Failed to fetch calendar events');
-    }
-    
-    return res.json();
-  } catch (error) {
-    console.error("Error fetching calendar events:", error);
-    if (setCalendarError) {
-      setCalendarError({
-        message: error instanceof Error ? error.message : 'Failed to fetch calendar events'
-      });
-    }
-    return [];
+  startDate: Date,
+  endDate: Date,
+  setError?: (error: CalendarError | null) => void
+): Promise<CalendarEvent[]> {
+  return getCalendarEvents(startDate, endDate, setError);
+}
+
+/**
+ * Format a date for display in different places
+ * 
+ * @param date Date to format
+ * @param type Type of formatting to apply
+ * @returns Formatted date string
+ */
+export function formatDateForDisplay(date: Date, type: 'short' | 'full' | 'time' = 'short'): string {
+  if (!isValid(date)) return 'Invalid Date';
+  
+  switch (type) {
+    case 'short':
+      return format(date, 'MMM d');
+    case 'full':
+      return format(date, 'EEEE, MMMM d, yyyy');
+    case 'time':
+      return format(date, 'h:mm a');
+    default:
+      return format(date, 'MMM d, yyyy');
   }
 }
