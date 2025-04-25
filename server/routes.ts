@@ -1033,10 +1033,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
               console.log(`Scheduling window: ${schedulingWindowDays} days (${daysToDeadline} days to deadline)`);
               
               // Set time window to look for available slots
-              const timeMin = now.toISOString();
+              const timeMin = now.toISOString().replace('Z', '');
               const schedulingEndDate = new Date(now);
               schedulingEndDate.setDate(schedulingEndDate.getDate() + schedulingWindowDays);
-              const timeMax = schedulingEndDate.toISOString();
+              const timeMax = schedulingEndDate.toISOString().replace('Z', '');
               
               // Fetch existing calendar events to find gaps
               const existingEvents = await listCalendarEvents(
@@ -1139,7 +1139,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 }
                 
                 if (foundSlot) {
-                  console.log(`Found available slot on ${scheduledStart!.toISOString()}`);
+                  console.log(`Found available slot on ${scheduledStart!.toISOString().replace('Z', '')}`);
                   break;
                 }
               }
@@ -1176,11 +1176,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 if (event?.id) {
                   await storage.updateTask(task.id, { 
                     googleEventId: event.id,
-                    scheduledStart: scheduledStart.toISOString(),
-                    scheduledEnd: scheduledEnd.toISOString()
+                    scheduledStart: scheduledStart.toISOString().replace('Z', ''),
+                    scheduledEnd: scheduledEnd.toISOString().replace('Z', '')
                   });
                   
-                  console.log(`Successfully scheduled task in calendar at ${scheduledStart.toISOString()}`);
+                  console.log(`Successfully scheduled task in calendar at ${scheduledStart.toISOString().replace('Z', '')}`);
                 }
               } else {
                 console.log('Could not find a suitable time slot within the scheduling window');
@@ -1190,7 +1190,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 const deadlineStart = new Date(dueDateTime);
                 deadlineStart.setMinutes(deadlineStart.getMinutes() - durationMinutes);
                 
-                console.log(`Using deadline-based scheduling: ${deadlineStart.toISOString()} to ${dueDateTime.toISOString()}`);
+                console.log(`Using deadline-based scheduling: ${deadlineStart.toISOString().replace('Z', '')} to ${dueDateTime.toISOString().replace('Z', '')}`);
                 
                 // Get user's timezone preference directly from user settings
                 // The timezone is already stored in the user record in IANA format
@@ -1223,7 +1223,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                     scheduledEnd: dueDateTime.toISOString().replace('Z', '')
                   });
                   
-                  console.log(`Created deadline-based event for task at ${deadlineStart.toISOString()}`);
+                  console.log(`Created deadline-based event for task at ${deadlineStart.toISOString().replace('Z', '')}`);
                 }
               }
             } catch (error) {
