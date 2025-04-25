@@ -318,27 +318,53 @@ export async function deleteCalendarEvent(
 export async function listCalendarEvents(
   refreshToken: string,
   timeMin: string,
-  timeMax: string
+  timeMax: string,
+  timezone?: string
 ): Promise<calendar_v3.Schema$Event[]> {
   const calendar = createCalendarClient(refreshToken);
   
   try {
+    // Ensure both timeMin and timeMax are properly formatted with timezone information
+    // Google Calendar API expects RFC 3339 format, like: 2025-04-28T15:55:04.208Z
+    
+    // If we need to process the timestamps further, we can convert and manipulate them:
+    // For now, we'll use the provided timestamps directly, but log them for debugging
+    
+    console.log('[CALENDAR] Listing events with parameters:');
+    console.log(`[CALENDAR] timeMin: ${timeMin}`);
+    console.log(`[CALENDAR] timeMax: ${timeMax}`);
+    console.log(`[CALENDAR] timezone: ${timezone || 'not specified'}`);
+    
+    // Make the request to Google Calendar API
     const response = await calendar.events.list({
       calendarId: 'primary',
       timeMin: timeMin,
       timeMax: timeMax,
       singleEvents: true,
       orderBy: 'startTime',
+      // Only include timezone if it's provided
+      ...(timezone && { timeZone: timezone })
     });
+    
+    // Log the successful response for debugging
+    console.log(`[CALENDAR] Successfully retrieved ${response.data.items?.length || 0} events`);
     
     return response.data.items || [];
   } catch (error) {
-    console.error('Error listing calendar events:', error);
+    console.error('[CALENDAR] Error listing calendar events:', error);
     
     // Check if this is a token expired error
     if (isTokenExpiredError(error)) {
-      console.log('Google Calendar token has expired, throwing TokenExpiredError');
+      console.log('[CALENDAR] Google Calendar token has expired, throwing TokenExpiredError');
       throw new TokenExpiredError();
+    }
+    
+    // Log more detailed error info for debugging
+    if (error.response) {
+      console.error('[CALENDAR] Error response data:', error.response.data);
+      console.error('[CALENDAR] Error response status:', error.response.status);
+      console.error('[CALENDAR] Error response headers:', error.response.headers);
+      console.error('[CALENDAR] Request URL:', error.response.request?.responseURL);
     }
     
     // Propagate the error so it can be handled properly

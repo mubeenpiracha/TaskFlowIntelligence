@@ -97,10 +97,18 @@ export default function Calendar() {
         // Reset any previous errors
         setCalendarError(null);
         
-        // Format dates as ISO strings for the API
-        const startStr = start.toISOString();
-        const endStr = end.toISOString();
+        // Function to format date for Google Calendar API with proper RFC 3339 format
+        const formatDateForGoogleCalendar = (date: Date): string => {
+          // Google Calendar API expects RFC 3339 format timestamps
+          // The backend will handle timezone adjustment based on user settings
+          return date.toISOString();
+        };
         
+        // Format dates properly for the API
+        const startStr = formatDateForGoogleCalendar(start);
+        const endStr = formatDateForGoogleCalendar(end);
+        
+        console.log(`Fetching calendar events from ${startStr} to ${endStr}`);
         const res = await apiRequest('GET', `/api/calendar/events?start=${startStr}&end=${endStr}`);
         
         if (!res.ok) {

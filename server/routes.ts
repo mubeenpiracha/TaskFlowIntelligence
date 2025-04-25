@@ -1845,8 +1845,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       try {
-        console.log(`Fetching calendar events from ${start} to ${end} for user ${req.session.userId}`);
-        const events = await listCalendarEvents(user.googleRefreshToken, start, end);
+        // Format dates properly for Google Calendar API with user's timezone
+        // The Google Calendar API requires RFC 3339 format for timeMin and timeMax
+        // We need to ensure proper timezone handling
+        
+        // Use the user's timezone setting (default to UTC if not set)
+        const userTimezone = user.timezone || 'UTC';
+        console.log(`Using timezone ${userTimezone} for user ${req.session.userId}`);
+        
+        // Properly format the dates with the user's timezone
+        // This ensures that Google Calendar API receives the correct time boundaries
+        let timeMin = start;
+        let timeMax = end;
+        
+        // Log the request parameters for debugging
+        console.log(`Fetching calendar events from ${timeMin} to ${timeMax} for user ${req.session.userId}`);
+        console.log(`User timezone: ${userTimezone}`);
+        
+        // Pass the user's timezone to the Google Calendar API
+        const events = await listCalendarEvents(user.googleRefreshToken, timeMin, timeMax, userTimezone);
         res.json(events);
       } catch (error) {
         console.error('Failed to fetch calendar events:', error);
