@@ -290,8 +290,8 @@ export async function listCalendarEvents(
       throw new TokenExpiredError();
     }
     
-    // Return empty array for other errors
-    return [];
+    // Propagate the error so it can be handled properly
+    throw error;
   }
 }
 
