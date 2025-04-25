@@ -8,6 +8,40 @@ if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
 }
 
 /**
+ * Custom error for token expiration
+ */
+export class TokenExpiredError extends Error {
+  constructor(message = 'Google OAuth token has expired or been revoked') {
+    super(message);
+    this.name = 'TokenExpiredError';
+  }
+}
+
+/**
+ * Checks if an error is a token expiration error
+ * @param error - Error to check
+ * @returns True if the error is a token expiration error
+ */
+export function isTokenExpiredError(error: any): boolean {
+  // Check for various token expiration indicators
+  if (!error) return false;
+  
+  // GaxiosError with invalid_grant
+  if (error.response?.data?.error === 'invalid_grant') {
+    return true;
+  }
+  
+  // Error message contains token expired
+  if (error.message && typeof error.message === 'string') {
+    return error.message.toLowerCase().includes('token') && 
+           (error.message.toLowerCase().includes('expired') || 
+            error.message.toLowerCase().includes('revoked'));
+  }
+  
+  return false;
+}
+
+/**
  * Creates an OAuth2 client for Google API authentication
  * @param redirectUrl - OAuth2 redirect URL
  * @returns OAuth2 client
@@ -207,6 +241,7 @@ export async function deleteCalendarEvent(
  * @param timeMin - Start of time range
  * @param timeMax - End of time range
  * @returns List of calendar events
+ * @throws TokenExpiredError if the refresh token has expired or been revoked
  */
 export async function listCalendarEvents(
   refreshToken: string,
@@ -227,6 +262,14 @@ export async function listCalendarEvents(
     return response.data.items || [];
   } catch (error) {
     console.error('Error listing calendar events:', error);
+    
+    // Check if this is a token expired error
+    if (isTokenExpiredError(error)) {
+      console.log('Google Calendar token has expired, throwing TokenExpiredError');
+      throw new TokenExpiredError();
+    }
+    
+    // Return empty array for other errors
     return [];
   }
 }
