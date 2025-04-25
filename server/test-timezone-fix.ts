@@ -1,4 +1,4 @@
-import { createCalendarEvent } from './services/google';
+import { createCalendarEvent, TokenExpiredError } from './services/google';
 import { format } from 'date-fns';
 
 /**
@@ -76,6 +76,16 @@ export async function testTimezoneHandling(refreshToken: string, userTimezone: s
     };
   } catch (error) {
     console.error('Timezone handling test failed:', error);
+    
+    // Check for token expiration error
+    if (error instanceof TokenExpiredError) {
+      return {
+        success: false,
+        error: 'Google Calendar authorization has expired. Please reconnect your calendar.',
+        code: 'CALENDAR_AUTH_EXPIRED'
+      };
+    }
+    
     return {
       success: false,
       error: error instanceof Error ? error.message : String(error)

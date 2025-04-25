@@ -178,6 +178,13 @@ export async function createCalendarEvent(
       console.error('[CALENDAR DEBUG] Error response data:', error.response.data);
       console.error('[CALENDAR DEBUG] Error response status:', error.response.status);
     }
+    
+    // Check if this is a token expired error
+    if (isTokenExpiredError(error)) {
+      console.log('[CALENDAR DEBUG] Google Calendar token has expired, throwing TokenExpiredError');
+      throw new TokenExpiredError();
+    }
+    
     throw error;
   }
 }
@@ -206,6 +213,13 @@ export async function updateCalendarEvent(
     return response.data;
   } catch (error) {
     console.error('Error updating calendar event:', error);
+    
+    // Check if this is a token expired error
+    if (isTokenExpiredError(error)) {
+      console.log('Google Calendar token has expired, throwing TokenExpiredError');
+      throw new TokenExpiredError();
+    }
+    
     throw error;
   }
 }
@@ -231,6 +245,13 @@ export async function deleteCalendarEvent(
     return true;
   } catch (error) {
     console.error('Error deleting calendar event:', error);
+    
+    // Check if this is a token expired error
+    if (isTokenExpiredError(error)) {
+      console.log('Google Calendar token has expired, throwing TokenExpiredError');
+      throw new TokenExpiredError();
+    }
+    
     return false;
   }
 }
@@ -290,6 +311,13 @@ export async function getUserProfile(accessToken: string) {
     return response.data;
   } catch (error) {
     console.error('Error getting user profile:', error);
+    
+    // Check if this is a token expired error
+    if (isTokenExpiredError(error)) {
+      console.log('Google Access token has expired, throwing TokenExpiredError');
+      throw new TokenExpiredError();
+    }
+    
     throw error;
   }
 }
