@@ -1901,6 +1901,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
     } catch (error) {
       console.error('Error running timezone handling test:', error);
+      
+      // Check if this is a token expired error
+      if (error instanceof TokenExpiredError) {
+        return res.status(401).json({
+          success: false,
+          message: 'Google Calendar token has expired',
+          code: 'GOOGLE_TOKEN_EXPIRED'
+        });
+      }
+      
       res.status(500).json({ 
         success: false,
         message: 'Failed to run timezone handling test',
