@@ -1,6 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { format, addDays, subDays, startOfWeek, endOfWeek, isToday } from "date-fns";
+import { format, isToday } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, AlertCircle } from "lucide-react";
@@ -12,160 +12,66 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { Link } from "wouter";
 
+// Import our new calendar utilities
+import { 
+  CalendarError, 
+  formatDateForDisplay,
+  formatDateRangeForDisplay, 
+  getDateRangeForView, 
+  fetchCalendarEvents 
+} from "@/lib/calendarUtils";
+
 export default function Calendar() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [viewType, setViewType] = useState<'day' | 'week' | 'month'>('week');
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
-  const [calendarError, setCalendarError] = useState<{
-    message: string;
-    code?: string;
-    details?: string;
-  } | null>(null);
+  const [calendarError, setCalendarError] = useState<CalendarError | null>(null);
   const { toast } = useToast();
   
-  // Calculate date range based on view type
-  const calculateDateRange = () => {
-    if (viewType === 'day') {
-      return {
-        start: currentDate,
-        end: currentDate
-      };
-    } else if (viewType === 'week') {
-      return {
-        start: startOfWeek(currentDate, { weekStartsOn: 1 }),
-        end: endOfWeek(currentDate, { weekStartsOn: 1 })
-      };
-    } else {
-      // For month view, we'd need more complex logic
-      // For now just showing current week
-      return {
-        start: startOfWeek(currentDate, { weekStartsOn: 1 }),
-        end: endOfWeek(currentDate, { weekStartsOn: 1 })
-      };
-    }
-  };
-  
-  const { start, end } = calculateDateRange();
-  
-  // Format date range for display
-  const formatDateRange = () => {
-    if (viewType === 'day') {
-      return format(currentDate, 'MMMM d, yyyy');
-    } else if (viewType === 'week') {
-      return `${format(start, 'MMM d')} - ${format(end, 'MMM d, yyyy')}`;
-    } else {
-      return format(currentDate, 'MMMM yyyy');
-    }
-  };
+  // Calculate date range based on view type using our utility
+  const { start, end } = getDateRangeForView(currentDate, viewType);
   
   // Navigation functions
   const goToPrev = () => {
+    const newDate = new Date(currentDate);
+    
     if (viewType === 'day') {
-      setCurrentDate(subDays(currentDate, 1));
+      newDate.setDate(newDate.getDate() - 1);
     } else if (viewType === 'week') {
-      setCurrentDate(subDays(currentDate, 7));
+      newDate.setDate(newDate.getDate() - 7);
     } else {
-      // For month view
-      const newDate = new Date(currentDate);
+      // Month view
       newDate.setMonth(newDate.getMonth() - 1);
-      setCurrentDate(newDate);
     }
+    
+    setCurrentDate(newDate);
   };
   
   const goToNext = () => {
+    const newDate = new Date(currentDate);
+    
     if (viewType === 'day') {
-      setCurrentDate(addDays(currentDate, 1));
+      newDate.setDate(newDate.getDate() + 1);
     } else if (viewType === 'week') {
-      setCurrentDate(addDays(currentDate, 7));
+      newDate.setDate(newDate.getDate() + 7);
     } else {
-      // For month view
-      const newDate = new Date(currentDate);
+      // Month view
       newDate.setMonth(newDate.getMonth() + 1);
-      setCurrentDate(newDate);
     }
+    
+    setCurrentDate(newDate);
   };
   
   const goToToday = () => {
     setCurrentDate(new Date());
   };
   
-  // Fetch calendar events for the selected date range
+  // Fetch calendar events for the selected date range using our utility
   const { data: calendarEvents, isLoading: isLoadingCalendar } = useQuery({
     queryKey: [`/api/calendar/events/${format(start, 'yyyy-MM-dd')}_${format(end, 'yyyy-MM-dd')}`],
     queryFn: async () => {
-      try {
-        // Reset any previous errors
-        setCalendarError(null);
-        
-        // Function to format date for Google Calendar API with proper RFC 3339 format
-        const formatDateForGoogleCalendar = (date: Date): string => {
-          // Google Calendar API expects RFC 3339 format timestamps
-          // The backend will handle timezone adjustment based on user settings
-          return date.toISOString();
-        };
-        
-        // Format dates properly for the API
-        const startStr = formatDateForGoogleCalendar(start);
-        const endStr = formatDateForGoogleCalendar(end);
-        
-        console.log(`Fetching calendar events from ${startStr} to ${endStr}`);
-        const res = await apiRequest('GET', `/api/calendar/events?start=${startStr}&end=${endStr}`);
-        
-        if (!res.ok) {
-          // Parse the error response
-          const errorData = await res.json();
-          
-          // Handle known error codes
-          if (errorData.code === 'CALENDAR_AUTH_EXPIRED') {
-            setCalendarError({
-              message: errorData.message || 'Your Google Calendar connection has expired. Please reconnect.',
-              code: errorData.code
-            });
-            
-            toast({
-              title: "Calendar Connection Expired",
-              description: "Your Google Calendar authorization has expired. Please reconnect in Settings.",
-              variant: "destructive"
-            });
-            
-            return [];
-          } else if (errorData.code === 'CALENDAR_NOT_CONNECTED') {
-            setCalendarError({
-              message: 'Connect Google Calendar to view your events here.',
-              code: errorData.code
-            });
-            return [];
-          } else if (errorData.code === 'CALENDAR_REQUEST_ERROR') {
-            // Handle Gaxios formatting errors
-            setCalendarError({
-              message: `Calendar request error: ${errorData.error || 'Invalid request format'}`,
-              code: errorData.code,
-              details: errorData.details
-            });
-            
-            toast({
-              title: "Calendar Request Error",
-              description: "There was a problem with the format of the calendar request. Our team has been notified.",
-              variant: "destructive"
-            });
-            
-            // Log the detailed error for debugging
-            console.error("Calendar API request format error:", errorData);
-            return [];
-          }
-          
-          // Handle other errors
-          throw new Error(errorData.message || 'Failed to fetch calendar events');
-        }
-        
-        return res.json();
-      } catch (error) {
-        console.error("Error fetching calendar events:", error);
-        setCalendarError({
-          message: error instanceof Error ? error.message : 'Failed to fetch calendar events'
-        });
-        return [];
-      }
+      // Use our centralized calendar events fetcher
+      return await fetchCalendarEvents(start, end, setCalendarError);
     }
   });
   

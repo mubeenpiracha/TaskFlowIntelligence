@@ -1830,82 +1830,57 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Calendar routes
   app.get('/api/calendar/events', requireAuth, async (req, res) => {
     try {
+      // Validate request parameters
       const { start, end } = z.object({
         start: z.string(),
         end: z.string()
       }).parse(req.query);
       
+      // Get the user
       const user = await storage.getUser(req.session.userId!);
       
-      if (!user || !user.googleRefreshToken || user.googleRefreshToken.trim() === '') {
+      // Check if user exists and has Google Calendar connected
+      if (!user) {
+        return res.status(404).json({ 
+          message: 'User not found', 
+          code: ErrorCode.NOT_FOUND 
+        });
+      }
+      
+      if (!user.googleRefreshToken || user.googleRefreshToken.trim() === '') {
         return res.status(400).json({ 
           message: 'Google Calendar not connected', 
-          code: 'CALENDAR_NOT_CONNECTED' 
+          code: ErrorCode.CALENDAR_NOT_CONNECTED 
         });
       }
       
       try {
-        // Format dates properly for Google Calendar API with user's timezone
-        // The Google Calendar API requires RFC 3339 format for timeMin and timeMax
-        // We need to ensure proper timezone handling
-        
-        // Use the user's timezone setting (default to UTC if not set)
-        const userTimezone = user.timezone || 'UTC';
-        console.log(`Using timezone ${userTimezone} for user ${req.session.userId}`);
-        
-        // Properly format the dates with the user's timezone
-        // This ensures that Google Calendar API receives the correct time boundaries
-        let timeMin = start;
-        let timeMax = end;
-        
-        // Log the request parameters for debugging
-        console.log(`Fetching calendar events from ${timeMin} to ${timeMax} for user ${req.session.userId}`);
-        console.log(`User timezone: ${userTimezone}`);
-        
-        // Pass the user's timezone to the Google Calendar API
-        const events = await listCalendarEvents(user.googleRefreshToken, timeMin, timeMax, userTimezone);
+        // Use the calendar service to get events
+        const events = await getCalendarEvents(user, start, end);
         res.json(events);
       } catch (error) {
         console.error('Failed to fetch calendar events:', error);
         
-        // Check for our specialized token expiration error
-        if (error instanceof TokenExpiredError) {
-          // Indicate to the frontend that the user needs to reconnect their Google Calendar
-          console.log('Received TokenExpiredError, sending appropriate response to client');
-          return res.status(401).json({ 
-            message: 'Google Calendar authorization expired. Please reconnect your calendar.', 
-            code: 'CALENDAR_AUTH_EXPIRED' 
-          });
+        // Use the centralized error handler
+        if (handleGoogleCalendarError(error, res)) {
+          // Error was handled by the utility function
+          return;
         }
         
-        // Check for Gaxios-specific errors from the Google API
-        if (isGaxiosRequestError && isGaxiosRequestError(error)) {
-          console.log('Received Gaxios request error, sending appropriate response to client');
-          
-          // Extract helpful info from Gaxios error
-          const statusCode = error.response?.status;
-          const errorMessage = error.response?.data?.error?.message || 
-                              error.response?.data?.error || 
-                              error.message || 
-                              'Bad request to Google Calendar API';
-          
-          return res.status(400).json({
-            message: 'Error in Google Calendar request format',
-            error: errorMessage,
-            details: `Status: ${statusCode || 'Unknown'}`,
-            code: 'CALENDAR_REQUEST_ERROR'
-          });
-        }
-        
-        // Handle other errors
+        // Handle any other errors
         return res.status(500).json({ 
           message: 'Failed to fetch calendar events',
-          error: error instanceof Error ? error.message : String(error)
+          error: error instanceof Error ? error.message : String(error),
+          code: ErrorCode.SERVER_ERROR
         });
       }
     } catch (error) {
+      // This will catch any errors in parameter validation
       console.error('Error in calendar events endpoint:', error);
-      res.status(500).json({ message: 'Failed to fetch calendar events' });
+      res.status(400).json({ 
+        message: 'Invalid request parameters', 
+        code: ErrorCode.VALIDATION_ERROR 
+      });
     }
   });
 
