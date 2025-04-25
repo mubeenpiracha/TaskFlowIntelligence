@@ -22,20 +22,71 @@ export class TokenExpiredError extends Error {
  * @param error - Error to check
  * @returns True if the error is a token expiration error
  */
+/**
+ * Check if an error is a token expiration error
+ * This covers various ways Google APIs might indicate token expiration
+ */
 export function isTokenExpiredError(error: any): boolean {
   // Check for various token expiration indicators
   if (!error) return false;
   
   // GaxiosError with invalid_grant
   if (error.response?.data?.error === 'invalid_grant') {
+    console.log('[TOKEN ERROR] Invalid grant error detected');
+    return true;
+  }
+  
+  // GaxiosError with 'invalid_token' or 'expired_token'
+  if (error.response?.data?.error === 'invalid_token' || 
+      error.response?.data?.error === 'expired_token') {
+    console.log('[TOKEN ERROR] Invalid or expired token error detected in response');
+    return true;
+  }
+  
+  // Check for 401 Unauthorized status
+  if (error.response?.status === 401) {
+    console.log('[TOKEN ERROR] 401 Unauthorized status detected, likely token expiration');
     return true;
   }
   
   // Error message contains token expired
   if (error.message && typeof error.message === 'string') {
-    return error.message.toLowerCase().includes('token') && 
-           (error.message.toLowerCase().includes('expired') || 
-            error.message.toLowerCase().includes('revoked'));
+    const message = error.message.toLowerCase();
+    if (message.includes('token') && 
+        (message.includes('expired') || 
+         message.includes('revoked') ||
+         message.includes('invalid'))) {
+      console.log('[TOKEN ERROR] Token expiration/revocation detected in error message:', error.message);
+      return true;
+    }
+  }
+  
+  return false;
+}
+
+/**
+ * Check if an error is a Google API request formatting error
+ * This helps identify and report issues with the way we're calling Google APIs
+ */
+export function isGaxiosRequestError(error: any): boolean {
+  if (!error) return false;
+  
+  // Common Gaxios request errors
+  if (error.response?.status === 400) {
+    console.log('[GAXIOS ERROR] Bad request (400) detected:', error.response?.data);
+    return true;
+  }
+  
+  if (error.code === 'ERR_INVALID_URL') {
+    console.log('[GAXIOS ERROR] Invalid URL error detected');
+    return true;
+  }
+  
+  // Check for 'required' field errors
+  if (error.response?.data?.error?.message && 
+      error.response.data.error.message.includes('required')) {
+    console.log('[GAXIOS ERROR] Missing required field:', error.response.data.error.message);
+    return true;
   }
   
   return false;

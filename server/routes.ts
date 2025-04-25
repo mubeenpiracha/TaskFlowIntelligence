@@ -15,7 +15,8 @@ import {
   updateCalendarEvent, 
   deleteCalendarEvent, 
   listCalendarEvents,
-  TokenExpiredError
+  TokenExpiredError,
+  isGaxiosRequestError
 } from "./services/google";
 import { 
   getSlackAuthUrl,
@@ -1844,6 +1845,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       try {
+        console.log(`Fetching calendar events from ${start} to ${end} for user ${req.session.userId}`);
         const events = await listCalendarEvents(user.googleRefreshToken, start, end);
         res.json(events);
       } catch (error) {
@@ -1856,6 +1858,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return res.status(401).json({ 
             message: 'Google Calendar authorization expired. Please reconnect your calendar.', 
             code: 'CALENDAR_AUTH_EXPIRED' 
+          });
+        }
+        
+        // Check for Gaxios-specific errors from the Google API
+        if (isGaxiosRequestError && isGaxiosRequestError(error)) {
+          console.log('Received Gaxios request error, sending appropriate response to client');
+          
+          // Extract helpful info from Gaxios error
+          const statusCode = error.response?.status;
+          const errorMessage = error.response?.data?.error?.message || 
+                              error.response?.data?.error || 
+                              error.message || 
+                              'Bad request to Google Calendar API';
+          
+          return res.status(400).json({
+            message: 'Error in Google Calendar request format',
+            error: errorMessage,
+            details: `Status: ${statusCode || 'Unknown'}`,
+            code: 'CALENDAR_REQUEST_ERROR'
           });
         }
         
