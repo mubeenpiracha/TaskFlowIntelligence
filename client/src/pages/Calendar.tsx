@@ -16,7 +16,11 @@ export default function Calendar() {
   const [currentDate, setCurrentDate] = useState(new Date());
   const [viewType, setViewType] = useState<'day' | 'week' | 'month'>('week');
   const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
-  const [calendarError, setCalendarError] = useState<{message: string, code?: string} | null>(null);
+  const [calendarError, setCalendarError] = useState<{
+    message: string;
+    code?: string;
+    details?: string;
+  } | null>(null);
   const { toast } = useToast();
   
   // Calculate date range based on view type
@@ -122,6 +126,23 @@ export default function Calendar() {
               message: 'Connect Google Calendar to view your events here.',
               code: errorData.code
             });
+            return [];
+          } else if (errorData.code === 'CALENDAR_REQUEST_ERROR') {
+            // Handle Gaxios formatting errors
+            setCalendarError({
+              message: `Calendar request error: ${errorData.error || 'Invalid request format'}`,
+              code: errorData.code,
+              details: errorData.details
+            });
+            
+            toast({
+              title: "Calendar Request Error",
+              description: "There was a problem with the format of the calendar request. Our team has been notified.",
+              variant: "destructive"
+            });
+            
+            // Log the detailed error for debugging
+            console.error("Calendar API request format error:", errorData);
             return [];
           }
           
@@ -241,17 +262,30 @@ export default function Calendar() {
         
         {/* Calendar error alert */}
         {calendarError && (
-          <Alert variant={calendarError.code === 'CALENDAR_AUTH_EXPIRED' ? "destructive" : "warning"} className="mb-4">
+          <Alert 
+            variant={
+              calendarError.code === 'CALENDAR_AUTH_EXPIRED' || calendarError.code === 'CALENDAR_REQUEST_ERROR' 
+                ? "destructive" 
+                : "warning"
+            } 
+            className="mb-4"
+          >
             <AlertCircle className="h-4 w-4" />
             <AlertTitle>
               {calendarError.code === 'CALENDAR_AUTH_EXPIRED' 
                 ? 'Calendar Authorization Expired' 
                 : calendarError.code === 'CALENDAR_NOT_CONNECTED' 
                   ? 'Calendar Not Connected'
-                  : 'Calendar Error'}
+                  : calendarError.code === 'CALENDAR_REQUEST_ERROR'
+                    ? 'Calendar Request Error'
+                    : 'Calendar Error'}
             </AlertTitle>
             <AlertDescription className="flex flex-col">
               <span>{calendarError.message}</span>
+              {calendarError.details && (
+                <span className="text-xs mt-1 opacity-80">{calendarError.details}</span>
+              )}
+              
               {calendarError.code === 'CALENDAR_AUTH_EXPIRED' && (
                 <div className="mt-2 flex flex-col gap-2">
                   <p className="text-sm">Your Google Calendar access has expired. You need to reconnect to view and manage events.</p>
@@ -260,11 +294,21 @@ export default function Calendar() {
                   </Button>
                 </div>
               )}
+              
               {calendarError.code === 'CALENDAR_NOT_CONNECTED' && (
                 <div className="mt-2 flex flex-col gap-2">
                   <p className="text-sm">Connect your Google Calendar to see all your events alongside your tasks.</p>
                   <Button asChild variant="outline" size="sm" className="w-fit">
                     <Link to="/settings#google-calendar">Connect Calendar</Link>
+                  </Button>
+                </div>
+              )}
+              
+              {calendarError.code === 'CALENDAR_REQUEST_ERROR' && (
+                <div className="mt-2 flex flex-col gap-2">
+                  <p className="text-sm">There was an issue with the calendar request format. We've logged this error for our team to investigate.</p>
+                  <Button asChild variant="outline" size="sm" className="w-fit">
+                    <Link to="/settings#google-calendar">Check Calendar Connection</Link>
                   </Button>
                 </div>
               )}
