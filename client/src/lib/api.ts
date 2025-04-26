@@ -356,3 +356,149 @@ export async function updateSlackChannelPreferences(channels: string[] | string)
   const channelData = typeof channels === 'string' ? channels : JSON.stringify(channels);
   return submitApi('/api/user/slack-channels', { channels: channelData }, 'PATCH');
 }
+
+// Authentication-related functions
+
+/**
+ * Get the Google Calendar authentication URL
+ * Used to connect a user's Google Calendar to the application
+ * 
+ * @returns URL to redirect the user to for Google Calendar authorization
+ */
+export async function getGoogleCalendarAuthUrl(): Promise<string> {
+  const response = await fetchApi<{ url: string }>('/api/auth/google/calendar/url');
+  return response.url;
+}
+
+/**
+ * Get the Slack authentication URL
+ * Used to connect a user's Slack workspace to the application
+ * 
+ * @returns URL to redirect the user to for Slack authorization
+ */
+export async function getSlackAuthUrl(): Promise<string> {
+  const response = await fetchApi<{ url: string }>('/api/auth/slack/url');
+  return response.url;
+}
+
+/**
+ * Get the Google login authentication URL
+ * Used for authentication (not calendar access)
+ * 
+ * @returns URL to redirect the user to for Google login
+ */
+export async function getGoogleLoginUrl(): Promise<string> {
+  const response = await fetchApi<{ url: string }>('/api/auth/google/login/url');
+  return response.url;
+}
+
+// Slack channel-related functions
+
+/**
+ * Get a list of available Slack channels for the user
+ * 
+ * @returns List of Slack channels with ID and name
+ */
+export async function getSlackChannels(): Promise<{ id: string; name: string; }[]> {
+  return fetchApi<{ id: string; name: string; }[]>('/api/slack/channels');
+}
+
+/**
+ * Get the user's current Slack channel preferences for monitoring
+ * 
+ * @returns List of channel IDs that the user is monitoring
+ */
+export async function getSlackChannelPreferences(): Promise<string[]> {
+  const response = await fetchApi<{ channels: string }>('/api/user/slack-channels');
+  try {
+    return JSON.parse(response.channels || '[]');
+  } catch (e) {
+    console.error('Error parsing channel preferences:', e);
+    return [];
+  }
+}
+
+/**
+ * Save the user's Slack channel preferences
+ * 
+ * @param channels List of channel IDs to monitor
+ * @returns Success status
+ */
+export async function saveSlackChannelPreferences(channels: string[]): Promise<{ success: boolean }> {
+  return submitApi('/api/user/slack-channels', { channels: JSON.stringify(channels) }, 'PATCH');
+}
+
+// Working hours-related functions
+
+/**
+ * Get the user's working hours
+ * 
+ * @returns Working hours configuration
+ */
+export async function getWorkingHours(): Promise<{
+  id: number;
+  userId: number;
+  startTime: string;
+  endTime: string;
+  workDays: string;
+}> {
+  return fetchApi('/api/user/working-hours');
+}
+
+/**
+ * Save the user's working hours
+ * 
+ * @param workingHours Working hours configuration
+ * @returns Updated working hours
+ */
+export async function saveWorkingHours(workingHours: {
+  startTime: string;
+  endTime: string;
+  workDays: string[] | string;
+}): Promise<{
+  id: number;
+  userId: number;
+  startTime: string;
+  endTime: string;
+  workDays: string;
+}> {
+  const payload = {
+    ...workingHours,
+    workDays: Array.isArray(workingHours.workDays) 
+      ? JSON.stringify(workingHours.workDays) 
+      : workingHours.workDays
+  };
+  
+  return submitApi('/api/user/working-hours', payload, 'POST');
+}
+
+/**
+ * Update the user's working hours (alias for saveWorkingHours)
+ * 
+ * @param workingHours Working hours configuration
+ * @returns Updated working hours
+ */
+export async function updateWorkingHours(workingHours: {
+  startTime: string;
+  endTime: string;
+  workDays: string[] | string;
+}): Promise<{
+  id: number;
+  userId: number;
+  startTime: string;
+  endTime: string;
+  workDays: string;
+}> {
+  return saveWorkingHours(workingHours);
+}
+
+// User-related functions
+
+/**
+ * Get the currently authenticated user's information
+ * 
+ * @returns User information
+ */
+export async function getMe() {
+  return fetchApi('/api/user');
+}
