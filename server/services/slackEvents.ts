@@ -293,20 +293,27 @@ async function processMessageEvent(message: any, teamId: string): Promise<{
         customImportance: analysis.importance || 3
       }, slackUser.id);
       
-      // Get the created task to send a confirmation
-      try {
-        const createdTask = await storage.getTasksBySlackMessageId(message.ts);
-        if (createdTask && slackUser.slackUserId) {
-          // Send confirmation message to user's DM
-          await sendTaskConfirmation(createdTask, slackUser.slackUserId, true);
-          console.log(`Task confirmation sent to user ${slackUser.slackUserId}`);
-        } else {
-          console.log(`Could not find created task for message ${message.ts} or slackUserId is null`);
+      // Wait a moment to make sure the task is saved in the database
+      setTimeout(async () => {
+        try {
+          // Get the created task to send a confirmation
+          const createdTask = await storage.getTasksBySlackMessageId(message.ts);
+          if (createdTask && slackUser.slackUserId) {
+            // Make sure the createdTask object is valid before sending confirmation
+            console.log(`Found created task for message ${message.ts}:`, JSON.stringify(createdTask));
+            
+            // Send confirmation message directly to the user's DM 
+            const targetChannel = slackUser.slackUserId;
+            await sendTaskConfirmation(createdTask, targetChannel, true);
+            console.log(`Task confirmation sent to user ${slackUser.slackUserId}`);
+          } else {
+            console.log(`Could not find created task for message ${message.ts} or slackUserId is null`);
+          }
+        } catch (confirmError) {
+          console.error("Error sending task confirmation:", confirmError);
+          // Continue even if confirmation fails
         }
-      } catch (confirmError) {
-        console.error("Error sending task confirmation:", confirmError);
-        // Continue even if confirmation fails
-      }
+      }, 1000); // Wait 1 second before trying to fetch the task
       
       webhookMetrics.taskProcessing.tasksCreated++;
       
