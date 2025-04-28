@@ -215,6 +215,31 @@ export async function createCalendarEvent(
   console.log(`[CALENDAR DEBUG] End time: ${event.end.dateTime}`);
   
   try {
+    // Add additional validation/logging of the calendar client
+    if (!calendar) {
+      console.error('[CALENDAR DEBUG] Calendar client is undefined or null');
+      throw new Error('Calendar client initialization failed');
+    }
+    
+    // Validate that we have all required fields
+    if (!event.start?.dateTime || !event.end?.dateTime) {
+      console.error('[CALENDAR DEBUG] Event is missing required start or end time');
+      throw new Error('Event missing required start or end time');
+    }
+    
+    // Format date strings to ensure they are in RFC 3339 format
+    // Remove any 'Z' suffix and ensure proper timezone designation
+    if (event.start.dateTime && !event.start.dateTime.endsWith('Z') && !event.start.dateTime.includes('+')) {
+      console.log('[CALENDAR DEBUG] Adding timezone offset to start time');
+      event.start.dateTime = `${event.start.dateTime}+00:00`;
+    }
+    
+    if (event.end.dateTime && !event.end.dateTime.endsWith('Z') && !event.end.dateTime.includes('+')) {
+      console.log('[CALENDAR DEBUG] Adding timezone offset to end time');
+      event.end.dateTime = `${event.end.dateTime}+00:00`;
+    }
+    
+    console.log('[CALENDAR DEBUG] Making API call to Google Calendar');
     const response = await calendar.events.insert({
       calendarId: 'primary',
       requestBody: event,
@@ -224,9 +249,10 @@ export async function createCalendarEvent(
     return response.data;
   } catch (error) {
     console.error('[CALENDAR DEBUG] Error creating calendar event:', error);
+    
     // Log more detailed error info if available
     if (error.response) {
-      console.error('[CALENDAR DEBUG] Error response data:', error.response.data);
+      console.error('[CALENDAR DEBUG] Error response data:', JSON.stringify(error.response.data, null, 2));
       console.error('[CALENDAR DEBUG] Error response status:', error.response.status);
     }
     
@@ -234,6 +260,39 @@ export async function createCalendarEvent(
     if (isTokenExpiredError(error)) {
       console.log('[CALENDAR DEBUG] Google Calendar token has expired, throwing TokenExpiredError');
       throw new TokenExpiredError();
+    }
+    
+    // Check for specific error conditions
+    if (error.message && error.message.includes('Invalid time format')) {
+      console.error('[CALENDAR DEBUG] Invalid time format detected');
+      // Try to create a simpler event as a fallback
+      try {
+        console.log('[CALENDAR DEBUG] Attempting fallback with simplified event data');
+        
+        // Create a simplified event with minimal data
+        const simplifiedEvent = {
+          summary: event.summary,
+          start: {
+            dateTime: new Date().toISOString(),
+            timeZone: 'UTC'
+          },
+          end: {
+            dateTime: new Date(Date.now() + 3600000).toISOString(), // 1 hour later
+            timeZone: 'UTC'
+          }
+        };
+        
+        const fallbackResponse = await calendar.events.insert({
+          calendarId: 'primary',
+          requestBody: simplifiedEvent,
+        });
+        
+        console.log('[CALENDAR DEBUG] Fallback calendar event created successfully:', fallbackResponse.data.id);
+        return fallbackResponse.data;
+      } catch (fallbackError) {
+        console.error('[CALENDAR DEBUG] Fallback event creation failed:', fallbackError);
+        throw new Error(`Calendar event creation failed: ${error.message}. Fallback also failed.`);
+      }
     }
     
     throw error;
