@@ -2,8 +2,8 @@ import { storage } from "../storage";
 import { User } from "@shared/schema";
 import { analyzeMessageForTask, TaskAnalysisResponse } from "./openaiService";
 import { getChannelPreferences } from "./channelPreferences";
-import { createTaskFromSlackMessage, sendTaskConfirmation } from "./taskCreation";
-import { getUserTimezone } from "./slack";
+import { createTaskFromSlackMessage } from "./taskCreation";
+import { getUserTimezone, sendTaskSuggestion, getChannelInfo, formatDateForSlack } from "./slack";
 import { SlackMessage } from "./slack";
 
 // Metrics for webhook health monitoring
