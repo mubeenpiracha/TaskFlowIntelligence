@@ -47,6 +47,16 @@ export interface SlackMessage {
   };
   channelId?: string;
   channelName?: string;
+  // Custom fields from interactive messages
+  customTitle?: string;
+  customDescription?: string;
+  customPriority?: 'high' | 'medium' | 'low';
+  customTimeRequired?: string;
+  customDueDate?: string;
+  customDueTime?: string;
+  customUrgency?: number;
+  customImportance?: number;
+  customRecurringPattern?: string;
 }
 
 /**

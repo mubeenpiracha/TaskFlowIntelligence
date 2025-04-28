@@ -1053,7 +1053,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             customDueTime: dueTime,
             customUrgency: parseInt(urgencyValue, 10),
             customImportance: parseInt(importanceValue, 10),
-            customRecurringPattern: recurringPattern || undefined
+            // Add recurring pattern (null if 'none' was selected)
+            customRecurringPattern: recurringPattern !== 'none' ? recurringPattern : null
           };
           
           console.log('Creating task for user ID:', dbUserQuery.id);

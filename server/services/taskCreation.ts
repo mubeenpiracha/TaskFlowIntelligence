@@ -236,15 +236,6 @@ export function estimateTimeRequired(messageText: string): string {
  */
 export async function createTaskFromSlackMessage(
   message: SlackMessage & {
-    customTitle?: string;
-    customDescription?: string;
-    customPriority?: 'high' | 'medium' | 'low';
-    customTimeRequired?: string;
-    customDueDate?: string;
-    customDueTime?: string;
-    customUrgency?: number;
-    customImportance?: number;
-    customRecurringPattern?: string;
     scheduledStart?: string;
     scheduledEnd?: string;
   }, 
