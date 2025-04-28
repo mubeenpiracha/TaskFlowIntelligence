@@ -39,6 +39,7 @@ import { detectTasks, sendMessage, listUserChannels, sendTaskDetectionDM, testDi
 import { analyzeMessageForTask, type TaskAnalysisResponse } from "./services/openaiService";
 import axios from "axios";
 import { slack } from "./services/slack";
+import { WebClient } from "@slack/web-api";
 import { 
   getCalendarAuthUrl, 
   getLoginAuthUrl,
@@ -1014,13 +1015,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
           
           // Get the original message from Slack to ensure we have the latest data
           try {
-            // Retrieve the message details from Slack
-            const messageResult = await slack.conversations.history({
-              channel: taskData.channel,
-              latest: taskData.messageTs,
-              limit: 1,
-              inclusive: true
-            });
+            // Only use user's personal token to access message history
+            // This prevents the bot from joining channels and maintains privacy
+            let messageResult;
+            
+            if (dbUserQuery.slackAccessToken) {
+              console.log(`Using user token to access channel ${taskData.channel}`);
+              const userClient = new WebClient(dbUserQuery.slackAccessToken);
+              messageResult = await userClient.conversations.history({
+                channel: taskData.channel,
+                latest: taskData.messageTs,
+                limit: 1,
+                inclusive: true
+              });
+            } else {
+              // Fallback to bot token if no user token available (less likely to work for private channels)
+              messageResult = await slack.conversations.history({
+                channel: taskData.channel,
+                latest: taskData.messageTs,
+                limit: 1,
+                inclusive: true
+              });
+            }
             
             const message = messageResult.messages?.[0];
             
@@ -1123,13 +1139,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
           
           // Get the original message from Slack
           try {
-            // Retrieve the message details from Slack
-            const messageResult = await slack.conversations.history({
-              channel: taskData.channel,
-              latest: taskData.messageTs,
-              limit: 1,
-              inclusive: true
-            });
+            // Only use user's personal token to access message history
+            // This prevents the bot from joining channels and maintains privacy
+            let messageResult;
+            
+            if (dbUserQuery.slackAccessToken) {
+              console.log(`Using user token to access channel ${taskData.channel}`);
+              const userClient = new WebClient(dbUserQuery.slackAccessToken);
+              messageResult = await userClient.conversations.history({
+                channel: taskData.channel,
+                latest: taskData.messageTs,
+                limit: 1,
+                inclusive: true
+              });
+            } else {
+              // Fallback to bot token if no user token available (less likely to work for private channels)
+              messageResult = await slack.conversations.history({
+                channel: taskData.channel,
+                latest: taskData.messageTs,
+                limit: 1,
+                inclusive: true
+              });
+            }
             
             const message = messageResult.messages?.[0];
             
