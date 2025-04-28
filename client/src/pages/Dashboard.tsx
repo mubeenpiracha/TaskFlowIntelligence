@@ -23,16 +23,17 @@ export default function Dashboard() {
   const { toast } = useToast();
   // Polling is used instead of WebSockets
   
-  // Set up polling for task updates but not for Slack message detection
+  // Polling for task updates is disabled since we're using webhooks
+  // Uncomment this if you want to re-enable polling alongside webhooks
+  /*
   useEffect(() => {
-    // Only poll for tasks, not Slack messages (which now use webhooks)
     const pollInterval = setInterval(() => {
-      // Only invalidate tasks query, not the Slack messages query
       queryClient.invalidateQueries({ queryKey: ['/api/tasks/today'] });
     }, 30000); // 30 seconds
     
     return () => clearInterval(pollInterval);
   }, [queryClient]);
+  */
 
   // Fetch current user data
   const { data: user } = useQuery({
@@ -285,9 +286,9 @@ export default function Dashboard() {
               <h3 className="text-lg leading-6 font-medium text-[#1D1C1D]">Recently Detected Tasks</h3>
               <p className="mt-1 text-sm text-gray-500">
                 Tasks detected from Slack messages in the last 24 hours
-                <Badge variant="outline" className="ml-2 bg-blue-100 text-blue-800 border-blue-300">
+                <Badge variant="outline" className="ml-2 bg-green-100 text-green-800 border-green-300">
                   <Clock className="h-3 w-3 mr-1" />
-                  Auto-Refresh
+                  Webhook-Powered
                 </Badge>
               </p>
             </div>
@@ -374,9 +375,9 @@ export default function Dashboard() {
                     Most recent task notifications from Slack
                   </p>
                 </div>
-                <Badge variant="outline" className="bg-blue-100 text-blue-800 border-blue-300">
+                <Badge variant="outline" className="bg-green-100 text-green-800 border-green-300">
                   <Clock className="h-3 w-3 mr-1" />
-                  Auto-Refresh
+                  Webhook-Powered
                 </Badge>
               </div>
             </div>

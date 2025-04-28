@@ -34,17 +34,20 @@ export default function TaskNotifications() {
     }
   }, []);
   
-  // Set up polling for new tasks
+  // Initial fetch only - polling is disabled since we use webhooks
   useEffect(() => {
-    // Initial fetch
+    // One-time fetch on component mount
     fetchLatestTasks();
     
-    // Polling interval 
+    // Polling has been disabled since we're using webhooks
+    // Uncomment this to re-enable polling alongside webhooks
+    /*
     const pollingInterval = setInterval(() => {
       fetchLatestTasks();
     }, 30000); // Poll every 30 seconds
     
     return () => clearInterval(pollingInterval);
+    */
   }, [fetchLatestTasks]);
 
   // Always show the component instead of checking WebSocket connection
