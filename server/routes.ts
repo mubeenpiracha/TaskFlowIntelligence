@@ -957,8 +957,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log('Slack interaction actions:', actions ? actions.length : 0);
       console.log('Response URL available:', !!response_url);
       
-      // Acknowledge receipt immediately to avoid Slack timeout
-      res.status(200).send('OK');
+      // For view_submissions, we need to send a special response format
+      if (type === 'view_submission') {
+        // Respond with empty object to acknowledge the submission
+        res.status(200).json({});
+      } else {
+        // For other types, acknowledge receipt immediately to avoid Slack timeout
+        res.status(200).send('OK');
+      }
       
       // Verify we have the necessary data to process the interaction
       if (!user || !user.id) {
@@ -1061,7 +1067,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           }
           
           // Return an empty response to close the modal
-          return res.json({});
+          return;
         } catch (error) {
           console.error('Error processing view submission:', error);
           return;
@@ -1634,7 +1640,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   type: "section",
                   text: {
                     type: "mrkdwn",
-                    text: "✓ *Task ignored.* I won't remind you about this message again."
+                    text: ":x: *Task ignored*\n\nThis message has been dismissed and won't appear in your tasks."
                   }
                 }
               ]
@@ -1643,6 +1649,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
             // If response_url isn't available, send a new message
             await sendMessage(user.id, "Task ignored. I won't remind you about this message again.");
           }
+          
+          // Send a confirmation to the user's DM
+          await slack.chat.postMessage({
+            channel: user.id,
+            text: "Task has been ignored",
+            blocks: [
+              {
+                type: "section",
+                text: {
+                  type: "mrkdwn",
+                  text: ":x: Task ignored successfully. You can still create tasks manually from any message using the message context menu."
+                }
+              }
+            ]
+          });
         } catch (error) {
           console.error('Error handling ignore_task action:', error);
           try {
