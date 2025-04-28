@@ -91,8 +91,6 @@ import { createTaskFromSlackMessage, sendTaskConfirmation } from './services/tas
 import { handleSlackEvent, getWebhookHealthStatus } from './services/slackEvents';
 import { 
   startSlackMonitoring, 
-  getMonitoringStatus,
-  clearProcessedMessages,
   resetMonitoring,
   checkForNewTasksManually
 } from './services/slackMonitor';
