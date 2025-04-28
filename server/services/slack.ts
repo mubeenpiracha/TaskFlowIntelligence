@@ -1276,11 +1276,91 @@ export async function sendTaskDetectionDM(
         ]
       },
       {
+        type: "input",
+        block_id: "task_description_block",
+        optional: true,
+        label: {
+          type: "plain_text",
+          text: "Additional Notes (optional)",
+          emoji: true
+        },
+        element: {
+          type: "plain_text_input",
+          action_id: "task_description_input",
+          multiline: true,
+          placeholder: {
+            type: "plain_text",
+            text: "Add any additional details or context about this task"
+          }
+        }
+      },
+      {
+        type: "input",
+        block_id: "task_recurring_block",
+        optional: true,
+        label: {
+          type: "plain_text",
+          text: "Recurring Task",
+          emoji: true
+        },
+        element: {
+          type: "static_select",
+          action_id: "task_recurring_select",
+          placeholder: {
+            type: "plain_text",
+            text: "How often should this task repeat?",
+            emoji: true
+          },
+          options: [
+            {
+              text: {
+                type: "plain_text",
+                text: "One-time task (not recurring)",
+                emoji: true
+              },
+              value: "none"
+            },
+            {
+              text: {
+                type: "plain_text",
+                text: "Daily",
+                emoji: true
+              },
+              value: "daily"
+            },
+            {
+              text: {
+                type: "plain_text",
+                text: "Weekly",
+                emoji: true
+              },
+              value: "weekly"
+            },
+            {
+              text: {
+                type: "plain_text",
+                text: "Bi-weekly",
+                emoji: true
+              },
+              value: "biweekly"
+            },
+            {
+              text: {
+                type: "plain_text",
+                text: "Monthly",
+                emoji: true
+              },
+              value: "monthly"
+            }
+          ]
+        }
+      },
+      {
         type: "context",
         elements: [
           {
             type: "mrkdwn",
-            text: ":calendar: *Task Scheduling*: Tasks will be automatically scheduled in your Google Calendar based on working hours, Urgency, Importance, and available slots. More urgent tasks will be scheduled sooner. Higher importance tasks will be prioritized for ideal time slots."
+            text: ":star: *Urgency* refers to how soon the task needs to be done (higher = schedule sooner).\n:trophy: *Importance* refers to the task's value and priority (higher = better time slots)."
           }
         ]
       },
@@ -1289,7 +1369,7 @@ export async function sendTaskDetectionDM(
         elements: [
           {
             type: "mrkdwn",
-            text: ":bulb: *Smart Scheduling*: The system will analyze your calendar to find the best available time slot that fits the task duration within your working hours, respecting existing appointments and prioritizing based on urgency/importance."
+            text: ":calendar: *Smart Scheduling*: The system will analyze your calendar to find the best available time slot that fits the task duration within your working hours, respecting existing appointments and prioritizing based on urgency/importance."
           }
         ]
       }

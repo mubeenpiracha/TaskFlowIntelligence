@@ -1011,6 +1011,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const importanceValue = payload.state.values.task_importance_block.task_importance_select.selected_option.value;
           const timeRequired = payload.state.values.task_time_required_block.task_time_required_select.selected_option.value;
           
+          // Get optional values
+          const description = payload.state.values.task_description_block?.task_description_input?.value || '';
+          
+          // Get recurring option if provided
+          let recurringPattern = null;
+          if (payload.state.values.task_recurring_block && 
+              payload.state.values.task_recurring_block.task_recurring_select && 
+              payload.state.values.task_recurring_block.task_recurring_select.selected_option) {
+            recurringPattern = payload.state.values.task_recurring_block.task_recurring_select.selected_option.value;
+          }
+          
           // Map urgency to priority value
           const urgencyToPriority: Record<string, string> = {
             '1': 'low',
@@ -1024,6 +1035,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const priority = urgencyToPriority[urgencyValue] || 'medium';
           
           console.log(`Task details received: Title: ${title}, Due: ${dueDate} at ${dueTime}, Urgency: ${urgencyValue}, Importance: ${importanceValue}, Time: ${timeRequired}`);
+          console.log(`Additional details: Description: ${description?.substring(0, 50)}${description?.length > 50 ? '...' : ''}, Recurring: ${recurringPattern || 'none'}`);
           
           // Create a SlackMessage object with the enhanced task data
           const slackMessage = {
@@ -1034,12 +1046,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
             channelName: taskData.channelName,
             // Add custom values from the form
             customTitle: title,
-            customPriority: priority,
+            customDescription: description || undefined,
+            customPriority: priority as 'low' | 'medium' | 'high',
             customTimeRequired: timeRequired,
             customDueDate: dueDate,
             customDueTime: dueTime,
             customUrgency: parseInt(urgencyValue, 10),
-            customImportance: parseInt(importanceValue, 10)
+            customImportance: parseInt(importanceValue, 10),
+            customRecurringPattern: recurringPattern || undefined
           };
           
           console.log('Creating task for user ID:', dbUserQuery.id);

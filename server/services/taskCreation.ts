@@ -244,6 +244,7 @@ export async function createTaskFromSlackMessage(
     customDueTime?: string;
     customUrgency?: number;
     customImportance?: number;
+    customRecurringPattern?: string;
     scheduledStart?: string;
     scheduledEnd?: string;
   }, 
