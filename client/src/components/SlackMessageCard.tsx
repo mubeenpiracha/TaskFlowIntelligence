@@ -5,6 +5,7 @@ import TaskDetailModal from "./modals/TaskDetailModal";
 import { createTaskFromSlackMessage } from "@/lib/api";
 import { Task } from "@shared/schema";
 import { cn } from "@/lib/utils";
+import { Repeat } from "lucide-react";
 
 interface SlackMessage {
   user: string;
@@ -206,17 +207,32 @@ export default function SlackMessageCard({ message, isTaskAdded = false }: Slack
           <div className="mt-2 border-t border-gray-100 pt-2">
             <div className="flex justify-between items-center">
               <div className="text-xs text-gray-500">
-                Added as task with 
-                <span className={cn(
-                  "font-medium mx-1",
-                  taskDetails?.priority === 'high' ? "text-red-600" :
-                  taskDetails?.priority === 'medium' ? "text-yellow-600" : "text-green-600"
-                )}>
-                  {taskDetails?.priority === 'high' ? 'High' : 
-                   taskDetails?.priority === 'medium' ? 'Medium' : 'Low'} Priority
-                </span>
-                • Due {taskDetails?.dueDate ? new Date(taskDetails.dueDate).toLocaleDateString() : 'soon'}
-                {taskDetails?.dueTime ? ` at ${taskDetails.dueTime}` : ''}
+                <div className="flex items-center gap-2">
+                  <span>
+                    Added as task with 
+                    <span className={cn(
+                      "font-medium mx-1",
+                      taskDetails?.priority === 'high' ? "text-red-600" :
+                      taskDetails?.priority === 'medium' ? "text-yellow-600" : "text-green-600"
+                    )}>
+                      {taskDetails?.priority === 'high' ? 'High' : 
+                       taskDetails?.priority === 'medium' ? 'Medium' : 'Low'} Priority
+                    </span>
+                    • Due {taskDetails?.dueDate ? new Date(taskDetails.dueDate).toLocaleDateString() : 'soon'}
+                    {taskDetails?.dueTime ? ` at ${taskDetails.dueTime}` : ''}
+                  </span>
+                  
+                  {taskDetails?.recurringPattern && taskDetails.recurringPattern !== 'none' && (
+                    <span className="flex items-center text-blue-500">
+                      <Repeat className="h-3 w-3 mr-1" />
+                      {taskDetails.recurringPattern === 'daily' ? 'Daily' :
+                       taskDetails.recurringPattern === 'weekly' ? 'Weekly' :
+                       taskDetails.recurringPattern === 'biweekly' ? 'Every 2 weeks' :
+                       taskDetails.recurringPattern === 'monthly' ? 'Monthly' : 
+                       taskDetails.recurringPattern}
+                    </span>
+                  )}
+                </div>
               </div>
               <button 
                 type="button" 

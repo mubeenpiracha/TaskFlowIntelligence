@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { Task } from "@shared/schema";
 import { cn } from "@/lib/utils";
-import { Clock } from "lucide-react";
+import { Clock, Repeat } from "lucide-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import TaskDetailModal from "./modals/TaskDetailModal";
 import { format } from "date-fns";
+import { Badge } from "@/components/ui/badge";
 
 interface TaskCardProps {
   task: Task;
@@ -92,6 +93,24 @@ export default function TaskCard({ task }: TaskCardProps) {
     setIsModalOpen(true);
   };
 
+  // Format recurring pattern for display
+  const getRecurringLabel = (pattern: string | null | undefined) => {
+    if (!pattern || pattern === 'none') return null;
+    
+    switch (pattern) {
+      case 'daily':
+        return 'Daily';
+      case 'weekly':
+        return 'Weekly';
+      case 'biweekly':
+        return 'Every 2 weeks';
+      case 'monthly':
+        return 'Monthly';
+      default:
+        return pattern.charAt(0).toUpperCase() + pattern.slice(1);
+    }
+  };
+
   return (
     <>
       <div className={cn(
@@ -100,13 +119,17 @@ export default function TaskCard({ task }: TaskCardProps) {
         task.completed && "opacity-70"
       )}>
         <div className="flex justify-between items-start">
-          <div>
+          <div className="flex items-center gap-2">
             <h4 className={cn(
               "font-medium text-[#1D1C1D]",
               task.completed && "line-through"
             )}>{task.title}</h4>
-            {task.description && (
-              <p className="text-sm text-gray-500 mt-1">{task.description}</p>
+            
+            {task.recurringPattern && task.recurringPattern !== 'none' && (
+              <Badge variant="outline" className="flex items-center gap-1 text-[#36C5F0] border-[#36C5F0] ml-1">
+                <Repeat className="h-3 w-3" />
+                {getRecurringLabel(task.recurringPattern)}
+              </Badge>
             )}
           </div>
           <div>
@@ -118,6 +141,11 @@ export default function TaskCard({ task }: TaskCardProps) {
             </span>
           </div>
         </div>
+        
+        {task.description && (
+          <p className="text-sm text-gray-500 mt-2">{task.description}</p>
+        )}
+        
         <div className="flex justify-between items-center mt-3">
           <div className="flex items-center text-sm text-gray-500">
             <Clock className="h-4 w-4 mr-1" />
