@@ -249,9 +249,10 @@ async function processMessageEvent(message: any, teamId: string): Promise<{
       let timezone = slackUser.timezone || "UTC";
       try {
         if (slackUser.slackUserId) {
-          const slackTimezone = await getUserTimezone(slackUser.slackUserId);
-          if (slackTimezone) {
-            timezone = slackTimezone;
+          const slackTimezoneInfo = await getUserTimezone(slackUser.slackUserId);
+          if (slackTimezoneInfo && slackTimezoneInfo.timezone) {
+            timezone = slackTimezoneInfo.timezone;
+            console.log(`Using Slack timezone: ${timezone} (offset: ${slackTimezoneInfo.timezone_offset/3600} hours)`);
           }
         }
       } catch (tzError) {
