@@ -92,7 +92,8 @@ import { handleSlackEvent, getWebhookHealthStatus } from './services/slackEvents
 import { 
   startSlackMonitoring, 
   resetMonitoring,
-  checkForNewTasksManually
+  checkForNewTasksManually,
+  getMonitoringStatus
 } from './services/slackMonitor';
 
 // Create a store for sessions

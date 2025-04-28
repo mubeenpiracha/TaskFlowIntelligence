@@ -1,467 +1,337 @@
-import { Request, Response } from 'express';
-import { WebClient } from '@slack/web-api';
-import { storage } from '../storage';
-import { analyzeMessageForTask } from './openaiService';
-import { sendTaskDetectionDM } from './slack';
-import { User } from '@shared/schema';
-import { addProcessedMessageId, isMessageAlreadyProcessed } from './slack';
+import { storage } from "../storage";
+import { User } from "@shared/schema";
+import { analyzeMessageForTask } from "./openaiService";
+import { getChannelPreferences } from "./channelPreferences";
+import { createTaskFromSlackMessage, sendTaskConfirmation } from "./taskCreation";
+import { getUserTimezone } from "./slack";
 
-// Force development mode for webhook testing
-process.env.NODE_ENV = 'development';
-process.env.PROCESS_ALL_MESSAGES = 'true';
-process.env.PROCESS_SELF_MESSAGES = 'true';
-process.env.SKIP_SLACK_VERIFICATION = 'true';
+// Metrics for webhook health monitoring
+interface WebhookMetrics {
+  status: "active" | "inactive";
+  mode: "webhook-only";
+  lastActive: string | null;
+  events: {
+    total: number;
+    messages: number;
+    other: number;
+    lastEventTime: number | null;
+  };
+  taskProcessing: {
+    messagesAnalyzed: number;
+    tasksDetected: number;
+    tasksCreated: number;
+  };
+  aiAnalysis: {
+    successful: number;
+    failed: number;
+    lastAnalysisTime: number | null;
+  };
+  userInteractions: {
+    confirmations: number;
+    rejections: number;
+    lastInteractionTime: number | null;
+  };
+}
 
-// Reset message processing cache for testing on every server restart
-console.log('DEVELOPMENT MODE: Clearing message processing cache for easier testing!');
-
-// Track webhook health metrics
-let webhookMetrics = {
-  eventsReceived: 0,
-  lastEventTime: null as number | null,
-  messageEvents: 0,
-  otherEvents: 0,
-  taskDetections: 0,
-  errors: 0,
-  processingTime: {
-    totalMs: 0,
-    count: 0,
-    avgMs: 0
+// Initialize metrics
+const webhookMetrics: WebhookMetrics = {
+  status: "active",
+  mode: "webhook-only",
+  lastActive: null,
+  events: {
+    total: 0,
+    messages: 0,
+    other: 0,
+    lastEventTime: null
+  },
+  taskProcessing: {
+    messagesAnalyzed: 0,
+    tasksDetected: 0,
+    tasksCreated: 0
   },
   aiAnalysis: {
-    tasksDetected: 0,
-    nonTasksFiltered: 0,
-    avgConfidence: 0,
-    totalConfidence: 0,
-    count: 0
+    successful: 0,
+    failed: 0,
+    lastAnalysisTime: null
   },
-  userMentions: {
-    withMention: 0,
-    withoutMention: 0
-  },
-  channelTypes: {
-    public: 0,
-    private: 0,
-    dm: 0,
-    mpim: 0
+  userInteractions: {
+    confirmations: 0,
+    rejections: 0,
+    lastInteractionTime: null
   }
 };
 
-// We'll use the imported slack client from './slack.ts' which has the bot token
-// This is just a reference for compatibility with existing code
-import { slack, createUserClient } from './slack';
-
 /**
- * Verifies a Slack webhook request using the signing secret
- * @param req - Express request object
- * @returns Boolean indicating if the request is valid
+ * Get the current webhook health status
+ * @returns Webhook metrics object
  */
-import * as crypto from 'crypto';
-
-export function verifySlackRequest(req: Request): boolean {
-  // In development mode, we skip verification for testing
-  if (process.env.NODE_ENV === 'development' && process.env.SKIP_SLACK_VERIFICATION === 'true') {
-    console.log('DEVELOPMENT MODE: Skipping Slack request verification');
-    return true;
-  }
-  
-  // Skip verification if this is a URL verification challenge
-  if (req.body?.type === 'url_verification') {
-    return true;
-  }
-  
-  try {
-    // Check if basic requirements are met
-    if (!req.body) {
-      console.error('Missing request body');
-      return false;
-    }
-    
-    // For logging purposes in case of problems
-    console.log('Headers received:', JSON.stringify(req.headers));
-    console.log('Raw request body:', typeof req.body === 'string' ? req.body.substring(0, 200) : JSON.stringify(req.body).substring(0, 200));
-    
-    // Development bypass - always accept the request for now
-    // In a production environment, we would implement proper signature verification
-    console.log('DEVELOPMENT MODE: Accepting all Slack requests for testing');
-    return true;
-  } catch (error) {
-    console.error('Error verifying Slack request:', error);
-    return false;
-  }
-}
-
-/**
- * Handles URL verification challenge from Slack
- * @param req - Express request object
- * @param res - Express response object
- * @returns Boolean indicating if the request was handled
- */
-export function handleUrlVerification(req: Request, res: Response): boolean {
-  if (req.body.type === 'url_verification') {
-    console.log('Handling Slack URL verification challenge');
-    res.status(200).send({ challenge: req.body.challenge });
-    return true;
-  }
-  return false;
-}
-
-/**
- * Process a Slack message event for task detection
- * @param event - Slack message event object
- */
-export async function processMessageEvent(event: any): Promise<void> {
-  const processingStart = Date.now();
-  
-  try {
-    // Skip bot messages, thread replies, and message edits/deletes
-    if (
-      event.bot_id || 
-      event.subtype || 
-      !event.text || 
-      event.thread_ts
-    ) {
-      return;
-    }
-    
-    // Skip if the message is already in our processed messages set
-    // This is critical to prevent re-processing old messages that came through 
-    // historical polling instead of real-time webhooks
-    const messageTs = event.ts;
-    if (isMessageAlreadyProcessed(messageTs)) {
-      console.log(`[SLACK EVENT] Skipping already processed message ${messageTs}`);
-      return;
-    }
-    const channelId = event.channel;
-    const userId = event.user;
-    const text = event.text;
-    
-    // Track channel type
-    if (channelId.startsWith('C')) {
-      webhookMetrics.channelTypes.public++;
-    } else if (channelId.startsWith('G')) {
-      webhookMetrics.channelTypes.private++;
-    } else if (channelId.startsWith('D')) {
-      webhookMetrics.channelTypes.dm++;
-    } else if (channelId.startsWith('M')) {
-      webhookMetrics.channelTypes.mpim++;
-    }
-    
-    console.log(`[SLACK EVENT] Received message: ${text?.substring(0, 50)}${text?.length > 50 ? '...' : ''}`);
-    
-    // Find users who are monitoring this channel
-    const allUsers = await storage.getAllUsers();
-    const usersMonitoringChannel = await Promise.all(
-      allUsers.map(async (user) => {
-        // Skip users without Slack integration
-        if (!user.slackUserId) return null;
-        
-        // Check if this user is monitoring this channel
-        try {
-          const channelPrefs = user.slackChannelPreferences 
-            ? JSON.parse(user.slackChannelPreferences) 
-            : { channelIds: [] };
-          
-          if (channelPrefs.channelIds.includes(channelId)) {
-            return user;
-          }
-        } catch (error) {
-          console.error(`Error parsing channel preferences for user ${user.id}:`, error);
-        }
-        
-        return null;
-      })
-    );
-    
-    // Filter out null results
-    const relevantUsers = usersMonitoringChannel.filter(Boolean) as User[];
-    
-    if (relevantUsers.length === 0) {
-      console.log(`[SLACK EVENT] No users monitoring channel ${channelId}`);
-      return;
-    }
-    
-    console.log(`[SLACK EVENT] Found ${relevantUsers.length} users monitoring channel ${channelId}`);
-    
-    // Process for each relevant user
-    for (const user of relevantUsers) {
-      // Skip if the message doesn't mention this user and isn't from a channel they're monitoring
-      const userMention = `<@${user.slackUserId}>`;
-      const isUserMentioned = text.includes(userMention);
-      const isFromUser = userId === user.slackUserId;
-      
-      // Update mention metrics
-      if (isUserMentioned) {
-        webhookMetrics.userMentions.withMention++;
-      } else {
-        webhookMetrics.userMentions.withoutMention++;
-      }
-      
-      // Skip messages sent by the user themselves (except in development mode)
-      if (isFromUser) {
-        console.log(`[SLACK EVENT] Skipping message from user ${user.slackUserId} (self)`);
-        
-        // Only for development/testing: log that we would normally skip this message
-        // but allow processing to continue
-        if (process.env.NODE_ENV === 'development' || process.env.PROCESS_SELF_MESSAGES === 'true') {
-          console.log(`[SLACK EVENT] Processing self message anyway (development mode)`);
-        } else {
-          continue;
-        }
-      }
-      
-      console.log(`[SLACK EVENT] Processing message for user ${user.slackUserId} (mention: ${isUserMentioned})`);
-      
-      // Create a message object similar to what we get from the Slack API
-      const messageObj = {
-        user: userId,
-        text,
-        ts: messageTs,
-        channelId
-      };
-      
-      // Skip if not directly mentioned and no strong task indicators
-      // Check different formats of mentions to be more robust
-      const userMentionFormats = [
-        `<@${user.slackUserId}>`,  // Standard format
-        `<@${user.slackUserId}|`, // User mention with display name
-        `@${user.username}`,      // Simple @ mention with username
-      ];
-      
-      // Check if any mention format is found in the text
-      const userIsReallyMentioned = userMentionFormats.some(format => 
-        text.includes(format)
-      );
-      
-      if (!userIsReallyMentioned) {
-        // Check for strong task indicators
-        const strongTaskIndicators = [
-          'todo', 'deadline', 'asap', 'due', 'urgent', 
-          'task', 'finish', 'complete', 'required', 'need',
-          'please', 'can you', 'could you', 'will you',
-          'by tomorrow', 'by monday', 'by tuesday', 'by wednesday',
-          'by thursday', 'by friday', 'by saturday', 'by sunday'
-        ];
-        let hasStrongIndicator = false;
-        
-        for (const indicator of strongTaskIndicators) {
-          if (text.toLowerCase().includes(indicator.toLowerCase())) {
-            hasStrongIndicator = true;
-            console.log(`[SLACK EVENT] Found task indicator: "${indicator}" in message`);
-            break;
-          }
-        }
-        
-        // For testing: always process in development mode
-        if (process.env.NODE_ENV === 'development' || process.env.PROCESS_ALL_MESSAGES === 'true') {
-          console.log(`[SLACK EVENT] Processing message without mention (development mode)`);
-          hasStrongIndicator = true;
-        }
-        
-        if (!hasStrongIndicator) {
-          console.log(`[SLACK EVENT] Skipping message - no mention and no strong task indicators`);
-          continue;
-        }
-      }
-      
-      // Add to processed messages immediately to prevent duplicate processing
-      addProcessedMessageId(messageTs);
-      
-      // Analyze the message using OpenAI
-      console.log(`[SLACK EVENT] Analyzing message with OpenAI`);
-      const aiAnalysis = await analyzeMessageForTask(messageObj, user.slackUserId!);
-      
-      // Update AI analysis metrics
-      webhookMetrics.aiAnalysis.count++;
-      webhookMetrics.aiAnalysis.totalConfidence += aiAnalysis.confidence;
-      webhookMetrics.aiAnalysis.avgConfidence = 
-        webhookMetrics.aiAnalysis.totalConfidence / webhookMetrics.aiAnalysis.count;
-      
-      if (aiAnalysis.is_task) {
-        webhookMetrics.aiAnalysis.tasksDetected++;
-        webhookMetrics.taskDetections++;
-      } else {
-        webhookMetrics.aiAnalysis.nonTasksFiltered++;
-      }
-      
-      // Log the analysis results
-      console.log(`[SLACK EVENT] AI TASK DETECTION: ${aiAnalysis.is_task ? 'IS A TASK' : 'NOT A TASK'} (${(aiAnalysis.confidence * 100).toFixed(1)}%)`);
-      console.log(`[SLACK EVENT] REASONING: ${aiAnalysis.reasoning}`);
-      
-      // If it's a task, send a DM to the user
-      if (aiAnalysis.is_task) {
-        console.log(`[SLACK EVENT] Sending task detection DM to ${user.slackUserId}`);
-        try {
-          // Add channel info to the message object using user token for better access
-          const enrichedMessage = {
-            ...messageObj,
-            channelName: await getChannelName(channelId, user.slackAccessToken || undefined)
-          };
-          
-          // Send an interactive DM to the user about the detected task
-          // Pass the user token for better access if available
-          await sendTaskDetectionDM(
-            user.slackUserId!, 
-            enrichedMessage, 
-            user.slackAccessToken || undefined
-          );
-          
-          console.log(`[SLACK EVENT] Successfully sent task detection DM to ${user.slackUserId}`);
-        } catch (error) {
-          console.error(`[SLACK EVENT] Error sending task detection DM:`, error);
-          webhookMetrics.errors++;
-        }
-      }
-    }
-  } catch (error) {
-    console.error('[SLACK EVENT] Error processing message event:', error);
-    webhookMetrics.errors++;
-  } finally {
-    // Update processing time metrics
-    const processingTime = Date.now() - processingStart;
-    webhookMetrics.processingTime.totalMs += processingTime;
-    webhookMetrics.processingTime.count++;
-    webhookMetrics.processingTime.avgMs = 
-      webhookMetrics.processingTime.totalMs / webhookMetrics.processingTime.count;
-    
-    console.log(`[SLACK EVENT] Message processing completed in ${processingTime}ms`);
-  }
-}
-
-/**
- * Gets the channel name from its ID
- * @param channelId - Slack channel ID
- * @param userToken - Optional user token for better access to channels
- * @returns The channel name or a fallback
- */
-async function getChannelName(channelId: string, userToken?: string): Promise<string> {
-  try {
-    // Use user token if available for better access to private channels
-    const client = userToken ? createUserClient(userToken) : slack;
-    
-    // Try to get the channel info
-    const response = await client.conversations.info({ channel: channelId });
-    
-    if (response.channel && response.channel.name) {
-      return response.channel.name;
-    }
-    
-    // If using bot token failed, and we don't have a user token, try to 
-    // extract channel name from a more readable format
-    if (!userToken && channelId.startsWith('C')) {
-      return `channel-${channelId.substring(1, 5)}`;
-    }
-    
-    return channelId; // Fallback to ID if name not available
-  } catch (error) {
-    console.error(`Error getting channel name for ${channelId}:`, error);
-    
-    // Log specific error for permissions issues
-    if (!userToken && error instanceof Error && 
-      (error.message.includes('not_in_channel') || 
-       error.message.includes('channel_not_found') || 
-       error.message.includes('missing_scope'))) {
-      console.warn(`Bot doesn't have access to channel ${channelId}. Will use user token if available.`);
-    }
-    
-    return channelId; // Fallback to ID on error
-  }
-}
-
-/**
- * Get webhook health status
- * @returns Detailed webhook health status metrics
- */
-export function getWebhookHealthStatus() {
+export function getWebhookHealthStatus(): WebhookMetrics {
   return {
-    status: "active",
-    mode: "webhook-only",
-    lastActive: webhookMetrics.lastEventTime 
-      ? new Date(webhookMetrics.lastEventTime).toISOString()
-      : null,
-    events: {
-      total: webhookMetrics.eventsReceived,
-      messages: webhookMetrics.messageEvents,
-      other: webhookMetrics.otherEvents,
-      lastEventTime: webhookMetrics.lastEventTime,
-    },
-    taskProcessing: {
-      tasksDetected: webhookMetrics.taskDetections,
-      errors: webhookMetrics.errors,
-      processingTime: {
-        avgMs: Math.round(webhookMetrics.processingTime.avgMs),
-        count: webhookMetrics.processingTime.count
-      }
-    },
-    aiAnalysis: {
-      processed: webhookMetrics.aiAnalysis.count,
-      tasksDetected: webhookMetrics.aiAnalysis.tasksDetected,
-      nonTasksFiltered: webhookMetrics.aiAnalysis.nonTasksFiltered,
-      avgConfidence: webhookMetrics.aiAnalysis.count > 0 
-        ? Math.round(webhookMetrics.aiAnalysis.avgConfidence * 100) / 100 
-        : 0
-    },
-    userInteractions: {
-      withMention: webhookMetrics.userMentions.withMention,
-      withoutMention: webhookMetrics.userMentions.withoutMention
-    },
-    channelTypes: {
-      public: webhookMetrics.channelTypes.public,
-      private: webhookMetrics.channelTypes.private,
-      directMessage: webhookMetrics.channelTypes.dm,
-      multiPersonIm: webhookMetrics.channelTypes.mpim
-    }
+    ...webhookMetrics,
+    lastActive: webhookMetrics.lastActive || new Date().toISOString()
   };
 }
 
 /**
- * Handle Slack event request
- * @param req - Express request object
- * @param res - Express response object
+ * Handle a Slack event received via webhook
+ * @param event The event payload from Slack
+ * @returns Processing result
  */
-export async function handleSlackEvent(req: Request, res: Response): Promise<void> {
+export async function handleSlackEvent(event: any): Promise<{
+  success: boolean;
+  eventType: string;
+  processed: boolean;
+  taskDetected?: boolean;
+  message?: string;
+  error?: string;
+}> {
   try {
-    // Verify the request is from Slack
-    if (!verifySlackRequest(req)) {
-      console.error('Invalid Slack request');
-      res.status(401).send('Unauthorized');
-      return;
+    // Update metrics
+    webhookMetrics.events.total++;
+    webhookMetrics.events.lastEventTime = Date.now();
+    webhookMetrics.lastActive = new Date().toISOString();
+
+    // Handle URL verification challenge from Slack
+    if (event.type === "url_verification") {
+      webhookMetrics.events.other++;
+      return {
+        success: true,
+        eventType: "url_verification",
+        processed: true,
+        message: "URL verification challenge processed"
+      };
     }
-    
-    // Handle URL verification challenge if present
-    if (handleUrlVerification(req, res)) {
-      // Update webhook metrics
-      webhookMetrics.eventsReceived++;
-      webhookMetrics.lastEventTime = Date.now();
-      webhookMetrics.otherEvents++;
-      return;
+
+    // Extract the event details from the wrapper
+    const slackEvent = event.event;
+    if (!slackEvent) {
+      webhookMetrics.events.other++;
+      return {
+        success: false,
+        eventType: "unknown",
+        processed: false,
+        message: "No event data found in payload"
+      };
     }
-    
-    // Update webhook metrics for all other events
-    webhookMetrics.eventsReceived++;
-    webhookMetrics.lastEventTime = Date.now();
-    
-    // Acknowledge receipt of the event immediately
-    res.status(200).send();
-    
-    const event = req.body.event;
-    
+
     // Process different event types
-    if (event && event.type === 'message') {
-      // Update message events metric
-      webhookMetrics.messageEvents++;
+    if (slackEvent.type === "message") {
+      webhookMetrics.events.messages++;
       
-      // Process message events asynchronously
-      processMessageEvent(event).catch(error => {
-        console.error('Error processing message event:', error);
-      });
+      // Skip bot messages, message changes, and deleted messages
+      const skipMessage = 
+        slackEvent.subtype === "bot_message" || 
+        slackEvent.subtype === "message_changed" || 
+        slackEvent.subtype === "message_deleted";
+      
+      if (skipMessage) {
+        return {
+          success: true,
+          eventType: "message",
+          processed: true,
+          taskDetected: false,
+          message: `Skipped ${slackEvent.subtype || "special"} message`
+        };
+      }
+
+      return await processMessageEvent(slackEvent, event.team_id);
+
     } else {
-      // Update other events metric
-      webhookMetrics.otherEvents++;
-      console.log(`Received unsupported event type: ${event?.type}`);
+      // Not a message event
+      webhookMetrics.events.other++;
+      return {
+        success: true,
+        eventType: slackEvent.type,
+        processed: true,
+        message: `Non-message event type: ${slackEvent.type}`
+      };
     }
   } catch (error) {
-    console.error('Error handling Slack event:', error);
-    // Already sent a response, so no need to respond again
+    console.error("Error processing Slack event:", error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return {
+      success: false,
+      eventType: "error",
+      processed: false,
+      error: errorMessage,
+      message: "Error processing Slack event"
+    };
   }
+}
+
+/**
+ * Process a message event from Slack
+ * @param message The message event from Slack
+ * @param teamId The Slack workspace/team ID
+ * @returns Processing result
+ */
+async function processMessageEvent(message: any, teamId: string): Promise<{
+  success: boolean;
+  eventType: string;
+  processed: boolean;
+  taskDetected: boolean;
+  message?: string;
+  error?: string;
+}> {
+  try {
+    // Basic validation
+    if (!message.text || !message.user || !message.ts || !message.channel) {
+      return {
+        success: false,
+        eventType: "message",
+        processed: false,
+        taskDetected: false,
+        message: "Invalid message data"
+      };
+    }
+
+    // Find the user who configured the integration
+    const slackUser = await getUserForSlackMessage(message.user, teamId);
+    if (!slackUser) {
+      return {
+        success: true,
+        eventType: "message",
+        processed: false,
+        taskDetected: false,
+        message: "No user found with this Slack configuration"
+      };
+    }
+
+    // Check if this channel is in the user's monitored channels
+    const channelIds = await getChannelPreferences(slackUser.id);
+    if (!channelIds.includes(message.channel)) {
+      return {
+        success: true,
+        eventType: "message",
+        processed: false,
+        taskDetected: false,
+        message: "Channel not in user's monitored channels"
+      };
+    }
+
+    // Detect tasks in the message using AI
+    webhookMetrics.taskProcessing.messagesAnalyzed++;
+    
+    console.log(`Analyzing message for tasks: "${message.text.substring(0, 30)}..."`);
+    
+    // Create a proper SlackMessage object for analysis
+    const slackMessage: SlackMessage = {
+      user: message.user,
+      text: message.text,
+      ts: message.ts,
+      channelId: message.channel,
+      channelName: `channel-${message.channel}` // Simple placeholder name
+    };
+    
+    // Pass in the actual user ID as well for mention detection
+    const analysis = await analyzeMessageForTask(slackMessage, slackUser.slackUserId || message.user);
+    
+    if (analysis.is_task) {
+      webhookMetrics.taskProcessing.tasksDetected++;
+      webhookMetrics.aiAnalysis.successful++;
+      webhookMetrics.aiAnalysis.lastAnalysisTime = Date.now();
+      
+      console.log(`Task detected: ${analysis.task_title || 'Untitled task'}`);
+      
+      // Get user timezone
+      let timezone = slackUser.timezone || "UTC";
+      try {
+        if (slackUser.slackUserId) {
+          const slackTimezone = await getUserTimezone(slackUser.slackUserId);
+          if (slackTimezone) {
+            timezone = slackTimezone;
+          }
+        }
+      } catch (tzError) {
+        console.warn("Could not get user timezone from Slack:", tzError);
+      }
+      
+      // Determine priority from urgency if available
+      let priority = "medium";
+      if (analysis.urgency) {
+        if (analysis.urgency >= 4) priority = "high";
+        else if (analysis.urgency <= 2) priority = "low";
+      }
+      
+      // Convert time_required_minutes to a string format (e.g., "30m" or "2h")
+      let timeRequired = "";
+      if (analysis.time_required_minutes) {
+        if (analysis.time_required_minutes < 60) {
+          timeRequired = `${analysis.time_required_minutes}m`;
+        } else {
+          const hours = Math.floor(analysis.time_required_minutes / 60);
+          const minutes = analysis.time_required_minutes % 60;
+          timeRequired = minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+        }
+      }
+      
+      // Create a pending task
+      await createTaskFromSlackMessage({
+        user: message.user,
+        text: message.text,
+        ts: message.ts,
+        channelId: message.channel,
+        channelName: `channel-${message.channel}`, // Simple fallback name
+        title: analysis.task_title || "Task from Slack",
+        deadline: analysis.deadline,
+        priority,
+        timeRequired,
+        timezone
+      });
+      
+      // Send confirmation message to user
+      await sendTaskConfirmation(slackUser, message, analysis);
+      webhookMetrics.taskProcessing.tasksCreated++;
+      
+      return {
+        success: true,
+        eventType: "message",
+        processed: true,
+        taskDetected: true,
+        message: `Task detected: ${analysis.task_title || 'Untitled task'}`
+      };
+    } else {
+      // Not a task
+      return {
+        success: true,
+        eventType: "message",
+        processed: true,
+        taskDetected: false,
+        message: "Message analyzed - no task detected"
+      };
+    }
+  } catch (error) {
+    console.error("Error processing message event:", error);
+    webhookMetrics.aiAnalysis.failed++;
+    
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return {
+      success: false,
+      eventType: "message",
+      processed: false,
+      taskDetected: false,
+      error: errorMessage,
+      message: "Error processing message event"
+    };
+  }
+}
+
+/**
+ * Find the user with the matching Slack user ID
+ * @param slackUserId User ID from Slack event
+ * @param workspaceId Slack workspace/team ID
+ * @returns User record if found
+ */
+async function getUserForSlackMessage(slackUserId: string, workspaceId: string): Promise<User | undefined> {
+  // First try to find by exact Slack user ID
+  const user = await storage.getUserBySlackUserId(slackUserId);
+  if (user) {
+    return user;
+  }
+  
+  // If no direct match, get all users for this workspace
+  const allUsers = await storage.getAllUsers();
+  return allUsers.find(user => 
+    user.slackUserId && user.slackWorkspace === workspaceId
+  );
 }
