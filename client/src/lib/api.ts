@@ -264,7 +264,19 @@ export interface SlackMessage {
     dueDate?: string;
     priority?: number;
     description?: string;
+    recurringPattern?: string;
   };
+  
+  // Custom fields for task creation
+  customTitle?: string;
+  customDescription?: string;
+  customPriority?: string;
+  customTimeRequired?: string;
+  customDueDate?: string;
+  customDueTime?: string;
+  customUrgency?: number;
+  customImportance?: number;
+  customRecurringPattern?: string;
 }
 
 /**

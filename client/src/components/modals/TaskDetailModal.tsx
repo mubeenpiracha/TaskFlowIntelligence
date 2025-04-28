@@ -22,6 +22,7 @@ import { apiRequest } from "@/lib/queryClient";
 import { createTask, updateTask, createTaskFromSlackMessage } from "@/lib/api";
 import { SlackMessage } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
+import { Label } from "@/components/ui/label";
 
 interface SlackMessage {
   user: string;
@@ -47,6 +48,7 @@ export default function TaskDetailModal({ task, slackMessage, isOpen, onClose }:
   const [timeRequired, setTimeRequired] = useState(task?.timeRequired || '01:00');
   const [dueDate, setDueDate] = useState(task?.dueDate || new Date().toISOString().split('T')[0]);
   const [dueTime, setDueTime] = useState(task?.dueTime || '17:00');
+  const [recurringPattern, setRecurringPattern] = useState(task?.recurringPattern || 'none');
   
   // If we have a Slack message, auto-populate fields
   useEffect(() => {
@@ -59,6 +61,9 @@ export default function TaskDetailModal({ task, slackMessage, isOpen, onClose }:
   // Create or update task mutation
   const taskMutation = useMutation({
     mutationFn: async () => {
+      // Use null for recurringPattern if it's set to 'none'
+      const finalRecurringPattern = recurringPattern === 'none' ? null : recurringPattern;
+      
       const taskData = {
         title,
         description,
@@ -66,6 +71,7 @@ export default function TaskDetailModal({ task, slackMessage, isOpen, onClose }:
         timeRequired,
         dueDate,
         dueTime,
+        recurringPattern: finalRecurringPattern,
         ...(slackMessage && {
           slackMessageId: slackMessage.ts,
           slackChannelId: slackMessage.channel
@@ -92,7 +98,8 @@ export default function TaskDetailModal({ task, slackMessage, isOpen, onClose }:
           customPriority: priority,
           customTimeRequired: timeRequired,
           customDueDate: dueDate,
-          customDueTime: dueTime
+          customDueTime: dueTime,
+          customRecurringPattern: finalRecurringPattern
         });
       } else {
         // Create brand new task
@@ -223,6 +230,26 @@ export default function TaskDetailModal({ task, slackMessage, isOpen, onClose }:
                 />
               </div>
             </div>
+          </div>
+          
+          {/* Recurring Pattern */}
+          <div>
+            <Label htmlFor="recurring-pattern" className="block text-sm font-medium text-gray-700">Recurring Pattern</Label>
+            <Select
+              value={recurringPattern}
+              onValueChange={setRecurringPattern}
+            >
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Select recurring pattern" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">Not recurring</SelectItem>
+                <SelectItem value="daily">🔄 Daily</SelectItem>
+                <SelectItem value="weekly">🔄 Weekly</SelectItem>
+                <SelectItem value="biweekly">🔄 Every 2 weeks</SelectItem>
+                <SelectItem value="monthly">🔄 Monthly</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
           
           <DialogFooter>
