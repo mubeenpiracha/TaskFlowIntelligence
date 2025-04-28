@@ -198,15 +198,26 @@ async function processMessageEvent(message: any, teamId: string): Promise<{
     }
 
     // Check if this channel is in the user's monitored channels
-    const channelIds = await getChannelPreferences(slackUser.id);
-    if (!channelIds.includes(message.channel)) {
-      return {
-        success: true,
-        eventType: "message",
-        processed: false,
-        taskDetected: false,
-        message: "Channel not in user's monitored channels"
-      };
+    try {
+      const channelIds = await getChannelPreferences(slackUser.id);
+      
+      // TEMPORARY TESTING OVERRIDE: Process messages even if channel is not in preferences
+      // This helps during development and testing
+      const isDevelopmentMode = process.env.NODE_ENV !== 'production';
+      if (!isDevelopmentMode && !channelIds.includes(message.channel)) {
+        return {
+          success: true,
+          eventType: "message",
+          processed: false,
+          taskDetected: false,
+          message: "Channel not in user's monitored channels"
+        };
+      }
+      
+      console.log(`Processing message in channel ${message.channel} for user ${slackUser.username || slackUser.id}`);
+    } catch (prefError) {
+      console.error("Error checking channel preferences:", prefError);
+      // Continue processing the message even if we can't check preferences (fail open for testing)
     }
 
     // Detect tasks in the message using AI

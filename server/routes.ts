@@ -507,8 +507,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
     
     try {
-      // Use our events handler to process the event
-      await handleSlackEvent(req, res);
+      // Process the event with our handler
+      const result = await handleSlackEvent(body);
+      console.log('Event processing result:', JSON.stringify(result));
+      
+      // Always return 200 OK to Slack to acknowledge receipt
+      res.status(200).send('Event received');
     } catch (error) {
       console.error('Error handling Slack event:', error);
       
