@@ -1938,20 +1938,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   }
                 }
                 
-                const event = await createCalendarEvent(
-                  user.googleRefreshToken,
-                  eventData
-                );
+                console.log('[CALENDAR_INTEGRATION] About to create calendar event with the following data:');
+                console.log(JSON.stringify(eventData, null, 2));
                 
-                // Update task with Google Calendar event ID
-                if (event?.id) {
-                  await storage.updateTask(task.id, { 
-                    googleEventId: event.id,
-                    scheduledStart: scheduledStart.toISOString().replace('Z', ''),
-                    scheduledEnd: scheduledEnd.toISOString().replace('Z', '')
-                  });
+                try {
+                  const event = await createCalendarEvent(
+                    user.googleRefreshToken,
+                    eventData
+                  );
                   
-                  console.log(`Successfully scheduled task in calendar at ${scheduledStart.toISOString().replace('Z', '')}`);
+                  // Update task with Google Calendar event ID
+                  if (event?.id) {
+                    await storage.updateTask(task.id, { 
+                      googleEventId: event.id,
+                      scheduledStart: scheduledStart.toISOString().replace('Z', ''),
+                      scheduledEnd: scheduledEnd.toISOString().replace('Z', ''),
+                      status: 'scheduled'
+                    });
+                    
+                    console.log(`[CALENDAR_INTEGRATION] Successfully scheduled task in calendar at ${scheduledStart.toISOString().replace('Z', '')}`);
+                    console.log(`[CALENDAR_INTEGRATION] Google Calendar event ID: ${event.id}`);
+                  } else {
+                    console.warn('[CALENDAR_INTEGRATION] Event created but no ID returned');
+                    await storage.updateTaskStatus(task.id, 'accepted');
+                  }
+                } catch (calendarError) {
+                  console.error('[CALENDAR_INTEGRATION] Failed to create calendar event:', calendarError);
+                  
+                  if (calendarError instanceof TokenExpiredError) {
+                    console.warn('[CALENDAR_INTEGRATION] Google Calendar token has expired');
+                    // You could notify the user that their token has expired
+                  }
+                  
+                  // Still mark the task as accepted even if calendar integration fails
+                  await storage.updateTaskStatus(task.id, 'accepted');
                 }
               } else {
                 console.log('Could not find a suitable time slot within the scheduling window');
@@ -2003,20 +2023,40 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   }
                 }
                 
-                const event = await createCalendarEvent(
-                  user.googleRefreshToken,
-                  eventData
-                );
+                console.log('[CALENDAR_INTEGRATION] About to create deadline-based calendar event with the following data:');
+                console.log(JSON.stringify(eventData, null, 2));
                 
-                // Update task with Google Calendar event ID
-                if (event?.id) {
-                  await storage.updateTask(task.id, { 
-                    googleEventId: event.id,
-                    scheduledStart: deadlineStart.toISOString().replace('Z', ''),
-                    scheduledEnd: dueDateTime.toISOString().replace('Z', '')
-                  });
+                try {
+                  const event = await createCalendarEvent(
+                    user.googleRefreshToken,
+                    eventData
+                  );
                   
-                  console.log(`Created deadline-based event for task at ${deadlineStart.toISOString().replace('Z', '')}`);
+                  // Update task with Google Calendar event ID
+                  if (event?.id) {
+                    await storage.updateTask(task.id, { 
+                      googleEventId: event.id,
+                      scheduledStart: deadlineStart.toISOString().replace('Z', ''),
+                      scheduledEnd: dueDateTime.toISOString().replace('Z', ''),
+                      status: 'scheduled'
+                    });
+                    
+                    console.log(`[CALENDAR_INTEGRATION] Successfully created deadline-based calendar event at ${deadlineStart.toISOString().replace('Z', '')}`);
+                    console.log(`[CALENDAR_INTEGRATION] Google Calendar event ID: ${event.id}`);
+                  } else {
+                    console.warn('[CALENDAR_INTEGRATION] Deadline event created but no ID returned');
+                    await storage.updateTaskStatus(task.id, 'accepted');
+                  }
+                } catch (calendarError) {
+                  console.error('[CALENDAR_INTEGRATION] Failed to create deadline-based calendar event:', calendarError);
+                  
+                  if (calendarError instanceof TokenExpiredError) {
+                    console.warn('[CALENDAR_INTEGRATION] Google Calendar token has expired');
+                    // You could notify the user that their token has expired
+                  }
+                  
+                  // Still mark the task as accepted even if calendar integration fails
+                  await storage.updateTaskStatus(task.id, 'accepted');
                 }
               }
             } catch (error) {
@@ -2415,7 +2455,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             }
           }
           
-          const event = await createCalendarEvent(user.googleRefreshToken, {
+          // Prepare the event data
+          const eventData = {
             summary: task.title,
             description: task.description || undefined,
             start: {
@@ -2426,12 +2467,28 @@ export async function registerRoutes(app: Express): Promise<Server> {
               dateTime: endTime.toISOString().replace('Z', ''),
               timeZone: userTimeZone
             }
-          });
+          };
           
-          // Update task with Google Calendar event ID
-          await storage.updateTask(task.id, {
-            googleEventId: event.id
-          });
+          console.log('[CALENDAR_INTEGRATION] About to create manual calendar event with the following data:');
+          console.log(JSON.stringify(eventData, null, 2));
+          
+          const event = await createCalendarEvent(user.googleRefreshToken, eventData);
+          
+          if (event?.id) {
+            // Update task with Google Calendar event ID and mark as scheduled
+            await storage.updateTask(task.id, {
+              googleEventId: event.id,
+              scheduledStart: startTime.toISOString().replace('Z', ''),
+              scheduledEnd: endTime.toISOString().replace('Z', ''),
+              status: 'scheduled'
+            });
+            
+            console.log(`[CALENDAR_INTEGRATION] Successfully created manual calendar event at ${startTime.toISOString().replace('Z', '')}`);
+            console.log(`[CALENDAR_INTEGRATION] Google Calendar event ID: ${event.id}`);
+          } else {
+            console.warn('[CALENDAR_INTEGRATION] Manual event created but no ID returned');
+            await storage.updateTaskStatus(task.id, 'accepted');
+          }
         } catch (error) {
           console.error('Failed to create Google Calendar event:', error);
           
