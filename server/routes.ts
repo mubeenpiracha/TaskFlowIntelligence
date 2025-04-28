@@ -891,8 +891,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Send a simple test message
       const messageText = "👋 This is a test message from your TaskFlow bot. If you're receiving this, the notification system is working properly!";
       
-      // Note: We're using the bot token here which is from the environment variable
-      const messageResult = await sendMessage(user.slackUserId, messageText);
+      // Use user token when available for better access to private channels/DMs
+      const messageResult = await sendMessage(user.slackUserId, messageText, undefined, user.slackAccessToken || undefined);
       
       if (!messageResult) {
         return res.status(500).json({
