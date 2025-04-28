@@ -267,6 +267,36 @@ export async function listUserChannels(userToken?: string | null): Promise<Slack
  * @param userToken - Optional user token for accessing private user data
  * @returns Promise with user information
  */
+/**
+ * Format a date for display in Slack messages
+ * @param date The date to format
+ * @returns Formatted date string in YYYY-MM-DD format
+ */
+export function formatDateForSlack(date: Date): string {
+  return date.toISOString().split('T')[0];
+}
+
+/**
+ * Get a channel name from its ID
+ * @param channelId Slack channel ID
+ * @returns Channel name or undefined if not found
+ */
+export async function getChannelName(channelId: string): Promise<string | undefined> {
+  try {
+    // For DM channels, which start with 'D'
+    if (channelId.startsWith('D')) {
+      return 'direct-message';
+    }
+    
+    // For regular channels
+    const result = await slack.conversations.info({ channel: channelId });
+    return result.channel?.name;
+  } catch (error) {
+    console.error(`Error getting channel name for ${channelId}:`, error);
+    return undefined;
+  }
+}
+
 export async function getUserInfo(userId: string, userToken?: string | null) {
   // Use user token when available for better access to user data
   const client = userToken ? new WebClient(userToken) : slack;
@@ -353,14 +383,7 @@ const taskAnalysisCache = new Map<string, TaskAnalysisResponse>();
 // Set to track processed message IDs for optimization
 const processedMessageIds = new Set<string>();
 
-/**
- * Helper function to format date for Slack datepicker
- * @param date Date to format
- * @returns Date string in YYYY-MM-DD format
- */
-export function formatDateForSlack(date: Date): string {
-  return date.toISOString().split('T')[0];
-}
+// Helper function from above is used throughout the codebase
 
 /**
  * Get a Slack client for the specified user

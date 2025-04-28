@@ -35,8 +35,10 @@ async function verifyPassword(password: string, hashedPassword: string): Promise
   const derivedKey = await pbkdf2Async(password, salt, iterCount, keyLength, digest);
   return key === derivedKey.toString('hex');
 }
-import { detectTasks, sendMessage, listUserChannels, sendTaskDetectionDM, testDirectMessage, getUserTimezone, type SlackChannel, type SlackMessage } from "./services/slack";
+import { detectTasks, sendMessage, listUserChannels, sendTaskDetectionDM, testDirectMessage, getUserTimezone, getChannelName, formatDateForSlack, type SlackChannel, type SlackMessage } from "./services/slack";
 import { analyzeMessageForTask, type TaskAnalysisResponse } from "./services/openaiService";
+import axios from "axios";
+import { slack } from "./services/slack";
 import { 
   getCalendarAuthUrl, 
   getLoginAuthUrl,
@@ -994,7 +996,583 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       // Handle different action types
-      if (action.action_id === 'create_task_detailed') {
+      if (action.action_id === 'create_task_default') {
+        // User clicked "Add to My Tasks" button to create a task with default settings
+        try {
+          console.log('Create default task action received');
+          
+          // Parse the task data from the button value
+          const taskData = JSON.parse(action.value);
+          
+          if (!taskData.action || taskData.action !== 'create_task' || !taskData.messageTs || !taskData.channel) {
+            console.error('Invalid task data from button click:', taskData);
+            await sendMessage(user.id, 'Error: Could not create task due to missing data.');
+            return;
+          }
+          
+          console.log(`Creating task with default values for message ${taskData.messageTs} in channel ${taskData.channel}`);
+          
+          // Get the original message from Slack to ensure we have the latest data
+          try {
+            // Retrieve the message details from Slack
+            const messageResult = await slack.conversations.history({
+              channel: taskData.channel,
+              latest: taskData.messageTs,
+              limit: 1,
+              inclusive: true
+            });
+            
+            const message = messageResult.messages?.[0];
+            
+            if (!message) {
+              console.error(`Could not find original message ${taskData.messageTs} in channel ${taskData.channel}`);
+              await sendMessage(user.id, 'Error: Could not find the original message. The task cannot be created.');
+              return;
+            }
+            
+            // Create a SlackMessage object with the original message data
+            const slackMessage = {
+              ts: taskData.messageTs,
+              text: message.text || "",
+              user: message.user || user.id,
+              channelId: taskData.channel,
+              channelName: await getChannelName(taskData.channel) || "a channel",
+              // Use title from the button data or default to "Task from Slack"
+              customTitle: taskData.title || "Task from Slack",
+              // Set default priority to medium
+              customPriority: 'medium' as 'low' | 'medium' | 'high',
+              // Set default time required to 1 hour
+              customTimeRequired: "1:00",
+              // Set default due date to tomorrow
+              customDueDate: formatDateForSlack(new Date(Date.now() + 86400000)), // Tomorrow
+              // Set default due time to noon
+              customDueTime: "12:00",
+              // Set default urgency and importance to 3 (medium)
+              customUrgency: 3,
+              customImportance: 3,
+              // No recurring pattern by default
+              customRecurringPattern: null
+            };
+            
+            console.log('Creating task for user ID:', dbUserQuery.id);
+            
+            // Create the task in the database
+            const task = await createTaskFromSlackMessage(slackMessage, dbUserQuery.id);
+            
+            console.log('Task created successfully:', task.id);
+            
+            // Send confirmation to the user
+            await slack.chat.postMessage({
+              channel: user.id,
+              text: `✅ Task "${slackMessage.customTitle}" has been added to your tasks with default settings.`,
+              blocks: [
+                {
+                  type: "section",
+                  text: {
+                    type: "mrkdwn",
+                    text: `✅ Task *"${slackMessage.customTitle}"* has been added to your tasks.\n\n*Priority:* Medium\n*Due:* ${slackMessage.customDueDate} at 12:00\n*Time Required:* 1 hour`
+                  }
+                }
+              ]
+            });
+            
+            // Update the original message to indicate that action was taken
+            if (response_url) {
+              await axios.post(response_url, {
+                replace_original: true,
+                text: "Task has been added to your schedule!",
+                blocks: [
+                  {
+                    type: "section",
+                    text: {
+                      type: "mrkdwn",
+                      text: `:white_check_mark: *Task added to your schedule*\n\nYou've added the following task to your schedule with default settings:\n*${slackMessage.customTitle}*`
+                    }
+                  }
+                ]
+              });
+            }
+          } catch (error) {
+            console.error('Error retrieving message details from Slack:', error);
+            await sendMessage(user.id, 'Error: Failed to retrieve the original message details.');
+            return;
+          }
+        } catch (error) {
+          console.error('Error handling create_task_default action:', error);
+          try {
+            await sendMessage(user.id, 'Error: Failed to create task. Please try again or contact support.');
+          } catch (msgError) {
+            console.error('Failed to send error message to user:', msgError);
+          }
+        }
+      } else if (action.action_id === 'customize_task') {
+        // User clicked "Customize Details" button to modify task details before creating
+        try {
+          console.log('Customize task action received');
+          
+          // Parse the task data from the button value
+          const taskData = JSON.parse(action.value);
+          
+          if (!taskData.action || taskData.action !== 'customize_task' || !taskData.messageTs || !taskData.channel) {
+            console.error('Invalid task data from button click:', taskData);
+            await sendMessage(user.id, 'Error: Could not customize task due to missing data.');
+            return;
+          }
+          
+          console.log(`Preparing customization form for message ${taskData.messageTs} in channel ${taskData.channel}`);
+          
+          // Get the original message from Slack
+          try {
+            // Retrieve the message details from Slack
+            const messageResult = await slack.conversations.history({
+              channel: taskData.channel,
+              latest: taskData.messageTs,
+              limit: 1,
+              inclusive: true
+            });
+            
+            const message = messageResult.messages?.[0];
+            
+            if (!message) {
+              console.error(`Could not find original message ${taskData.messageTs} in channel ${taskData.channel}`);
+              await sendMessage(user.id, 'Error: Could not find the original message. Cannot customize the task.');
+              return;
+            }
+            
+            // Get channel name for display
+            const channelName = await getChannelName(taskData.channel) || "a channel";
+            
+            // Create modal with task details form
+            const today = new Date();
+            const tomorrow = new Date(today);
+            tomorrow.setDate(tomorrow.getDate() + 1);
+            
+            // Format tomorrow's date in YYYY-MM-DD for the date picker default
+            const defaultDueDate = formatDateForSlack(tomorrow);
+            
+            // Create an interactive form for task details
+            await slack.views.open({
+              trigger_id: payload.trigger_id,
+              view: {
+                type: "modal",
+                callback_id: "task_details_modal",
+                private_metadata: JSON.stringify({
+                  messageTs: taskData.messageTs,
+                  channel: taskData.channel,
+                  channelName: channelName,
+                  text: message.text || ""
+                }),
+                title: {
+                  type: "plain_text",
+                  text: "Task Details"
+                },
+                submit: {
+                  type: "plain_text",
+                  text: "Create & Schedule Task"
+                },
+                close: {
+                  type: "plain_text",
+                  text: "Cancel"
+                },
+                blocks: [
+                  {
+                    type: "section",
+                    text: {
+                      type: "mrkdwn",
+                      text: `*Creating a task from a message in #${channelName}*`
+                    }
+                  },
+                  {
+                    type: "section",
+                    text: {
+                      type: "mrkdwn",
+                      text: `>${message.text?.substring(0, 100)}${message.text && message.text.length > 100 ? '...' : ''}`
+                    }
+                  },
+                  {
+                    type: "input",
+                    block_id: "task_title_block",
+                    element: {
+                      type: "plain_text_input",
+                      action_id: "task_title_input",
+                      initial_value: "Task from Slack"
+                    },
+                    label: {
+                      type: "plain_text",
+                      text: "Task Title"
+                    }
+                  },
+                  {
+                    type: "input",
+                    block_id: "task_description_block",
+                    optional: true,
+                    element: {
+                      type: "plain_text_input",
+                      action_id: "task_description_input",
+                      multiline: true,
+                      initial_value: message.text || ""
+                    },
+                    label: {
+                      type: "plain_text",
+                      text: "Description"
+                    }
+                  },
+                  {
+                    type: "input",
+                    block_id: "task_deadline_block",
+                    element: {
+                      type: "datepicker",
+                      action_id: "task_deadline_date",
+                      initial_date: defaultDueDate
+                    },
+                    label: {
+                      type: "plain_text",
+                      text: "Due Date"
+                    }
+                  },
+                  {
+                    type: "input",
+                    block_id: "task_deadline_time_block",
+                    element: {
+                      type: "timepicker",
+                      action_id: "task_deadline_time",
+                      initial_time: "12:00"
+                    },
+                    label: {
+                      type: "plain_text",
+                      text: "Due Time"
+                    }
+                  },
+                  {
+                    type: "input",
+                    block_id: "task_urgency_block",
+                    element: {
+                      type: "static_select",
+                      action_id: "task_urgency_select",
+                      initial_option: {
+                        text: {
+                          type: "plain_text",
+                          text: "Medium (3)"
+                        },
+                        value: "3"
+                      },
+                      options: [
+                        {
+                          text: {
+                            type: "plain_text",
+                            text: "Very Low (1)"
+                          },
+                          value: "1"
+                        },
+                        {
+                          text: {
+                            type: "plain_text",
+                            text: "Low (2)"
+                          },
+                          value: "2"
+                        },
+                        {
+                          text: {
+                            type: "plain_text",
+                            text: "Medium (3)"
+                          },
+                          value: "3"
+                        },
+                        {
+                          text: {
+                            type: "plain_text",
+                            text: "High (4)"
+                          },
+                          value: "4"
+                        },
+                        {
+                          text: {
+                            type: "plain_text",
+                            text: "Very High (5)"
+                          },
+                          value: "5"
+                        }
+                      ]
+                    },
+                    label: {
+                      type: "plain_text",
+                      text: "Urgency"
+                    }
+                  },
+                  {
+                    type: "input",
+                    block_id: "task_importance_block",
+                    element: {
+                      type: "static_select",
+                      action_id: "task_importance_select",
+                      initial_option: {
+                        text: {
+                          type: "plain_text",
+                          text: "Medium (3)"
+                        },
+                        value: "3"
+                      },
+                      options: [
+                        {
+                          text: {
+                            type: "plain_text",
+                            text: "Very Low (1)"
+                          },
+                          value: "1"
+                        },
+                        {
+                          text: {
+                            type: "plain_text",
+                            text: "Low (2)"
+                          },
+                          value: "2"
+                        },
+                        {
+                          text: {
+                            type: "plain_text",
+                            text: "Medium (3)"
+                          },
+                          value: "3"
+                        },
+                        {
+                          text: {
+                            type: "plain_text",
+                            text: "High (4)"
+                          },
+                          value: "4"
+                        },
+                        {
+                          text: {
+                            type: "plain_text",
+                            text: "Very High (5)"
+                          },
+                          value: "5"
+                        }
+                      ]
+                    },
+                    label: {
+                      type: "plain_text",
+                      text: "Importance"
+                    }
+                  },
+                  {
+                    type: "input",
+                    block_id: "task_time_required_block",
+                    element: {
+                      type: "static_select",
+                      action_id: "task_time_required_select",
+                      initial_option: {
+                        text: {
+                          type: "plain_text",
+                          text: "1 hour"
+                        },
+                        value: "1:00"
+                      },
+                      options: [
+                        {
+                          text: {
+                            type: "plain_text",
+                            text: "15 minutes"
+                          },
+                          value: "0:15"
+                        },
+                        {
+                          text: {
+                            type: "plain_text",
+                            text: "30 minutes"
+                          },
+                          value: "0:30"
+                        },
+                        {
+                          text: {
+                            type: "plain_text",
+                            text: "45 minutes"
+                          },
+                          value: "0:45"
+                        },
+                        {
+                          text: {
+                            type: "plain_text",
+                            text: "1 hour"
+                          },
+                          value: "1:00"
+                        },
+                        {
+                          text: {
+                            type: "plain_text",
+                            text: "1.5 hours"
+                          },
+                          value: "1:30"
+                        },
+                        {
+                          text: {
+                            type: "plain_text",
+                            text: "2 hours"
+                          },
+                          value: "2:00"
+                        },
+                        {
+                          text: {
+                            type: "plain_text",
+                            text: "3 hours"
+                          },
+                          value: "3:00"
+                        },
+                        {
+                          text: {
+                            type: "plain_text",
+                            text: "4 hours"
+                          },
+                          value: "4:00"
+                        },
+                        {
+                          text: {
+                            type: "plain_text",
+                            text: "8 hours (Full day)"
+                          },
+                          value: "8:00"
+                        }
+                      ]
+                    },
+                    label: {
+                      type: "plain_text",
+                      text: "Time Required"
+                    }
+                  },
+                  {
+                    type: "input",
+                    block_id: "task_recurring_block",
+                    optional: true,
+                    element: {
+                      type: "static_select",
+                      action_id: "task_recurring_select",
+                      initial_option: {
+                        text: {
+                          type: "plain_text",
+                          text: "No repetition"
+                        },
+                        value: "none"
+                      },
+                      options: [
+                        {
+                          text: {
+                            type: "plain_text",
+                            text: "No repetition"
+                          },
+                          value: "none"
+                        },
+                        {
+                          text: {
+                            type: "plain_text",
+                            text: "Daily"
+                          },
+                          value: "daily"
+                        },
+                        {
+                          text: {
+                            type: "plain_text",
+                            text: "Weekly"
+                          },
+                          value: "weekly"
+                        },
+                        {
+                          text: {
+                            type: "plain_text",
+                            text: "Biweekly"
+                          },
+                          value: "biweekly"
+                        },
+                        {
+                          text: {
+                            type: "plain_text",
+                            text: "Monthly"
+                          },
+                          value: "monthly"
+                        }
+                      ]
+                    },
+                    label: {
+                      type: "plain_text",
+                      text: "Recurring Pattern"
+                    }
+                  }
+                ]
+              }
+            });
+            
+            // Update the original message to indicate that customization is in progress
+            if (response_url) {
+              await axios.post(response_url, {
+                replace_original: true,
+                text: "Customizing task details...",
+                blocks: [
+                  {
+                    type: "section",
+                    text: {
+                      type: "mrkdwn",
+                      text: ":pencil: *Customizing task details*\n\nPlease complete the form that appeared to customize your task."
+                    }
+                  }
+                ]
+              });
+            }
+          } catch (error) {
+            console.error('Error retrieving message details or opening modal:', error);
+            await sendMessage(user.id, 'Error: Failed to open the task details form. Please try again.');
+            return;
+          }
+        } catch (error) {
+          console.error('Error handling customize_task action:', error);
+          try {
+            await sendMessage(user.id, 'Error: Failed to open task customization form. Please try again or contact support.');
+          } catch (msgError) {
+            console.error('Failed to send error message to user:', msgError);
+          }
+        }
+      } else if (action.action_id === 'ignore_task') {
+        // User clicked "Ignore" button to dismiss the task suggestion
+        try {
+          console.log('Ignore task action received');
+          
+          // Parse the task data from the button value
+          const taskData = JSON.parse(action.value);
+          
+          if (!taskData.action || taskData.action !== 'ignore_task' || !taskData.messageTs || !taskData.channel) {
+            console.error('Invalid task data from button click:', taskData);
+            await sendMessage(user.id, 'Error: Could not ignore task due to missing data.');
+            return;
+          }
+          
+          console.log(`Ignoring task suggestion for message ${taskData.messageTs} in channel ${taskData.channel}`);
+          
+          // Update the original message to indicate that the task was ignored
+          if (response_url) {
+            await axios.post(response_url, {
+              replace_original: true,
+              text: "Task ignored",
+              blocks: [
+                {
+                  type: "section",
+                  text: {
+                    type: "mrkdwn",
+                    text: "✓ *Task ignored.* I won't remind you about this message again."
+                  }
+                }
+              ]
+            });
+          } else {
+            // If response_url isn't available, send a new message
+            await sendMessage(user.id, "Task ignored. I won't remind you about this message again.");
+          }
+        } catch (error) {
+          console.error('Error handling ignore_task action:', error);
+          try {
+            await sendMessage(user.id, 'Error: Failed to ignore task. Please try again or contact support.');
+          } catch (msgError) {
+            console.error('Failed to send error message to user:', msgError);
+          }
+        }
+      } else if (action.action_id === 'create_task_detailed') {
         // User clicked "Create & Schedule Task" button from the detailed form
         try {
           console.log('Create detailed task action received');
