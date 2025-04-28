@@ -284,15 +284,29 @@ async function processMessageEvent(message: any, teamId: string): Promise<{
         ts: message.ts,
         channelId: message.channel,
         channelName: `channel-${message.channel}`, // Simple fallback name
-        title: analysis.task_title || "Task from Slack",
-        deadline: analysis.deadline,
-        priority,
-        timeRequired,
-        timezone
-      });
+        customTitle: analysis.task_title || "Task from Slack",
+        customDueDate: analysis.deadline,
+        customPriority: priority as 'high' | 'medium' | 'low',
+        customTimeRequired: timeRequired,
+        customUrgency: analysis.urgency || 3,
+        customImportance: analysis.importance || 3
+      }, slackUser.id);
       
-      // Send confirmation message to user
-      await sendTaskConfirmation(slackUser, message, analysis);
+      // Get the created task to send a confirmation
+      try {
+        const createdTask = await storage.getTasksBySlackMessageId(message.ts);
+        if (createdTask && slackUser.slackUserId) {
+          // Send confirmation message to user's DM
+          await sendTaskConfirmation(createdTask, slackUser.slackUserId, true);
+          console.log(`Task confirmation sent to user ${slackUser.slackUserId}`);
+        } else {
+          console.log(`Could not find created task for message ${message.ts} or slackUserId is null`);
+        }
+      } catch (confirmError) {
+        console.error("Error sending task confirmation:", confirmError);
+        // Continue even if confirmation fails
+      }
+      
       webhookMetrics.taskProcessing.tasksCreated++;
       
       return {
