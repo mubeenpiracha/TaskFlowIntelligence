@@ -15,7 +15,7 @@ import { toast } from '@/hooks/use-toast';
  * @returns Promise resolving to the fetched data
  * @throws Error with standardized message if fetch fails
  */
-export async function fetchApi<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
+export async function fetchApi<T>(endpoint: string, options: RequestInit = {}, suppressUnauthorized = false): Promise<T> {
   try {
     const response = await apiRequest(
       options.method || 'GET',
@@ -24,13 +24,26 @@ export async function fetchApi<T>(endpoint: string, options: RequestInit = {}): 
     );
     
     if (!response.ok) {
+      // For 401 unauthorized errors when suppressUnauthorized is true, return null
+      if (response.status === 401 && suppressUnauthorized) {
+        return null as unknown as T;
+      }
+      
       // Parse the error response
-      const errorData: ApiErrorResponse = await response.json();
+      let errorData: ApiErrorResponse;
+      try {
+        errorData = await response.json();
+      } catch (e) {
+        // If we can't parse the JSON, create a generic error
+        errorData = { 
+          message: 'An unexpected error occurred', 
+          code: response.status === 401 ? ErrorCode.UNAUTHORIZED : ErrorCode.UNKNOWN 
+        };
+      }
       
       // Handle specific error types
       if (errorData.code === ErrorCode.UNAUTHORIZED) {
-        // Redirect to login if unauthorized
-        window.location.href = '/login';
+        // Don't redirect automatically, let the auth system handle it
         throw new Error('Session expired. Please log in again.');
       }
       
@@ -46,7 +59,7 @@ export async function fetchApi<T>(endpoint: string, options: RequestInit = {}): 
     // Log the error for debugging
     console.error(`API Error (${endpoint}):`, error);
     
-    // For non-redirecting errors, show a toast notification
+    // Show toast for non-auth errors
     if (!(error instanceof Error && error.message.includes('Please log in again'))) {
       toast({
         title: "Request Failed",
@@ -55,6 +68,7 @@ export async function fetchApi<T>(endpoint: string, options: RequestInit = {}): 
       });
     }
     
+    // Rethrow the error so calling code can handle it
     throw error;
   }
 }
@@ -495,12 +509,20 @@ export async function updateWorkingHours(workingHours: {
 // User-related functions
 
 /**
- * Get the currently authenticated user's information
+ * Get the currently logged in user's information
  * 
- * @returns User information
+ * @returns User information or null if not logged in
  */
 export async function getMe() {
-  return fetchApi('/api/auth/me');
+  try {
+    return await fetchApi('/api/auth/me', {}, true);
+  } catch (error) {
+    // If unauthorized, return null instead of throwing
+    if (error instanceof Error && error.message.includes('Unauthorized')) {
+      return null;
+    }
+    throw error;
+  }
 }
 
 /**

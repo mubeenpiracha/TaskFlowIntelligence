@@ -19,7 +19,8 @@ export enum ErrorCode {
   // General Errors
   NOT_FOUND = 'NOT_FOUND',
   VALIDATION_ERROR = 'VALIDATION_ERROR',
-  SERVER_ERROR = 'SERVER_ERROR'
+  SERVER_ERROR = 'SERVER_ERROR',
+  UNKNOWN = 'UNKNOWN'
 }
 
 /**

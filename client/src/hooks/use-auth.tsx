@@ -52,11 +52,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     queryKey: ['/api/auth/me'],
     queryFn: async () => {
       try {
+        // Use getMe which now handles auth errors properly
         return await getMe();
       } catch (error) {
         console.error('Error fetching user data:', error);
         return null;
       }
+    },
+    // Don't retry 401 errors since they are expected when not logged in
+    retry: (failureCount, error) => {
+      if (error instanceof Error && error.message.includes('Unauthorized')) {
+        return false;
+      }
+      return failureCount < 3;
     },
   });
 
