@@ -1,38 +1,11 @@
 import { WebClient } from "@slack/web-api";
-import { detectTasks, sendTaskDetectionDM, testDirectMessage } from "./slack";
 import { storage } from "../storage";
 import { getChannelPreferences } from "./channelPreferences";
 import { User } from "@shared/schema";
-import fs from "fs";
-import path from "path";
-import { fileURLToPath } from "url";
 import { getWebhookHealthStatus } from "./slackEvents";
-
-// Get the directory name for ES modules compatibility
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// Interval between monitoring cycles (in milliseconds)
-// Set to 1 minute for better responsiveness while still respecting rate limits
-const MONITORING_INTERVAL = 60000; // 1 minute
-
-// Map to track the last checked timestamp for each channel
-const lastCheckedTimestamps: Map<string, string> = new Map();
-
-// Set to keep track of messages we've already processed
-// This is needed because the database check alone might not be enough
-// if the user doesn't accept the task
-const processedMessages: Set<string> = new Set();
 
 // Flag to track if monitoring is active
 let isMonitoringActive = false;
-let monitoringInterval: NodeJS.Timeout | null = null;
-
-// File path for persisting processed message IDs
-const PROCESSED_MESSAGES_FILE = path.join(
-  __dirname,
-  "../../processed_messages.json",
-);
 
 /**
  * Loads processed message IDs from file if it exists
