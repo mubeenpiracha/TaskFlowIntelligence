@@ -327,6 +327,12 @@ export async function createTaskFromSlackMessage(
     }
     console.log('=================== END TASK ANALYSIS ===================');
     
+    // Get recurring pattern if provided
+    const recurringPattern = message.customRecurringPattern || null;
+    if (recurringPattern) {
+      console.log(`TASK_ANALYSIS: Using recurring pattern: ${recurringPattern}`);
+    }
+    
     // Create task object
     const taskData: InsertTask = {
       userId,
@@ -343,7 +349,8 @@ export async function createTaskFromSlackMessage(
       urgency: message.customUrgency || null,
       importance: message.customImportance || null,
       scheduledStart: message.scheduledStart || null,
-      scheduledEnd: message.scheduledEnd || null
+      scheduledEnd: message.scheduledEnd || null,
+      recurringPattern: recurringPattern
     };
     
     // Create the task in storage
@@ -457,6 +464,24 @@ export async function sendTaskConfirmation(
           }
         ]
       },
+      // Add recurring pattern if set
+      ...(task.recurringPattern ? [
+        {
+          type: "section",
+          fields: [
+            {
+              type: "mrkdwn",
+              text: `*Recurring*\n${
+                task.recurringPattern === 'daily' ? '🔄 Daily' :
+                task.recurringPattern === 'weekly' ? '🔄 Weekly' :
+                task.recurringPattern === 'biweekly' ? '🔄 Every 2 weeks' :
+                task.recurringPattern === 'monthly' ? '🔄 Monthly' :
+                task.recurringPattern
+              }`
+            }
+          ]
+        }
+      ] : []),
       {
         type: "context",
         elements: [

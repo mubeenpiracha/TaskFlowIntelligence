@@ -1222,21 +1222,46 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 const userTimeZone = user.timezone || 'UTC';
                 console.log(`Using user's stored timezone for calendar event: ${userTimeZone}`);
                 
+                // Check if this is a recurring task
+                const recurringPattern = message.customRecurringPattern || null;
+                
+                // Prepare event data
+                const eventData: any = {
+                  summary: `Task: ${title}`,
+                  description: `${task.description || taskData.text}\n\nScheduled by TaskFlow\nUrgency: ${urgency}/5\nImportance: ${importance}/5`,
+                  start: {
+                    dateTime: scheduledStart.toISOString().replace('Z', ''),
+                    timeZone: userTimeZone
+                  },
+                  end: {
+                    dateTime: scheduledEnd.toISOString().replace('Z', ''),
+                    timeZone: userTimeZone
+                  },
+                  colorId: priority === 'high' ? '4' : priority === 'medium' ? '5' : '6', // Red, Yellow, Green
+                };
+                
+                // Add recurrence rule if this is a recurring task
+                if (recurringPattern) {
+                  console.log(`Creating recurring event with pattern: ${recurringPattern}`);
+                  
+                  // Map our simplified patterns to RRULE format
+                  // https://tools.ietf.org/html/rfc5545#section-3.8.5
+                  if (recurringPattern === 'daily') {
+                    eventData.recurrence = ['RRULE:FREQ=DAILY'];
+                  } else if (recurringPattern === 'weekly') {
+                    eventData.recurrence = ['RRULE:FREQ=WEEKLY'];
+                  } else if (recurringPattern === 'biweekly') {
+                    eventData.recurrence = ['RRULE:FREQ=WEEKLY;INTERVAL=2'];
+                  } else if (recurringPattern === 'monthly') {
+                    eventData.recurrence = ['RRULE:FREQ=MONTHLY'];
+                  } else {
+                    console.log(`Unknown recurring pattern: ${recurringPattern}, treating as non-recurring`);
+                  }
+                }
+                
                 const event = await createCalendarEvent(
                   user.googleRefreshToken,
-                  {
-                    summary: `Task: ${title}`,
-                    description: `${task.description || taskData.text}\n\nScheduled by TaskFlow\nUrgency: ${urgency}/5\nImportance: ${importance}/5`,
-                    start: {
-                      dateTime: scheduledStart.toISOString().replace('Z', ''),
-                      timeZone: userTimeZone
-                    },
-                    end: {
-                      dateTime: scheduledEnd.toISOString().replace('Z', ''),
-                      timeZone: userTimeZone
-                    },
-                    colorId: priority === 'high' ? '4' : priority === 'medium' ? '5' : '6', // Red, Yellow, Green
-                  }
+                  eventData
                 );
                 
                 // Update task with Google Calendar event ID
@@ -1265,21 +1290,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
                 const userTimeZone = user.timezone || 'UTC';
                 console.log(`Using user's stored timezone for calendar event: ${userTimeZone}`);
                 
+                // Check if this is a recurring task
+                const recurringPattern = message.customRecurringPattern || null;
+                
+                // Prepare event data for deadline-based scheduling
+                const eventData: any = {
+                  summary: `DEADLINE: ${title}`,
+                  description: `${task.description || taskData.text}\n\nAuto-scheduled by TaskFlow (no suitable slots found)\nUrgency: ${urgency}/5\nImportance: ${importance}/5`,
+                  start: {
+                    dateTime: deadlineStart.toISOString().replace('Z', ''),
+                    timeZone: userTimeZone
+                  },
+                  end: {
+                    dateTime: dueDateTime.toISOString().replace('Z', ''),
+                    timeZone: userTimeZone
+                  },
+                  colorId: '11', // Red for deadline-based scheduling
+                };
+                
+                // Add recurrence rule if this is a recurring task
+                if (recurringPattern) {
+                  console.log(`Creating recurring deadline event with pattern: ${recurringPattern}`);
+                  
+                  // Map our simplified patterns to RRULE format
+                  if (recurringPattern === 'daily') {
+                    eventData.recurrence = ['RRULE:FREQ=DAILY'];
+                  } else if (recurringPattern === 'weekly') {
+                    eventData.recurrence = ['RRULE:FREQ=WEEKLY'];
+                  } else if (recurringPattern === 'biweekly') {
+                    eventData.recurrence = ['RRULE:FREQ=WEEKLY;INTERVAL=2'];
+                  } else if (recurringPattern === 'monthly') {
+                    eventData.recurrence = ['RRULE:FREQ=MONTHLY'];
+                  }
+                }
+                
                 const event = await createCalendarEvent(
                   user.googleRefreshToken,
-                  {
-                    summary: `DEADLINE: ${title}`,
-                    description: `${task.description || taskData.text}\n\nAuto-scheduled by TaskFlow (no suitable slots found)\nUrgency: ${urgency}/5\nImportance: ${importance}/5`,
-                    start: {
-                      dateTime: deadlineStart.toISOString().replace('Z', ''),
-                      timeZone: userTimeZone
-                    },
-                    end: {
-                      dateTime: dueDateTime.toISOString().replace('Z', ''),
-                      timeZone: userTimeZone
-                    },
-                    colorId: '11', // Red for deadline-based scheduling
-                  }
+                  eventData
                 );
                 
                 // Update task with Google Calendar event ID
