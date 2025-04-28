@@ -836,6 +836,7 @@ export async function testDirectMessage(slackUserId: string): Promise<boolean> {
  * Sends an interactive message to a user with task details and action buttons
  * @param slackUserId - Slack user ID to send the DM to
  * @param message - The detected Slack message that contains a potential task
+ * @param userToken - Optional user's Slack access token for better permissions
  * @returns Promise resolving to the message timestamp
  */
 export async function sendTaskDetectionDM(
@@ -1297,10 +1298,11 @@ export async function sendTaskDetectionDM(
     // Add a simple sleep function for rate limiting
     const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
     
-    // Send the DM using the bot token
-    // For task notifications, we always use the bot token
-    // This keeps a consistent identity for task-related communications
-    const client = slack; // Use the global slack client with bot token
+    // Decide which token to use for sending the DM
+    // If user token is provided, use it for better access permissions
+    // Otherwise fall back to bot token
+    const client = userToken ? createUserClient(userToken) : slack;
+    console.log(`TASK DM: Using ${userToken ? 'user token' : 'bot token'} for sending DM`);
     
     // Maximum retry attempts
     const MAX_RETRIES = 3;
