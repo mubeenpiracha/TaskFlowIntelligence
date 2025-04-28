@@ -1013,54 +1013,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
           
           console.log(`Creating task with default values for message ${taskData.messageTs} in channel ${taskData.channel}`);
           
-          // Get the original message from Slack to ensure we have the latest data
+          // Use the data from the button payload instead of querying Slack
           try {
-            // Only use user's personal token to access message history
-            // This prevents the bot from joining channels and maintains privacy
-            let messageResult;
+            console.log('Using payload data to create task');
             
-            if (dbUserQuery.slackAccessToken) {
-              console.log(`Using user token to access channel ${taskData.channel}`);
-              const userClient = new WebClient(dbUserQuery.slackAccessToken);
-              messageResult = await userClient.conversations.history({
-                channel: taskData.channel,
-                latest: taskData.messageTs,
-                limit: 1,
-                inclusive: true
-              });
-            } else {
-              // Fallback to bot token if no user token available (less likely to work for private channels)
-              messageResult = await slack.conversations.history({
-                channel: taskData.channel,
-                latest: taskData.messageTs,
-                limit: 1,
-                inclusive: true
-              });
-            }
-            
-            const message = messageResult.messages?.[0];
-            
-            if (!message) {
-              console.error(`Could not find original message ${taskData.messageTs} in channel ${taskData.channel}`);
-              await sendMessage(user.id, 'Error: Could not find the original message. The task cannot be created.');
-              return;
-            }
-            
-            // Create a SlackMessage object with the original message data
+            // Create a SlackMessage object with the data from the button payload
             const slackMessage = {
               ts: taskData.messageTs,
-              text: message.text || "",
-              user: message.user || user.id,
+              text: taskData.messageText || "",
+              user: user.id, // Use the user who clicked the button
               channelId: taskData.channel,
-              channelName: await getChannelName(taskData.channel) || "a channel",
+              channelName: taskData.channelName || "a channel",
               // Use title from the button data or default to "Task from Slack"
               customTitle: taskData.title || "Task from Slack",
-              // Set default priority to medium
-              customPriority: 'medium' as 'low' | 'medium' | 'high',
-              // Set default time required to 1 hour
-              customTimeRequired: "1:00",
-              // Set default due date to tomorrow
-              customDueDate: formatDateForSlack(new Date(Date.now() + 86400000)), // Tomorrow
+              // Set default priority to medium or use payload value if available
+              customPriority: (taskData.priority || 'medium') as 'low' | 'medium' | 'high',
+              // Set default time required to 1 hour or use payload value if available
+              customTimeRequired: taskData.timeRequired || "1:00",
+              // Set default due date to tomorrow or use payload value if available
+              customDueDate: taskData.dueDate || formatDateForSlack(new Date(Date.now() + 86400000)), // Tomorrow
               // Set default due time to noon
               customDueTime: "12:00",
               // Set default urgency and importance to 3 (medium)
@@ -1137,41 +1108,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
           
           console.log(`Preparing customization form for message ${taskData.messageTs} in channel ${taskData.channel}`);
           
-          // Get the original message from Slack
+          // Use the data from the button payload instead of querying Slack
           try {
-            // Only use user's personal token to access message history
-            // This prevents the bot from joining channels and maintains privacy
-            let messageResult;
+            console.log('Using payload data to populate customize task modal');
             
-            if (dbUserQuery.slackAccessToken) {
-              console.log(`Using user token to access channel ${taskData.channel}`);
-              const userClient = new WebClient(dbUserQuery.slackAccessToken);
-              messageResult = await userClient.conversations.history({
-                channel: taskData.channel,
-                latest: taskData.messageTs,
-                limit: 1,
-                inclusive: true
-              });
-            } else {
-              // Fallback to bot token if no user token available (less likely to work for private channels)
-              messageResult = await slack.conversations.history({
-                channel: taskData.channel,
-                latest: taskData.messageTs,
-                limit: 1,
-                inclusive: true
-              });
-            }
+            // Use channel name from the payload
+            const channelName = taskData.channelName || "a channel";
             
-            const message = messageResult.messages?.[0];
-            
-            if (!message) {
-              console.error(`Could not find original message ${taskData.messageTs} in channel ${taskData.channel}`);
-              await sendMessage(user.id, 'Error: Could not find the original message. Cannot customize the task.');
-              return;
-            }
-            
-            // Get channel name for display
-            const channelName = await getChannelName(taskData.channel) || "a channel";
+            // Use the message text from the payload
+            const messageText = taskData.messageText || "";
             
             // Create modal with task details form
             const today = new Date();
@@ -1191,7 +1136,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                   messageTs: taskData.messageTs,
                   channel: taskData.channel,
                   channelName: channelName,
-                  text: message.text || ""
+                  text: messageText
                 }),
                 title: {
                   type: "plain_text",
@@ -1217,7 +1162,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                     type: "section",
                     text: {
                       type: "mrkdwn",
-                      text: `>${message.text?.substring(0, 100)}${message.text && message.text.length > 100 ? '...' : ''}`
+                      text: `>${messageText.substring(0, 100)}${messageText.length > 100 ? '...' : ''}`
                     }
                   },
                   {
@@ -1241,7 +1186,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
                       type: "plain_text_input",
                       action_id: "task_description_input",
                       multiline: true,
-                      initial_value: message.text || ""
+                      initial_value: messageText
                     },
                     label: {
                       type: "plain_text",
