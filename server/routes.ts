@@ -4,6 +4,37 @@ import session from "express-session";
 import { storage } from "./storage";
 import { z } from "zod";
 import { insertTaskSchema, insertUserSchema, insertWorkingHoursSchema } from "@shared/schema";
+import { randomBytes, pbkdf2, timingSafeEqual } from 'crypto';
+import { promisify } from 'util';
+
+// Password hashing utilities
+const pbkdf2Async = promisify(pbkdf2);
+const ITERATIONS = 10000;
+const KEYLEN = 64;
+const DIGEST = 'sha512';
+
+// Hash a password
+async function hashPassword(password: string): Promise<string> {
+  const salt = randomBytes(16).toString('hex');
+  const derivedKey = await pbkdf2Async(password, salt, ITERATIONS, KEYLEN, DIGEST);
+  return `${derivedKey.toString('hex')}.${salt}.${ITERATIONS}.${KEYLEN}.${DIGEST}`;
+}
+
+// Verify a password against a hash
+async function verifyPassword(password: string, hashedPassword: string): Promise<boolean> {
+  const [key, salt, iterations, keylen, digest] = hashedPassword.split('.');
+  
+  // If the hash doesn't have all 5 parts, it's an old plaintext password
+  if (!key || !salt || !iterations || !keylen || !digest) {
+    // Old plaintext password, just compare directly (only for backward compatibility)
+    return password === hashedPassword;
+  }
+  
+  const iterCount = parseInt(iterations, 10);
+  const keyLength = parseInt(keylen, 10);
+  const derivedKey = await pbkdf2Async(password, salt, iterCount, keyLength, digest);
+  return key === derivedKey.toString('hex');
+}
 import { detectTasks, sendMessage, listUserChannels, sendTaskDetectionDM, testDirectMessage, getUserTimezone, type SlackChannel, type SlackMessage } from "./services/slack";
 import { analyzeMessageForTask, type TaskAnalysisResponse } from "./services/openaiService";
 import { 
@@ -110,14 +141,22 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Auth routes
   app.post('/api/auth/register', async (req, res) => {
     try {
-      const userData = insertUserSchema.parse(req.body);
+      // Parse the user data
+      let userData = insertUserSchema.parse(req.body);
       const existingUser = await storage.getUserByUsername(userData.username);
       
       if (existingUser) {
         return res.status(400).json({ message: 'Username already exists' });
       }
       
-      const user = await storage.createUser(userData);
+      // Hash the password before storing
+      const hashedPassword = await hashPassword(userData.password);
+      
+      // Create user with hashed password
+      const user = await storage.createUser({
+        ...userData,
+        password: hashedPassword
+      });
       
       // Create default working hours for new user
       await storage.createWorkingHours({
@@ -159,7 +198,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       const user = await storage.getUserByUsername(username);
       
-      if (!user || user.password !== password) {
+      if (!user) {
+        return res.status(401).json({ message: 'Invalid credentials' });
+      }
+      
+      // Verify password with our secure verification function
+      const isPasswordValid = await verifyPassword(password, user.password);
+      
+      if (!isPasswordValid) {
         return res.status(401).json({ message: 'Invalid credentials' });
       }
       
@@ -326,11 +372,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (!user) {
           // Generate a random password - user won't need this since they'll log in with Google
           const randomPassword = Math.random().toString(36).slice(-8);
+          // Hash the random password for security
+          const hashedPassword = await hashPassword(randomPassword);
           
           user = await storage.createUser({
             username: email,
             email,
-            password: randomPassword,
+            password: hashedPassword,
             slackUserId: null,
             slackWorkspace: null,
             googleRefreshToken: tokens.refresh_token || undefined

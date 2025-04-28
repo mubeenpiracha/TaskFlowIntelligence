@@ -19,10 +19,23 @@ interface User {
   slackChannelPreferences: string | null;
 }
 
+type LoginCredentials = {
+  username: string;
+  password: string;
+};
+
+type RegisterCredentials = {
+  username: string;
+  password: string;
+  email: string;
+};
+
 type AuthContextType = {
   user: User | null;
   isLoading: boolean;
   error: Error | null;
+  loginMutation: UseMutationResult<User, Error, LoginCredentials>;
+  registerMutation: UseMutationResult<User, Error, RegisterCredentials>;
   logoutMutation: UseMutationResult<void, Error, void>;
 };
 
@@ -44,6 +57,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         console.error('Error fetching user data:', error);
         return null;
       }
+    },
+  });
+
+  const loginMutation = useMutation({
+    mutationFn: async (credentials: LoginCredentials) => {
+      return await login(credentials.username, credentials.password);
+    },
+    onSuccess: (user) => {
+      queryClient.setQueryData(['/api/auth/me'], user);
+      toast({
+        title: "Login successful",
+        description: "You have been logged in successfully",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Login failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const registerMutation = useMutation({
+    mutationFn: async (credentials: RegisterCredentials) => {
+      return await register(credentials.username, credentials.password, credentials.email);
+    },
+    onSuccess: (user) => {
+      queryClient.setQueryData(['/api/auth/me'], user);
+      toast({
+        title: "Registration successful",
+        description: "Your account has been created and you are now logged in",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Registration failed",
+        description: error.message,
+        variant: "destructive",
+      });
     },
   });
 
@@ -73,6 +126,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         user: user ?? null,
         isLoading,
         error,
+        loginMutation,
+        registerMutation,
         logoutMutation,
       }}
     >
