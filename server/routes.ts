@@ -142,7 +142,8 @@ import {
   startSlackMonitoring, 
   resetMonitoring,
   checkForNewTasksManually,
-  getMonitoringStatus
+  getMonitoringStatus,
+  clearProcessedMessages
 } from './services/slackMonitor';
 
 // Create a store for sessions
@@ -2997,11 +2998,21 @@ app.post('/api/system/slack/clear-cache', requireAuth, async (req, res) => {
       const { keepCount } = req.body;
       const keepCountValue = keepCount ? parseInt(keepCount, 10) : 0;
       
-      const clearedCount = clearProcessedMessages(keepCountValue);
+      // Clear processed messages
+      const clearedMessagesCount = clearProcessedMessages(keepCountValue);
+      
+      // Clear processed task IDs as well
+      const originalTaskCount = processedTaskIds.size;
+      if (keepCountValue === 0) {
+        clearProcessedTaskIds();
+      }
+      
       res.json({
         success: true,
-        message: `Successfully cleared ${clearedCount} processed message(s) from cache`,
-        clearedCount,
+        message: `Successfully cleared ${clearedMessagesCount} processed message(s) and ${keepCountValue === 0 ? originalTaskCount : 0} task ID(s)`,
+        clearedMessages: clearedMessagesCount,
+        clearedTasks: keepCountValue === 0 ? originalTaskCount : 0,
+        remainingTasks: processedTaskIds.size,
         keepCount: keepCountValue
       });
     } catch (error) {
