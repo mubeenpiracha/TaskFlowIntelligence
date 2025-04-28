@@ -298,12 +298,21 @@ export interface WebhookTaskResponse {
  * 
  * @param channelId Optional channel ID to limit detection to
  * @param sendDMs Whether to send DMs for detected tasks
+ * @param isInitialLoad Whether this is the initial page load (shows all pending tasks)
+ * @param isManualRefresh Whether this is a manual refresh request (shows all pending tasks)
  * @returns Detected tasks
  */
-export async function detectSlackTasks(channelId?: string, sendDMs: boolean = false): Promise<WebhookTaskResponse | SlackMessage[]> {
+export async function detectSlackTasks(
+  channelId?: string, 
+  sendDMs: boolean = false,
+  isInitialLoad: boolean = false,
+  isManualRefresh: boolean = false
+): Promise<WebhookTaskResponse | SlackMessage[]> {
   const params = new URLSearchParams();
   if (channelId) params.append('channelId', channelId);
   if (sendDMs) params.append('sendDMs', 'true');
+  if (isInitialLoad) params.append('initialLoad', 'true');
+  if (isManualRefresh) params.append('refresh', 'true');
   
   const endpoint = `/api/slack/detect-tasks${params.toString() ? `?${params.toString()}` : ''}`;
   return fetchApi(endpoint);

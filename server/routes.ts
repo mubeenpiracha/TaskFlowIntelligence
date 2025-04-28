@@ -756,11 +756,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const webhookStatus = getWebhookHealthStatus();
       console.log("Webhook status:", webhookStatus);
       
+      // Track processed task IDs in memory to prevent showing the same tasks repeatedly
+      // This is our temporary fix to ensure we're only showing new tasks
+      const processedTaskIds = new Set<number>();
+      
+      // Check if this is the initial page load or a user-initiated refresh
+      const isInitialLoad = req.query.initialLoad === 'true';
+      const isManualRefresh = req.query.refresh === 'true';
+      
       // Get pending tasks from the database
       const pendingTasks = await storage.getTasksByStatus(req.session.userId!, 'pending');
       
+      // For regular polling, only return tasks that haven't been processed before
+      // For manual refresh or initial load, return all tasks
+      const filteredTasks = isManualRefresh || isInitialLoad 
+        ? pendingTasks 
+        : pendingTasks.filter(task => !processedTaskIds.has(task.id));
+      
+      // Add these tasks to our processed set
+      filteredTasks.forEach(task => processedTaskIds.add(task.id));
+      
+      console.log(`Returning ${filteredTasks.length} of ${pendingTasks.length} pending tasks (${isManualRefresh ? 'manual refresh' : isInitialLoad ? 'initial load' : 'regular polling'})`);
+      
       // Format tasks to match the expected SlackMessage format from the frontend
-      const formattedTasks = pendingTasks.map(task => ({
+      const formattedTasks = filteredTasks.map(task => ({
         user: user.slackUserId,
         text: task.title,
         ts: task.slackMessageId || String(task.id),
