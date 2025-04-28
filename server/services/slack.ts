@@ -1613,7 +1613,13 @@ export async function sendTaskSuggestion(userId: string, taskSuggestion: {
               action: "create_task",
               messageTs: taskSuggestion.ts,
               channel: taskSuggestion.channel,
+              messageText: taskSuggestion.text,
+              channelName: taskSuggestion.channelName,
               title: taskSuggestion.title,
+              description: taskSuggestion.description,
+              priority: taskSuggestion.priority,
+              timeRequired: taskSuggestion.timeRequired,
+              dueDate: taskSuggestion.dueDate,
               useDefaults: true
             }),
             action_id: "create_task_default"
@@ -1628,7 +1634,16 @@ export async function sendTaskSuggestion(userId: string, taskSuggestion: {
             value: JSON.stringify({
               action: "customize_task",
               messageTs: taskSuggestion.ts,
-              channel: taskSuggestion.channel
+              channel: taskSuggestion.channel,
+              messageText: taskSuggestion.text,
+              channelName: taskSuggestion.channelName,
+              title: taskSuggestion.title,
+              description: taskSuggestion.description,
+              dueDate: taskSuggestion.dueDate,
+              priority: taskSuggestion.priority,
+              timeRequired: taskSuggestion.timeRequired,
+              urgency: taskSuggestion.urgency || 3,
+              importance: taskSuggestion.importance || 3
             }),
             action_id: "customize_task"
           },
@@ -1643,7 +1658,8 @@ export async function sendTaskSuggestion(userId: string, taskSuggestion: {
             value: JSON.stringify({
               action: "ignore_task",
               messageTs: taskSuggestion.ts,
-              channel: taskSuggestion.channel
+              channel: taskSuggestion.channel,
+              channelName: taskSuggestion.channelName
             }),
             action_id: "ignore_task"
           }
