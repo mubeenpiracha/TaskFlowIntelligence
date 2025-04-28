@@ -58,8 +58,10 @@ export default function Dashboard() {
     queryKey: ['/api/slack/detect-tasks'],
     queryFn: async () => {
       try {
-        // Pass forceScan=true to get webhook status info too
-        const data = await detectSlackTasks(undefined, true);
+        // Pass:
+        // - forceScan=true to get webhook status info too
+        // - initialLoad=true to get ALL pending tasks on initial page load
+        const data = await detectSlackTasks(undefined, true, true, false);
         console.log("Slack tasks response:", data);
         
         // If we got the webhook response format, extract the tasks
@@ -91,8 +93,10 @@ export default function Dashboard() {
   // Mutation for manually triggering task detection through UI
   const detectTasksMutation = useMutation({
     mutationFn: async () => {
-      // Add sendDMs=true parameter to send notifications for detected tasks
-      const data = await detectSlackTasks(undefined, true);
+      // Add parameters:
+      // - sendDMs=true to send notifications for detected tasks
+      // - isManualRefresh=true to show ALL pending tasks again
+      const data = await detectSlackTasks(undefined, true, false, true);
       return data;
     },
     onSuccess: (data) => {

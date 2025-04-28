@@ -7,6 +7,52 @@ import { insertTaskSchema, insertUserSchema, insertWorkingHoursSchema } from "@s
 import { randomBytes, pbkdf2, timingSafeEqual } from 'crypto';
 import { promisify } from 'util';
 
+import fs from 'fs';
+import path from 'path';
+
+// Global set to track processed task IDs and prevent duplicate notifications
+// This persists across requests and is shared by all users
+const processedTaskIds = new Set<number>();
+
+// File path for persistence
+const PROCESSED_IDS_FILE = path.join(process.cwd(), 'processed_tasks.json');
+
+// Load processed IDs from file if it exists
+function loadProcessedTaskIds() {
+  try {
+    if (fs.existsSync(PROCESSED_IDS_FILE)) {
+      const data = fs.readFileSync(PROCESSED_IDS_FILE, 'utf8');
+      const parsedData = JSON.parse(data);
+      if (Array.isArray(parsedData)) {
+        parsedData.forEach(id => processedTaskIds.add(id));
+        console.log(`Loaded ${parsedData.length} processed task IDs for optimization`);
+      }
+    }
+  } catch (error) {
+    console.error('Error loading processed task IDs:', error);
+  }
+}
+
+// Save processed IDs to file
+function saveProcessedTaskIds() {
+  try {
+    const data = JSON.stringify(Array.from(processedTaskIds));
+    fs.writeFileSync(PROCESSED_IDS_FILE, data, 'utf8');
+  } catch (error) {
+    console.error('Error saving processed task IDs:', error);
+  }
+}
+
+// Clear the processed IDs (exposed for testing)
+function clearProcessedTaskIds() {
+  processedTaskIds.clear();
+  saveProcessedTaskIds();
+  console.log("Cleared processed task IDs");
+}
+
+// Load IDs on startup
+loadProcessedTaskIds();
+
 // Password hashing utilities
 const pbkdf2Async = promisify(pbkdf2);
 const ITERATIONS = 10000;
@@ -755,10 +801,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Get webhook health status to inform the client
       const webhookStatus = getWebhookHealthStatus();
       console.log("Webhook status:", webhookStatus);
-      
-      // Track processed task IDs in memory to prevent showing the same tasks repeatedly
-      // This is our temporary fix to ensure we're only showing new tasks
-      const processedTaskIds = new Set<number>();
       
       // Check if this is the initial page load or a user-initiated refresh
       const isInitialLoad = req.query.initialLoad === 'true';
