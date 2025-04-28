@@ -7,8 +7,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery } from "@tanstack/react-query";
-import { apiRequest } from "@/lib/queryClient";
-import { getGoogleLoginUrl } from "@/lib/api";
+import { login, register, getGoogleLoginUrl } from "@/lib/api";
 import { Separator } from "@/components/ui/separator";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { AlertCircle } from "lucide-react";
@@ -61,10 +60,7 @@ export default function Login() {
     setIsLoading(true);
 
     try {
-      await apiRequest('POST', '/api/auth/login', { 
-        username: loginUsername, 
-        password: loginPassword 
-      });
+      await login(loginUsername, loginPassword);
       
       setLocation('/');
       toast({
@@ -87,11 +83,7 @@ export default function Login() {
     setIsLoading(true);
 
     try {
-      await apiRequest('POST', '/api/auth/register', {
-        username: registerUsername,
-        password: registerPassword,
-        email: registerEmail
-      });
+      await register(registerUsername, registerPassword, registerEmail);
       
       setLocation('/');
       toast({

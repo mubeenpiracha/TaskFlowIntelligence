@@ -4,8 +4,9 @@ import {
   useMutation,
   UseMutationResult,
 } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "../lib/queryClient";
+import { queryClient } from "../lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
+import { getMe, login, logout, register } from "@/lib/api";
 
 interface User {
   id: number;
@@ -38,24 +39,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     queryKey: ['/api/auth/me'],
     queryFn: async () => {
       try {
-        const res = await apiRequest('GET', '/api/auth/me');
-        if (!res.ok) {
-          if (res.status === 401) {
-            return null;
-          }
-          throw new Error('Failed to fetch user data');
-        }
-        return await res.json();
+        return await getMe();
       } catch (error) {
         console.error('Error fetching user data:', error);
-        throw error;
+        return null;
       }
     },
   });
 
   const logoutMutation = useMutation({
     mutationFn: async () => {
-      await apiRequest('POST', '/api/auth/logout');
+      await logout();
     },
     onSuccess: () => {
       queryClient.setQueryData(['/api/auth/me'], null);

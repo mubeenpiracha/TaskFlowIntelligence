@@ -500,5 +500,37 @@ export async function updateWorkingHours(workingHours: {
  * @returns User information
  */
 export async function getMe() {
-  return fetchApi('/api/user');
+  return fetchApi('/api/auth/me');
+}
+
+/**
+ * Log in with username and password
+ * 
+ * @param username User's username
+ * @param password User's password
+ * @returns Logged in user without password
+ */
+export async function login(username: string, password: string) {
+  return submitApi('/api/auth/login', { username, password }, 'POST');
+}
+
+/**
+ * Register a new user
+ * 
+ * @param username User's username
+ * @param password User's password
+ * @param email User's email
+ * @returns Created user without password
+ */
+export async function register(username: string, password: string, email: string) {
+  return submitApi('/api/auth/register', { username, password, email }, 'POST');
+}
+
+/**
+ * Log out the current user
+ * 
+ * @returns Success message
+ */
+export async function logout() {
+  return submitApi('/api/auth/logout', {}, 'POST');
 }
