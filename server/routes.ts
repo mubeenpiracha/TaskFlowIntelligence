@@ -818,7 +818,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Add these tasks to our processed set
       filteredTasks.forEach(task => processedTaskIds.add(task.id));
       
+      // Save the updated set to persist between server restarts
+      saveProcessedTaskIds();
+      
       console.log(`Returning ${filteredTasks.length} of ${pendingTasks.length} pending tasks (${isManualRefresh ? 'manual refresh' : isInitialLoad ? 'initial load' : 'regular polling'})`);
+      console.log(`Tracking ${processedTaskIds.size} total processed task IDs`);
       
       // Format tasks to match the expected SlackMessage format from the frontend
       const formattedTasks = filteredTasks.map(task => ({
