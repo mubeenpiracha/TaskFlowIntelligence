@@ -15,6 +15,17 @@ if (!process.env.SLACK_BOT_TOKEN) {
 export const slack = new WebClient(process.env.SLACK_BOT_TOKEN || '');
 
 /**
+ * Get the Slack client instance with the bot token
+ * @returns Slack WebClient instance
+ */
+export function getSlackClientBot(): WebClient {
+  if (!process.env.SLACK_BOT_TOKEN) {
+    throw new Error('SLACK_BOT_TOKEN is not set in the environment');
+  }
+  return slack;
+}
+
+/**
  * Create a Slack client using a user's token
  * This allows access to private channels and DMs the bot might not have access to
  * @param userToken User's Slack access token (xoxp-)
@@ -341,6 +352,48 @@ const taskAnalysisCache = new Map<string, TaskAnalysisResponse>();
 
 // Set to track processed message IDs for optimization
 const processedMessageIds = new Set<string>();
+
+/**
+ * Helper function to format date for Slack datepicker
+ * @param date Date to format
+ * @returns Date string in YYYY-MM-DD format
+ */
+export function formatDateForSlack(date: Date): string {
+  return date.toISOString().split('T')[0];
+}
+
+/**
+ * Get a Slack client for the specified user
+ * @param user User object with slackAccessToken
+ * @returns WebClient instance
+ */
+export function getSlackClient(user: { slackAccessToken?: string | null }): WebClient {
+  if (user.slackAccessToken) {
+    return new WebClient(user.slackAccessToken);
+  }
+  return slack;
+}
+
+/**
+ * Get information about a Slack channel
+ * @param channelId Channel ID to get info for
+ * @returns Channel info
+ */
+export async function getChannelInfo(channelId: string): Promise<{ id: string; name: string } | null> {
+  try {
+    const result = await slack.conversations.info({ channel: channelId });
+    if (result.channel) {
+      return {
+        id: result.channel.id || channelId,
+        name: result.channel.name || `channel-${channelId}`
+      };
+    }
+    return null;
+  } catch (error) {
+    console.error(`Error getting channel info for ${channelId}:`, error);
+    return null;
+  }
+}
 
 /**
  * Add a message ID to the processed set for optimization
@@ -1458,5 +1511,139 @@ export async function sendTaskDetectionDM(
   } catch (error) {
     console.error('Error in sendTaskDetectionDM:', error);
     return undefined;
+  }
+}
+
+/**
+ * Send a task suggestion to a user instead of creating a task directly
+ * This allows the user to approve, modify, or reject the task
+ * 
+ * @param userId Slack user ID to send the message to
+ * @param taskSuggestion Task suggestion details
+ */
+export async function sendTaskSuggestion(userId: string, taskSuggestion: {
+  ts: string;
+  channel: string;
+  text: string;
+  user: string;
+  channelName: string;
+  title: string;
+  description: string;
+  dueDate?: string;
+  priority: string;
+  timeRequired: string;
+  urgency: number;
+  importance: number;
+  recurringPattern?: string;
+}) {
+  try {
+    console.log(`Sending task suggestion to user ${userId}`);
+    
+    // Format task information
+    const taskInfo = {
+      title: taskSuggestion.title,
+      priority: taskSuggestion.priority,
+      dueDate: taskSuggestion.dueDate || formatDateForSlack(new Date(Date.now() + 86400000)), // Default to tomorrow
+      timeRequired: taskSuggestion.timeRequired || "1h",
+      channelName: taskSuggestion.channelName || "a channel",
+      messageTs: taskSuggestion.ts,
+      channel: taskSuggestion.channel,
+      description: taskSuggestion.description || taskSuggestion.text
+    };
+    
+    // Create message blocks for the task suggestion
+    const blocks = [
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `:mag: *I detected a potential task for you*\n\nI found this message in #${taskInfo.channelName} that might be a task you need to handle.`
+        }
+      },
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `>${taskSuggestion.text.substring(0, 200)}${taskSuggestion.text.length > 200 ? '...' : ''}`
+        }
+      },
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: "*Would you like me to add this as a task to your schedule?*"
+        }
+      },
+      {
+        type: "actions",
+        block_id: "task_actions",
+        elements: [
+          {
+            type: "button",
+            text: {
+              type: "plain_text",
+              text: "Add to My Tasks",
+              emoji: true
+            },
+            style: "primary",
+            value: JSON.stringify({
+              action: "create_task",
+              messageTs: taskSuggestion.ts,
+              channel: taskSuggestion.channel,
+              title: taskSuggestion.title,
+              useDefaults: true
+            }),
+            action_id: "create_task_default"
+          },
+          {
+            type: "button",
+            text: {
+              type: "plain_text",
+              text: "Customize Details",
+              emoji: true
+            },
+            value: JSON.stringify({
+              action: "customize_task",
+              messageTs: taskSuggestion.ts,
+              channel: taskSuggestion.channel
+            }),
+            action_id: "customize_task"
+          },
+          {
+            type: "button",
+            text: {
+              type: "plain_text",
+              text: "Ignore",
+              emoji: true
+            },
+            style: "danger",
+            value: JSON.stringify({
+              action: "ignore_task",
+              messageTs: taskSuggestion.ts,
+              channel: taskSuggestion.channel
+            }),
+            action_id: "ignore_task"
+          }
+        ]
+      }
+    ];
+    
+    // Send the message using the bot token
+    try {
+      const response = await slack.chat.postMessage({
+        channel: userId,
+        text: `I detected a potential task: ${taskInfo.title}`,
+        blocks
+      });
+      
+      console.log(`Task suggestion sent successfully, timestamp: ${response.ts}`);
+      return response;
+    } catch (dmError) {
+      console.error(`Error sending task suggestion to ${userId}:`, dmError);
+      throw dmError;
+    }
+  } catch (error) {
+    console.error('Error in sendTaskSuggestion:', error);
+    throw error;
   }
 }

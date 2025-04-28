@@ -278,42 +278,50 @@ async function processMessageEvent(message: any, teamId: string): Promise<{
         }
       }
       
-      // Create a pending task
-      await createTaskFromSlackMessage({
-        user: message.user,
-        text: message.text,
-        ts: message.ts,
-        channelId: message.channel,
-        channelName: `channel-${message.channel}`, // Simple fallback name
-        customTitle: analysis.task_title || "Task from Slack",
-        customDueDate: analysis.deadline,
-        customPriority: priority as 'high' | 'medium' | 'low',
-        customTimeRequired: timeRequired,
-        customUrgency: analysis.urgency || 3,
-        customImportance: analysis.importance || 3
-      }, slackUser.id);
-      
-      // Wait a moment to make sure the task is saved in the database
-      setTimeout(async () => {
+      // Instead of creating a task immediately, send a suggestion to the user
+      if (slackUser.slackUserId) {
         try {
-          // Get the created task to send a confirmation
-          const createdTask = await storage.getTasksBySlackMessageId(message.ts);
-          if (createdTask && slackUser.slackUserId) {
-            // Make sure the createdTask object is valid before sending confirmation
-            console.log(`Found created task for message ${message.ts}:`, JSON.stringify(createdTask));
-            
-            // Send confirmation message directly to the user's DM 
-            const targetChannel = slackUser.slackUserId;
-            await sendTaskConfirmation(createdTask, targetChannel, true);
-            console.log(`Task confirmation sent to user ${slackUser.slackUserId}`);
-          } else {
-            console.log(`Could not find created task for message ${message.ts} or slackUserId is null`);
+          // Try to get a more accurate channel name
+          let channelName = `channel-${message.channel}`;
+          try {
+            const channelInfo = await getChannelInfo(message.channel);
+            if (channelInfo && channelInfo.name) {
+              channelName = channelInfo.name;
+            }
+          } catch (e) {
+            console.warn(`Couldn't get channel name for ${message.channel}, using fallback name`);
           }
-        } catch (confirmError) {
-          console.error("Error sending task confirmation:", confirmError);
-          // Continue even if confirmation fails
+          
+          console.log(`Sending task suggestion to user ${slackUser.slackUserId} for message ${message.ts}`);
+          
+          // Send a suggestion message instead of creating the task
+          await sendTaskSuggestion(slackUser.slackUserId, {
+            ts: message.ts,
+            channel: message.channel,
+            text: message.text,
+            user: message.user,
+            channelName: channelName,
+            title: analysis.task_title || "Task from Slack",
+            description: analysis.task_description || message.text,
+            dueDate: analysis.deadline || formatDateForSlack(new Date(Date.now() + 86400000)), // Tomorrow by default
+            priority: priority,
+            timeRequired: timeRequired,
+            urgency: analysis.urgency || 3,
+            importance: analysis.importance || 3,
+            recurringPattern: "none"
+          });
+          
+          console.log(`Task suggestion sent to user ${slackUser.slackUserId} for message ${message.ts}`);
+          
+          // Update interaction metrics
+          webhookMetrics.userInteractions.lastInteractionTime = Date.now();
+        } catch (error) {
+          console.error(`Error sending task suggestion: ${error}`);
+          throw error;
         }
-      }, 1000); // Wait 1 second before trying to fetch the task
+      } else {
+        console.error(`Cannot send task suggestion: No Slack user ID found for user ${slackUser.id}`);
+      }
       
       webhookMetrics.taskProcessing.tasksCreated++;
       
