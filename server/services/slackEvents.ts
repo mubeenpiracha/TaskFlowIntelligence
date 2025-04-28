@@ -47,8 +47,9 @@ let webhookMetrics = {
   }
 };
 
-// Initialize the Slack WebClient with the bot token
-const slack = new WebClient(process.env.SLACK_BOT_TOKEN || '');
+// We'll use the imported slack client from './slack.ts' which has the bot token
+// This is just a reference for compatibility with existing code
+import { slack, createUserClient } from './slack';
 
 /**
  * Verifies a Slack webhook request using the signing secret
@@ -291,14 +292,19 @@ export async function processMessageEvent(event: any): Promise<void> {
       if (aiAnalysis.is_task) {
         console.log(`[SLACK EVENT] Sending task detection DM to ${user.slackUserId}`);
         try {
-          // Add channel info to the message object
+          // Add channel info to the message object using user token for better access
           const enrichedMessage = {
             ...messageObj,
-            channelName: await getChannelName(channelId)
+            channelName: await getChannelName(channelId, user.slackAccessToken || undefined)
           };
           
           // Send an interactive DM to the user about the detected task
-          await sendTaskDetectionDM(user.slackUserId!, enrichedMessage);
+          // Pass the user token for better access if available
+          await sendTaskDetectionDM(
+            user.slackUserId!, 
+            enrichedMessage, 
+            user.slackAccessToken || undefined
+          );
           
           console.log(`[SLACK EVENT] Successfully sent task detection DM to ${user.slackUserId}`);
         } catch (error) {
@@ -325,20 +331,39 @@ export async function processMessageEvent(event: any): Promise<void> {
 /**
  * Gets the channel name from its ID
  * @param channelId - Slack channel ID
+ * @param userToken - Optional user token for better access to channels
  * @returns The channel name or a fallback
  */
-async function getChannelName(channelId: string): Promise<string> {
+async function getChannelName(channelId: string, userToken?: string): Promise<string> {
   try {
+    // Use user token if available for better access to private channels
+    const client = userToken ? createUserClient(userToken) : slack;
+    
     // Try to get the channel info
-    const response = await slack.conversations.info({ channel: channelId });
+    const response = await client.conversations.info({ channel: channelId });
     
     if (response.channel && response.channel.name) {
       return response.channel.name;
     }
     
+    // If using bot token failed, and we don't have a user token, try to 
+    // extract channel name from a more readable format
+    if (!userToken && channelId.startsWith('C')) {
+      return `channel-${channelId.substring(1, 5)}`;
+    }
+    
     return channelId; // Fallback to ID if name not available
   } catch (error) {
     console.error(`Error getting channel name for ${channelId}:`, error);
+    
+    // Log specific error for permissions issues
+    if (!userToken && error instanceof Error && 
+      (error.message.includes('not_in_channel') || 
+       error.message.includes('channel_not_found') || 
+       error.message.includes('missing_scope'))) {
+      console.warn(`Bot doesn't have access to channel ${channelId}. Will use user token if available.`);
+    }
+    
     return channelId; // Fallback to ID on error
   }
 }

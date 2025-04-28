@@ -14,6 +14,19 @@ if (!process.env.SLACK_BOT_TOKEN) {
 // This will be used as a fallback when user token is not available
 export const slack = new WebClient(process.env.SLACK_BOT_TOKEN || '');
 
+/**
+ * Create a Slack client using a user's token
+ * This allows access to private channels and DMs the bot might not have access to
+ * @param userToken User's Slack access token (xoxp-)
+ * @returns WebClient instance with user token
+ */
+export function createUserClient(userToken: string): WebClient {
+  if (!userToken) {
+    throw new Error('User token is required to create a user client');
+  }
+  return new WebClient(userToken);
+}
+
 export interface SlackChannel {
   id: string;
   name: string;
@@ -827,7 +840,8 @@ export async function testDirectMessage(slackUserId: string): Promise<boolean> {
  */
 export async function sendTaskDetectionDM(
   slackUserId: string,
-  message: SlackMessage
+  message: SlackMessage,
+  userToken?: string
 ): Promise<string | undefined> {
   try {
     console.log(`TASK DM: Starting to send task detection DM to user ${slackUserId}`);
