@@ -42,14 +42,15 @@ export default function Login() {
   }, [searchParams]);
 
   // Fetch Google login URL
-  const { data: googleLoginData } = useQuery({
+  const { data: googleLoginData, isError: isGoogleUrlError } = useQuery({
     queryKey: ['/api/auth/google/login/url'],
     queryFn: async () => {
       try {
-        return await getGoogleLoginUrl();
+        const url = await getGoogleLoginUrl();
+        return { url };
       } catch (error) {
         console.error("Error fetching Google login URL:", error);
-        return { url: "" };
+        throw error;
       }
     }
   });
@@ -84,7 +85,7 @@ export default function Login() {
   
   const handleGoogleLogin = () => {
     // Check if googleLoginData exists and has a url property
-    if (googleLoginData && typeof googleLoginData === 'object' && 'url' in googleLoginData) {
+    if (googleLoginData?.url) {
       setIsGoogleLoading(true);
       window.location.href = googleLoginData.url;
     } else {
@@ -217,7 +218,7 @@ export default function Login() {
                 variant="outline" 
                 className="w-full"
                 onClick={handleGoogleLogin}
-                disabled={isGoogleLoading || !(googleLoginData && typeof googleLoginData === 'object' && 'url' in googleLoginData)}
+                disabled={isGoogleLoading || !googleLoginData?.url}
               >
                 <svg className="mr-2 h-5 w-5" viewBox="0 0 24 24">
                   <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4" />
