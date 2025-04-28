@@ -789,8 +789,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
             // Send an interactive DM to the user about this detected task
             if (user.slackUserId) {
               console.log(`Sending task detection DM for task from message ${task.ts}`);
-              // Use bot token from environment variable instead of user token
-              await sendTaskDetectionDM(user.slackUserId, task);
+              // Use user token when available for better access to private channels/DMs
+              await sendTaskDetectionDM(user.slackUserId, task, user.slackAccessToken || undefined);
             }
           } catch (dmError) {
             console.error('Error sending task detection DM:', dmError);
@@ -2180,8 +2180,8 @@ app.post('/api/system/slack/clear-cache', requireAuth, async (req, res) => {
       if (aiAnalysis.is_task) {
         console.log(`TEST ENDPOINT: Analysis detected a task with confidence ${aiAnalysis.confidence}`);
         
-        // Send task detection DM
-        await sendTaskDetectionDM(user.slackUserId, testMessage);
+        // Send task detection DM with user token when available
+        await sendTaskDetectionDM(user.slackUserId, testMessage, user.slackAccessToken || undefined);
         
         return res.status(200).json({ 
           success: true, 
