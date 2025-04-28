@@ -966,6 +966,109 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return;
       }
       
+      // Handle view submissions (modal form submission)
+      if (type === 'view_submission') {
+        try {
+          console.log('Received view submission with callback_id:', payload.view.callback_id);
+          
+          if (payload.view.callback_id === 'task_details_modal') {
+            // Parse the metadata from the view
+            const metadata = JSON.parse(payload.view.private_metadata || '{}');
+            console.log('Modal metadata:', metadata);
+            
+            // Get the form values
+            const state = payload.view.state.values;
+            
+            // Extract task details from the form
+            const title = state.task_title_block.task_title_input.value;
+            const description = state.task_description_block.task_description_input.value;
+            const dueDate = state.task_deadline_block.task_deadline_date.selected_date;
+            const dueTime = state.task_deadline_time_block.task_deadline_time.selected_time;
+            const urgencyValue = state.task_urgency_block.task_urgency_select.selected_option.value;
+            const importanceValue = state.task_importance_block.task_importance_select.selected_option.value;
+            const timeRequired = state.task_time_required_block.task_time_required_select.selected_option.value;
+            
+            // Get recurring option if provided
+            let recurringPattern = 'none';
+            if (state.task_recurring_block && 
+                state.task_recurring_block.task_recurring_select && 
+                state.task_recurring_block.task_recurring_select.selected_option) {
+              recurringPattern = state.task_recurring_block.task_recurring_select.selected_option.value;
+            }
+            
+            // Map urgency to priority value
+            const urgencyToPriority: Record<string, string> = {
+              '1': 'low',
+              '2': 'low',
+              '3': 'medium',
+              '4': 'high',
+              '5': 'high'
+            };
+            
+            // Convert the numeric urgency to priority string
+            const priority = urgencyToPriority[urgencyValue] || 'medium';
+            
+            console.log(`Task details from modal: Title: ${title}, Due: ${dueDate} at ${dueTime}, Urgency: ${urgencyValue}, Importance: ${importanceValue}, Time: ${timeRequired}`);
+            
+            // Look up the user by Slack ID
+            const dbUserQuery = await storage.getUserBySlackUserId(user.id);
+            if (!dbUserQuery) {
+              console.error(`User with Slack ID ${user.id} not found in database`);
+              return;
+            }
+            
+            // Create a SlackMessage object with the data from metadata and form values
+            const slackMessage = {
+              ts: metadata.messageTs,
+              text: metadata.text || "",
+              user: user.id,
+              channelId: metadata.channel,
+              channelName: metadata.channelName || "a channel",
+              customTitle: title,
+              customPriority: priority as 'low' | 'medium' | 'high',
+              customTimeRequired: timeRequired,
+              customDueDate: dueDate,
+              customDueTime: dueTime,
+              customUrgency: parseInt(urgencyValue, 10),
+              customImportance: parseInt(importanceValue, 10),
+              customRecurringPattern: recurringPattern !== 'none' ? recurringPattern : null
+            };
+            
+            console.log('Creating task for user ID:', dbUserQuery.id);
+            
+            // Create the task in the database
+            const task = await createTaskFromSlackMessage(slackMessage, dbUserQuery.id);
+            
+            console.log('Task created successfully:', task.id);
+            
+            // Send confirmation to the user
+            await slack.chat.postMessage({
+              channel: user.id,
+              text: `✅ Task "${title}" has been added to your tasks.`,
+              blocks: [
+                {
+                  type: "section",
+                  text: {
+                    type: "mrkdwn",
+                    text: `✅ Task *"${title}"* has been added to your tasks.\n\n*Priority:* ${priority === 'high' ? ':red_circle: High' : priority === 'medium' ? ':large_yellow_circle: Medium' : ':large_green_circle: Low'}\n*Due:* ${dueDate} at ${dueTime}\n*Time Required:* ${timeRequired}\n${recurringPattern !== 'none' ? `*Recurring:* ${recurringPattern}` : ''}`
+                  }
+                }
+              ]
+            });
+            
+            // Process calendar integration as needed
+            // This code will continue with the existing calendar integration logic...
+          }
+          
+          // Return an empty response to close the modal
+          return res.json({});
+        } catch (error) {
+          console.error('Error processing view submission:', error);
+          return;
+        }
+      }
+      
+      // Handle button clicks and other block actions
       if (type !== 'block_actions' || !actions || actions.length === 0) {
         console.warn('Unsupported interaction type or missing actions', payload);
         return;

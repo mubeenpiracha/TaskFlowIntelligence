@@ -67,7 +67,7 @@ export interface SlackMessage {
   customDueTime?: string;
   customUrgency?: number;
   customImportance?: number;
-  customRecurringPattern?: string;
+  customRecurringPattern?: string | null;
 }
 
 /**
