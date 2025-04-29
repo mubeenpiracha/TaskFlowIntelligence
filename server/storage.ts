@@ -9,11 +9,19 @@ import {
 export type { User, InsertUser, WorkingHours, InsertWorkingHours, Task, InsertTask, Workspace, InsertWorkspace };
 
 export interface IStorage {
+  // Workspace operations
+  getWorkspace(id: number): Promise<Workspace | undefined>;
+  getWorkspaceBySlackId(slackWorkspaceId: string): Promise<Workspace | undefined>;
+  getAllWorkspaces(): Promise<Workspace[]>;
+  createWorkspace(workspace: InsertWorkspace): Promise<Workspace>;
+  updateWorkspace(id: number, workspace: Partial<InsertWorkspace>): Promise<Workspace | undefined>;
+  
   // User operations
   getUser(id: number): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   getUserBySlackUserId(slackUserId: string): Promise<User | undefined>;
   getAllUsers(): Promise<User[]>;
+  getUsersByWorkspace(workspaceId: number): Promise<User[]>;
   createUser(user: InsertUser): Promise<User>;
   updateUserGoogleToken(id: number, token: string): Promise<User | undefined>;
   disconnectUserGoogleCalendar(id: number): Promise<User | undefined>;
@@ -30,6 +38,7 @@ export interface IStorage {
   // Task operations
   getTask(id: number): Promise<Task | undefined>;
   getTasksByUser(userId: number): Promise<Task[]>;
+  getTasksByWorkspace(workspaceId: number): Promise<Task[]>;
   getTasksByDate(userId: number, date: string): Promise<Task[]>;
   getTasksBySlackMessageId(messageId: string): Promise<Task | undefined>;
   getTasksByStatus(userId: number, status: string): Promise<Task[]>; 
@@ -38,7 +47,7 @@ export interface IStorage {
   updateTaskStatus(id: number, status: string): Promise<Task | undefined>;
   deleteTask(id: number): Promise<boolean>;
   markTaskComplete(id: number, completed: boolean): Promise<Task | undefined>;
-  createPendingTask(userId: number, slackMessageId: string, slackChannelId: string, title: string): Promise<Task>;
+  createPendingTask(userId: number, workspaceId: number, slackMessageId: string, slackChannelId: string, title: string): Promise<Task>;
   
   // Task display operations
   getUndisplayedTasks(userId: number): Promise<Task[]>;
@@ -50,17 +59,74 @@ export class MemStorage implements IStorage {
   private users: Map<number, User>;
   private workingHours: Map<number, WorkingHours>;
   private tasks: Map<number, Task>;
+  private workspaces: Map<number, Workspace>;
   private currentUserId: number;
   private currentWorkingHoursId: number;
   private currentTaskId: number;
+  private currentWorkspaceId: number;
 
   constructor() {
     this.users = new Map();
     this.workingHours = new Map();
     this.tasks = new Map();
+    this.workspaces = new Map();
     this.currentUserId = 1;
     this.currentWorkingHoursId = 1;
     this.currentTaskId = 1;
+    this.currentWorkspaceId = 1;
+  }
+  
+  // Workspace operations
+  async getWorkspace(id: number): Promise<Workspace | undefined> {
+    return this.workspaces.get(id);
+  }
+  
+  async getWorkspaceBySlackId(slackWorkspaceId: string): Promise<Workspace | undefined> {
+    return Array.from(this.workspaces.values()).find(
+      (workspace) => workspace.slackWorkspaceId === slackWorkspaceId
+    );
+  }
+  
+  async getAllWorkspaces(): Promise<Workspace[]> {
+    return Array.from(this.workspaces.values());
+  }
+  
+  async createWorkspace(insertWorkspace: InsertWorkspace): Promise<Workspace> {
+    const id = this.currentWorkspaceId++;
+    const now = new Date();
+    
+    const workspace: Workspace = {
+      ...insertWorkspace,
+      id,
+      createdAt: now,
+      active: insertWorkspace.active ?? true,
+      maxTasksPerUser: insertWorkspace.maxTasksPerUser ?? 100,
+      allowAnonymousTaskCreation: insertWorkspace.allowAnonymousTaskCreation ?? true
+    };
+    
+    this.workspaces.set(id, workspace);
+    return workspace;
+  }
+  
+  async updateWorkspace(id: number, workspaceUpdate: Partial<InsertWorkspace>): Promise<Workspace | undefined> {
+    const workspace = this.workspaces.get(id);
+    if (!workspace) return undefined;
+    
+    const updatedWorkspace = { ...workspace, ...workspaceUpdate };
+    this.workspaces.set(id, updatedWorkspace);
+    return updatedWorkspace;
+  }
+  
+  async getUsersByWorkspace(workspaceId: number): Promise<User[]> {
+    return Array.from(this.users.values()).filter(
+      (user) => user.workspaceId === workspaceId
+    );
+  }
+  
+  async getTasksByWorkspace(workspaceId: number): Promise<Task[]> {
+    return Array.from(this.tasks.values()).filter(
+      (task) => task.workspaceId === workspaceId
+    );
   }
 
   // User operations
@@ -93,6 +159,7 @@ export class MemStorage implements IStorage {
       slackUserId: insertUser.slackUserId ?? null,
       slackAccessToken: insertUser.slackAccessToken ?? null,
       googleRefreshToken: insertUser.googleRefreshToken ?? null,
+      workspaceId: insertUser.workspaceId ?? null,
       slackWorkspace: insertUser.slackWorkspace ?? null,
       slackChannelPreferences: insertUser.slackChannelPreferences ?? null
     };
@@ -243,6 +310,7 @@ export class MemStorage implements IStorage {
       ...insertTask, 
       id, 
       createdAt: now,
+      workspaceId: insertTask.workspaceId ?? null,
       description: insertTask.description ?? null,
       priority: insertTask.priority ?? 'medium',
       timeRequired: insertTask.timeRequired ?? '01:00',
@@ -251,6 +319,8 @@ export class MemStorage implements IStorage {
       completed: insertTask.completed ?? false,
       slackMessageId: insertTask.slackMessageId ?? null,
       slackChannelId: insertTask.slackChannelId ?? null,
+      slackThreadTs: insertTask.slackThreadTs ?? null,
+      slackInteractionMessageTs: insertTask.slackInteractionMessageTs ?? null,
       googleEventId: insertTask.googleEventId ?? null,
       status: insertTask.status ?? 'pending',
       displayed: insertTask.displayed ?? false,
@@ -273,7 +343,7 @@ export class MemStorage implements IStorage {
     return updatedTask;
   }
   
-  async createPendingTask(userId: number, slackMessageId: string, slackChannelId: string, title: string): Promise<Task> {
+  async createPendingTask(userId: number, workspaceId: number, slackMessageId: string, slackChannelId: string, title: string): Promise<Task> {
     const id = this.currentTaskId++;
     const now = new Date();
     
@@ -281,6 +351,7 @@ export class MemStorage implements IStorage {
     const task: Task = {
       id,
       userId,
+      workspaceId,
       title,
       description: null,
       priority: 'medium',
@@ -290,6 +361,8 @@ export class MemStorage implements IStorage {
       completed: false,
       slackMessageId,
       slackChannelId,
+      slackThreadTs: null,
+      slackInteractionMessageTs: null,
       googleEventId: null,
       status: 'pending',
       createdAt: now,

@@ -112,6 +112,7 @@ export const insertWorkspaceSchema = createInsertSchema(workspaces).pick({
   slackClientSecret: true,
   maxTasksPerUser: true,
   allowAnonymousTaskCreation: true,
+  active: true,
 });
 
 export const insertUserSchema = createInsertSchema(users).pick({
@@ -177,3 +178,8 @@ export type WorkingHours = typeof workingHours.$inferSelect;
 
 export type InsertTask = z.infer<typeof insertTaskSchema>;
 export type Task = typeof tasks.$inferSelect;
+
+
+
+export type InsertWorkspace = z.infer<typeof insertWorkspaceSchema>;
+export type Workspace = typeof workspaces.$inferSelect;
