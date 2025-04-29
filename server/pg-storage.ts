@@ -26,7 +26,16 @@ export class PgStorage implements IStorage {
   }
   
   async getAllUsers(): Promise<User[]> {
-    return await db.select().from(users);
+    try {
+      // Try the new schema first (with workspaceId)
+      return await db.select().from(users);
+    } catch (error) {
+      // Fallback to the old schema without workspace ID
+      // This is a temporary fix until we run the migration
+      const query = `SELECT * FROM users`;
+      const result = await db.execute(query);
+      return result as User[];
+    }
   }
   
   async createUser(user: InsertUser): Promise<User> {

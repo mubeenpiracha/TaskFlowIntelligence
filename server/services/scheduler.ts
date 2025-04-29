@@ -41,21 +41,22 @@ async function scheduleUnscheduledTasks() {
   try {
     console.log('[SCHEDULER] Checking for unscheduled tasks...');
     
-    // Get all users for processing
-    const users = await storage.getAllUsers();
+    // TEMPORARY FIX: Use a single user with ID 1 until we complete schema migration
+    // This prevents errors with the new schema fields
+    const user = await storage.getUser(1);
     
-    for (const user of users) {
+    if (user) {
+      // Process just this user as a compatibility measure
       if (!user.googleRefreshToken) {
         console.log(`[SCHEDULER] User ${user.id} doesn't have Google Calendar connected, skipping`);
-        continue;
-      }
-      
-      // Get tasks that are accepted but not scheduled yet
-      const unscheduledTasks = await storage.getTasksByStatus(user.id, 'accepted');
-      console.log(`[SCHEDULER] Found ${unscheduledTasks.length} unscheduled tasks for user ${user.id}`);
-      
-      if (unscheduledTasks.length > 0) {
-        await scheduleTasksForUser(user, unscheduledTasks);
+      } else {
+        // Get tasks that are accepted but not scheduled yet
+        const unscheduledTasks = await storage.getTasksByStatus(user.id, 'accepted');
+        console.log(`[SCHEDULER] Found ${unscheduledTasks.length} unscheduled tasks for user ${user.id}`);
+        
+        if (unscheduledTasks.length > 0) {
+          await scheduleTasksForUser(user, unscheduledTasks);
+        }
       }
     }
     
