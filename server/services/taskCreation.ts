@@ -238,6 +238,7 @@ export async function createTaskFromSlackMessage(
   message: SlackMessage & {
     scheduledStart?: string;
     scheduledEnd?: string;
+    workspaceId?: number;
   }, 
   userId: number
 ): Promise<Task> {
@@ -324,9 +325,23 @@ export async function createTaskFromSlackMessage(
       console.log(`TASK_ANALYSIS: Using recurring pattern: ${recurringPattern}`);
     }
     
+    // Get the workspace ID for the user if not provided directly
+    let workspaceId = message.workspaceId;
+    if (!workspaceId) {
+      try {
+        const user = await storage.getUser(userId);
+        workspaceId = user?.workspaceId || 1; // Default to workspace 1 if not found
+        console.log(`Using workspace ID ${workspaceId} for user ${userId}`);
+      } catch (error) {
+        console.warn(`Could not get workspace ID for user ${userId}, using default:`, error);
+        workspaceId = 1; // Default to workspace 1 if we can't get the user's workspace
+      }
+    }
+
     // Create task object
     const taskData: InsertTask = {
       userId,
+      workspaceId,
       title,
       description,
       priority,

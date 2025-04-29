@@ -280,7 +280,7 @@ async function processMessageEvent(message: any, teamId: string): Promise<{
       webhookMetrics.aiAnalysis.successful++;
       webhookMetrics.aiAnalysis.lastAnalysisTime = Date.now();
       
-      console.log(`Task detected: ${analysis.task_title || 'Untitled task'}`);
+      console.log(`Task detected for workspace ${slackUser.workspaceId || 1}: ${analysis.task_title || 'Untitled task'}`);
       
       // Get user timezone
       let timezone = slackUser.timezone || "UTC";
