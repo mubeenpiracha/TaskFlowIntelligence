@@ -514,10 +514,13 @@ export default function Settings() {
                   <Button 
                     onClick={handleConnectSlack}
                     className="w-full bg-[#4A154B] hover:bg-[#4A154B]/90"
-                    disabled={!slackAuthData?.url}
+                    disabled={isLoadingSlackAuth || !slackAuthData?.url}
                   >
-                    <ExternalLink className="mr-2 h-4 w-4" />
-                    Connect with Slack
+                    {isLoadingSlackAuth ? (
+                      <><RefreshCw className="mr-1 h-4 w-4 animate-spin" /> Loading...</>
+                    ) : (
+                      <><ExternalLink className="mr-2 h-4 w-4" /> Connect with Slack</>
+                    )}
                   </Button>
                 ) : (
                   <div className="space-y-3">
@@ -527,10 +530,13 @@ export default function Settings() {
                         className="text-sm"
                         variant="outline"
                         size="sm"
-                        disabled={!slackAuthData?.url}
+                        disabled={isLoadingSlackAuth || !slackAuthData?.url}
                       >
-                        <RefreshCw className="mr-2 h-3 w-3" />
-                        Reconnect
+                        {isLoadingSlackAuth ? (
+                          <><RefreshCw className="mr-1 h-3 w-3 animate-spin" /> Loading...</>
+                        ) : (
+                          <><RefreshCw className="mr-2 h-3 w-3" /> Reconnect</>
+                        )}
                       </Button>
                       <Button 
                         onClick={() => disconnectSlackMutation.mutate()}
@@ -578,10 +584,13 @@ export default function Settings() {
                 <Button 
                   onClick={handleConnectSlack}
                   className="bg-[#4A154B] hover:bg-[#4A154B]/90"
-                  disabled={!slackAuthData?.url}
+                  disabled={isLoadingSlackAuth || !slackAuthData?.url}
                 >
-                  <ExternalLink className="mr-2 h-4 w-4" />
-                  Connect with Slack
+                  {isLoadingSlackAuth ? (
+                    <><RefreshCw className="mr-1 h-4 w-4 animate-spin" /> Loading...</>
+                  ) : (
+                    <><ExternalLink className="mr-2 h-4 w-4" /> Connect with Slack</>
+                  )}
                 </Button>
               </div>
             ) : isLoadingChannels ? (
