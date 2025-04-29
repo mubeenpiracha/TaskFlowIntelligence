@@ -185,6 +185,25 @@ async function processMessageEvent(message: any, teamId: string): Promise<{
         message: "Invalid message data"
       };
     }
+    
+    // Check if this message has already been processed into a task
+    // This prevents duplicate task suggestions for the same message
+    try {
+      const existingTask = await storage.getTasksBySlackMessageId(message.ts);
+      if (existingTask) {
+        console.log(`Message ${message.ts} has already been processed into a task. Skipping.`);
+        return {
+          success: true,
+          eventType: "message",
+          processed: true,
+          taskDetected: false,
+          message: "Message already processed into a task"
+        };
+      }
+    } catch (error) {
+      console.warn(`Error checking for existing task with message ID ${message.ts}:`, error);
+      // Continue processing even if check fails (fail open)
+    }
 
     // Find the user who configured the integration
     const slackUser = await getUserForSlackMessage(message.user, teamId);
@@ -219,6 +238,24 @@ async function processMessageEvent(message: any, teamId: string): Promise<{
     } catch (prefError) {
       console.error("Error checking channel preferences:", prefError);
       // Continue processing the message even if we can't check preferences (fail open for testing)
+    }
+
+    // Check if this message has already been processed for tasks
+    try {
+      const existingTask = await storage.getTasksBySlackMessageId(message.ts);
+      if (existingTask) {
+        console.log(`Message ${message.ts} already processed as task ID ${existingTask.id}, skipping.`);
+        return {
+          success: true,
+          eventType: "message",
+          processed: true,
+          taskDetected: false,
+          message: "Message already processed as task"
+        };
+      }
+    } catch (error) {
+      console.warn(`Error checking for existing task: ${error}`);
+      // Continue processing as we'd rather potentially duplicate than miss a task
     }
 
     // Detect tasks in the message using AI
