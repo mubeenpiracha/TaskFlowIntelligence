@@ -82,7 +82,8 @@ app.use((req, res, next) => {
   }, () => {
     log(`serving on port ${port}`);
     
+    // TEMP: Scheduler disabled during migration
     // Start the automatic task scheduler
-    startScheduler();
+    // startScheduler();
   });
 })();

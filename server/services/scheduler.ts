@@ -19,11 +19,15 @@ let isRunning = false;
 export function startScheduler() {
   console.log('[SCHEDULER] Starting automatic task scheduler service');
   
+  // TEMP: Disabled during schema migration
+  console.log('[SCHEDULER] Service temporarily disabled during schema migration');
+  
+  // Uncomment to re-enable scheduler
   // Immediately run once
-  scheduleUnscheduledTasks();
+  // scheduleUnscheduledTasks();
   
   // Then set interval for future runs
-  setInterval(scheduleUnscheduledTasks, SCHEDULE_INTERVAL);
+  // setInterval(scheduleUnscheduledTasks, SCHEDULE_INTERVAL);
 }
 
 /**
