@@ -7,12 +7,44 @@ import {
   type Task, type InsertTask
 } from '@shared/schema';
 import type { IStorage } from './storage';
+import pkg from 'pg';
+const { Pool } = pkg;
+
+// Create a direct pool connection for raw SQL queries
+const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 export class PgStorage implements IStorage {
   // User operations
   async getUser(id: number): Promise<User | undefined> {
-    const result = await db.select().from(users).where(eq(users.id, id));
-    return result[0];
+    try {
+      // Try with new schema
+      const result = await db.select().from(users).where(eq(users.id, id));
+      return result[0];
+    } catch (error) {
+      console.log(`[DB] Fallback to raw query for user ${id} due to schema incompatibility`);
+      // Fallback to raw query to handle schema differences
+      const query = `SELECT 
+        id, username, password, email, 
+        slack_user_id as "slackUserId", 
+        slack_access_token as "slackAccessToken", 
+        google_refresh_token as "googleRefreshToken", 
+        slack_workspace as "slackWorkspace", 
+        slack_channel_preferences as "slackChannelPreferences", 
+        timezone 
+      FROM users WHERE id = $1`;
+      
+      const result = await pool.query(query, [id]);
+      
+      if (result.rows.length > 0) {
+        // Convert raw result to User type with default values for new fields
+        const user = result.rows[0];
+        return {
+          ...user,
+          workspaceId: null // Set default value for new field
+        } as User;
+      }
+      return undefined;
+    }
   }
   
   async getUserByUsername(username: string): Promise<User | undefined> {
@@ -32,9 +64,23 @@ export class PgStorage implements IStorage {
     } catch (error) {
       // Fallback to the old schema without workspace ID
       // This is a temporary fix until we run the migration
-      const query = `SELECT * FROM users`;
-      const result = await db.execute(query);
-      return result as User[];
+      const query = `SELECT 
+        id, username, password, email, 
+        slack_user_id as "slackUserId", 
+        slack_access_token as "slackAccessToken", 
+        google_refresh_token as "googleRefreshToken", 
+        slack_workspace as "slackWorkspace", 
+        slack_channel_preferences as "slackChannelPreferences", 
+        timezone 
+      FROM users`;
+      
+      const result = await pool.query(query);
+      
+      // Convert raw results and add workspaceId
+      return result.rows.map(row => ({
+        ...row,
+        workspaceId: null
+      })) as User[];
     }
   }
   
