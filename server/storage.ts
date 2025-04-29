@@ -1,11 +1,12 @@
 import { 
   users, type User, type InsertUser, 
   workingHours, type WorkingHours, type InsertWorkingHours,
-  tasks, type Task, type InsertTask
+  tasks, type Task, type InsertTask,
+  workspaces, type Workspace, type InsertWorkspace
 } from "@shared/schema";
 
 // Re-export the types for external use
-export type { User, InsertUser, WorkingHours, InsertWorkingHours, Task, InsertTask };
+export type { User, InsertUser, WorkingHours, InsertWorkingHours, Task, InsertTask, Workspace, InsertWorkspace };
 
 export interface IStorage {
   // User operations
