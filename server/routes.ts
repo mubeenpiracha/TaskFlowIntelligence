@@ -807,23 +807,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const isInitialLoad = req.query.initialLoad === 'true';
       const isManualRefresh = req.query.refresh === 'true';
       
-      // Get pending tasks from the database
+      // If this is a manual refresh or initial load, we reset the display status for all tasks 
+      // This ensures users can see all tasks again after a refresh
+      if (isManualRefresh || isInitialLoad) {
+        const resetCount = await storage.resetAllTaskDisplayStatus(req.session.userId!);
+        console.log(`Reset display status for ${resetCount} tasks due to ${isManualRefresh ? 'manual refresh' : 'initial load'}`);
+      }
+      
+      // Get undisplayed and pending tasks from the database
       const pendingTasks = await storage.getTasksByStatus(req.session.userId!, 'pending');
       
-      // For regular polling, only return tasks that haven't been processed before
-      // For manual refresh or initial load, return all tasks
-      const filteredTasks = isManualRefresh || isInitialLoad 
+      // For regular polling, only return tasks that haven't been displayed before
+      // For manual refresh or initial load, return all pending tasks (since we've reset their status)
+      const undisplayedTasks = isManualRefresh || isInitialLoad 
         ? pendingTasks 
-        : pendingTasks.filter(task => !processedTaskIds.has(task.id));
+        : await storage.getUndisplayedTasks(req.session.userId!);
+        
+      // Filter to only include pending tasks from our undisplayed set
+      const filteredTasks = undisplayedTasks.filter(task => 
+        task.status === 'pending' && pendingTasks.some(pt => pt.id === task.id)
+      );
       
-      // Add these tasks to our processed set
-      filteredTasks.forEach(task => processedTaskIds.add(task.id));
-      
-      // Save the updated set to persist between server restarts
-      saveProcessedTaskIds();
+      // Mark these tasks as displayed in the database
+      await Promise.all(filteredTasks.map(task => 
+        storage.markTaskDisplayed(task.id, true)
+      ));
       
       console.log(`Returning ${filteredTasks.length} of ${pendingTasks.length} pending tasks (${isManualRefresh ? 'manual refresh' : isInitialLoad ? 'initial load' : 'regular polling'})`);
-      console.log(`Tracking ${processedTaskIds.size} total processed task IDs`);
+      console.log(`${undisplayedTasks.length} total undisplayed tasks found`);
       
       // Format tasks to match the expected SlackMessage format from the frontend
       const formattedTasks = filteredTasks.map(task => ({

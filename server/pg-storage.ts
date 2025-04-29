@@ -172,7 +172,13 @@ export class PgStorage implements IStorage {
       dueDate: null,
       dueTime: null,
       completed: false,
-      googleEventId: null
+      googleEventId: null,
+      displayed: false,
+      scheduledStart: null,
+      scheduledEnd: null,
+      importance: null,
+      urgency: null,
+      recurringPattern: null
     };
     
     const result = await db.insert(tasks).values(task).returning();
@@ -203,5 +209,31 @@ export class PgStorage implements IStorage {
       .where(eq(tasks.id, id))
       .returning();
     return result[0];
+  }
+  
+  // Task display operations
+  async getUndisplayedTasks(userId: number): Promise<Task[]> {
+    return db
+      .select()
+      .from(tasks)
+      .where(and(eq(tasks.userId, userId), eq(tasks.displayed, false)));
+  }
+
+  async markTaskDisplayed(id: number, displayed: boolean): Promise<Task | undefined> {
+    const result = await db
+      .update(tasks)
+      .set({ displayed })
+      .where(eq(tasks.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async resetAllTaskDisplayStatus(userId: number): Promise<number> {
+    const result = await db
+      .update(tasks)
+      .set({ displayed: false })
+      .where(and(eq(tasks.userId, userId), eq(tasks.displayed, true)))
+      .returning();
+    return result.length;
   }
 }

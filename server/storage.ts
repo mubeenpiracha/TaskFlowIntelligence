@@ -251,7 +251,13 @@ export class MemStorage implements IStorage {
       slackMessageId: insertTask.slackMessageId ?? null,
       slackChannelId: insertTask.slackChannelId ?? null,
       googleEventId: insertTask.googleEventId ?? null,
-      status: insertTask.status ?? 'pending'
+      status: insertTask.status ?? 'pending',
+      displayed: insertTask.displayed ?? false,
+      scheduledStart: insertTask.scheduledStart ?? null,
+      scheduledEnd: insertTask.scheduledEnd ?? null,
+      importance: insertTask.importance ?? null,
+      urgency: insertTask.urgency ?? null,
+      recurringPattern: insertTask.recurringPattern ?? null
     };
     this.tasks.set(id, task);
     return task;
@@ -285,7 +291,13 @@ export class MemStorage implements IStorage {
       slackChannelId,
       googleEventId: null,
       status: 'pending',
-      createdAt: now
+      createdAt: now,
+      displayed: false,
+      scheduledStart: null,
+      scheduledEnd: null,
+      importance: null,
+      urgency: null,
+      recurringPattern: null
     };
     
     this.tasks.set(id, task);
@@ -312,6 +324,33 @@ export class MemStorage implements IStorage {
     const updatedTask = { ...task, completed };
     this.tasks.set(id, updatedTask);
     return updatedTask;
+  }
+
+  // Task display operations
+  async getUndisplayedTasks(userId: number): Promise<Task[]> {
+    return Array.from(this.tasks.values()).filter(
+      (task) => task.userId === userId && (!task.displayed || task.displayed === false)
+    );
+  }
+
+  async markTaskDisplayed(id: number, displayed: boolean): Promise<Task | undefined> {
+    const task = this.tasks.get(id);
+    if (!task) return undefined;
+    
+    const updatedTask = { ...task, displayed };
+    this.tasks.set(id, updatedTask);
+    return updatedTask;
+  }
+
+  async resetAllTaskDisplayStatus(userId: number): Promise<number> {
+    let count = 0;
+    for (const [id, task] of this.tasks.entries()) {
+      if (task.userId === userId && task.displayed === true) {
+        this.tasks.set(id, { ...task, displayed: false });
+        count++;
+      }
+    }
+    return count;
   }
 }
 
