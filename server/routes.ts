@@ -10,48 +10,9 @@ import { promisify } from 'util';
 import fs from 'fs';
 import path from 'path';
 
-// Global set to track processed task IDs and prevent duplicate notifications
-// This persists across requests and is shared by all users
-const processedTaskIds = new Set<number>();
-
-// File path for persistence
-const PROCESSED_IDS_FILE = path.join(process.cwd(), 'processed_tasks.json');
-
-// Load processed IDs from file if it exists
-function loadProcessedTaskIds() {
-  try {
-    if (fs.existsSync(PROCESSED_IDS_FILE)) {
-      const data = fs.readFileSync(PROCESSED_IDS_FILE, 'utf8');
-      const parsedData = JSON.parse(data);
-      if (Array.isArray(parsedData)) {
-        parsedData.forEach(id => processedTaskIds.add(id));
-        console.log(`Loaded ${parsedData.length} processed task IDs for optimization`);
-      }
-    }
-  } catch (error) {
-    console.error('Error loading processed task IDs:', error);
-  }
-}
-
-// Save processed IDs to file
-function saveProcessedTaskIds() {
-  try {
-    const data = JSON.stringify(Array.from(processedTaskIds));
-    fs.writeFileSync(PROCESSED_IDS_FILE, data, 'utf8');
-  } catch (error) {
-    console.error('Error saving processed task IDs:', error);
-  }
-}
-
-// Clear the processed IDs (exposed for testing)
-function clearProcessedTaskIds() {
-  processedTaskIds.clear();
-  saveProcessedTaskIds();
-  console.log("Cleared processed task IDs");
-}
-
-// Load IDs on startup
-loadProcessedTaskIds();
+// Messages tracking remains file-based for now
+// File path for processed messages persistence
+const PROCESSED_MESSAGES_FILE = path.join(process.cwd(), 'processed_messages.json');
 
 // Password hashing utilities
 const pbkdf2Async = promisify(pbkdf2);
@@ -3012,18 +2973,18 @@ app.post('/api/system/slack/clear-cache', requireAuth, async (req, res) => {
       // Clear processed messages
       const clearedMessagesCount = clearProcessedMessages(keepCountValue);
       
-      // Clear processed task IDs as well
-      const originalTaskCount = processedTaskIds.size;
+      // Reset all tasks display status in the database
+      let resetCount = 0;
       if (keepCountValue === 0) {
-        clearProcessedTaskIds();
+        resetCount = await storage.resetAllTaskDisplayStatus(req.session.userId!);
+        console.log(`Reset display status for ${resetCount} tasks`);
       }
       
       res.json({
         success: true,
-        message: `Successfully cleared ${clearedMessagesCount} processed message(s) and ${keepCountValue === 0 ? originalTaskCount : 0} task ID(s)`,
+        message: `Successfully cleared ${clearedMessagesCount} processed message(s) and reset ${resetCount} task display states`,
         clearedMessages: clearedMessagesCount,
-        clearedTasks: keepCountValue === 0 ? originalTaskCount : 0,
-        remainingTasks: processedTaskIds.size,
+        clearedTasks: resetCount,
         keepCount: keepCountValue
       });
     } catch (error) {
