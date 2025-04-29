@@ -212,18 +212,35 @@ export async function createCalendarEvent(
       throw new Error('Event missing required start or end time');
     }
     
-    // Format dates as proper RFC 3339 format with timezone
-    // Fix date format - ensure it's in RFC 3339 format with timezone
+    // Format dates properly for Google Calendar API
+    // We need to keep the local timezone information and NOT convert to UTC
     if (event.start.dateTime) {
-      // Parse the date string to ensure it's valid
-      const startDate = new Date(event.start.dateTime);
-      // Format to RFC 3339 with timezone indicator
-      event.start.dateTime = startDate.toISOString();
+      if (event.start.dateTime.endsWith('Z')) {
+        // Remove the Z to avoid forcing UTC timezone
+        event.start.dateTime = event.start.dateTime.slice(0, -1);
+        console.log('[CALENDAR DEBUG] Removed trailing Z from start time to preserve local timezone');
+      }
+      
+      // Add timezone offset if not present
+      if (!event.start.dateTime.includes('+') && !event.start.dateTime.includes('-', 10)) {
+        // No timezone info present, append the timeZone using offset format
+        // For now we'll keep the original format and rely on the timeZone field
+        console.log('[CALENDAR DEBUG] Start time has no timezone offset, relying on timeZone field');
+      }
     }
     
     if (event.end.dateTime) {
-      const endDate = new Date(event.end.dateTime);
-      event.end.dateTime = endDate.toISOString();
+      if (event.end.dateTime.endsWith('Z')) {
+        // Remove the Z to avoid forcing UTC timezone
+        event.end.dateTime = event.end.dateTime.slice(0, -1);
+        console.log('[CALENDAR DEBUG] Removed trailing Z from end time to preserve local timezone');
+      }
+      
+      // Add timezone offset if not present
+      if (!event.end.dateTime.includes('+') && !event.end.dateTime.includes('-', 10)) {
+        // No timezone info present, we'll rely on the timeZone field
+        console.log('[CALENDAR DEBUG] End time has no timezone offset, relying on timeZone field');
+      }
     }
     
     // Ensure we have timezone information
@@ -266,20 +283,36 @@ export async function createCalendarEvent(
     try {
       console.log('[CALENDAR DEBUG] Attempting fallback with simplified event data');
       
-      // Create a simplified event with minimal data and absolute timestamps
+      // Create a simplified event with minimal data but preserve original timezone
       const now = new Date();
       const oneHourLater = new Date(now.getTime() + 3600000);
+      
+      // Preserve the original timezone if available
+      const timeZone = event.start?.timeZone || 'UTC';
+      
+      // Format dates without Z suffix to avoid forcing UTC
+      let startDateTime = now.toISOString();
+      let endDateTime = oneHourLater.toISOString();
+      
+      // Remove Z suffix to avoid forcing UTC
+      if (startDateTime.endsWith('Z')) {
+        startDateTime = startDateTime.slice(0, -1);
+      }
+      
+      if (endDateTime.endsWith('Z')) {
+        endDateTime = endDateTime.slice(0, -1);
+      }
       
       const simplifiedEvent = {
         summary: event.summary || "Task from TaskFlow",
         description: event.description || "Auto-created by TaskFlow scheduler",
         start: {
-          dateTime: now.toISOString(),
-          timeZone: 'UTC'
+          dateTime: startDateTime,
+          timeZone: timeZone
         },
         end: {
-          dateTime: oneHourLater.toISOString(),
-          timeZone: 'UTC'
+          dateTime: endDateTime,
+          timeZone: timeZone
         }
       };
       
