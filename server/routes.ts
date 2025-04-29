@@ -2263,6 +2263,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
               // This ensures we won't process this message again
               const pendingTask = await storage.createPendingTask(
                 dbUserQuery.id, 
+                dbUserQuery.workspaceId || 1, // Use user's workspace ID or default to 1
                 taskData.ts, 
                 taskData.channelId || message?.channel?.id || 'unknown-channel',
                 'Ignored task'
