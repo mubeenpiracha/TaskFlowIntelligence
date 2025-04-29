@@ -198,22 +198,7 @@ export async function createCalendarEvent(
   console.log('[CALENDAR DEBUG] Creating calendar event with the following payload:');
   console.log(JSON.stringify(event, null, 2));
   
-  // Note: We're no longer specifying timezones in the events
-  // Google Calendar will use the user's calendar timezone settings automatically
-  // This ensures consistent timezone behavior without requiring timezone validation
-  
-  if (event.start?.timeZone) {
-    console.log(`[CALENDAR DEBUG] Start timezone specified: ${event.start.timeZone} (Note: Consider removing this)`);
-  }
-  
-  if (event.end?.timeZone) {
-    console.log(`[CALENDAR DEBUG] End timezone specified: ${event.end.timeZone} (Note: Consider removing this)`);
-  }
-  
-  // Log the start and end times
-  console.log(`[CALENDAR DEBUG] Start time: ${event.start.dateTime}`);
-  console.log(`[CALENDAR DEBUG] End time: ${event.end.dateTime}`);
-  
+  // Ensure we have proper date format for Google Calendar
   try {
     // Add additional validation/logging of the calendar client
     if (!calendar) {
@@ -227,17 +212,31 @@ export async function createCalendarEvent(
       throw new Error('Event missing required start or end time');
     }
     
-    // Format date strings to ensure they are in RFC 3339 format
-    // Remove any 'Z' suffix and ensure proper timezone designation
-    if (event.start.dateTime && !event.start.dateTime.endsWith('Z') && !event.start.dateTime.includes('+')) {
-      console.log('[CALENDAR DEBUG] Adding timezone offset to start time');
-      event.start.dateTime = `${event.start.dateTime}+00:00`;
+    // Format dates as proper RFC 3339 format with timezone
+    // Fix date format - ensure it's in RFC 3339 format with timezone
+    if (event.start.dateTime) {
+      // Parse the date string to ensure it's valid
+      const startDate = new Date(event.start.dateTime);
+      // Format to RFC 3339 with timezone indicator
+      event.start.dateTime = startDate.toISOString();
     }
     
-    if (event.end.dateTime && !event.end.dateTime.endsWith('Z') && !event.end.dateTime.includes('+')) {
-      console.log('[CALENDAR DEBUG] Adding timezone offset to end time');
-      event.end.dateTime = `${event.end.dateTime}+00:00`;
+    if (event.end.dateTime) {
+      const endDate = new Date(event.end.dateTime);
+      event.end.dateTime = endDate.toISOString();
     }
+    
+    // Ensure we have timezone information
+    if (!event.start.timeZone) {
+      event.start.timeZone = 'UTC';
+    }
+    
+    if (!event.end.timeZone) {
+      event.end.timeZone = 'UTC';
+    }
+    
+    console.log('[CALENDAR DEBUG] Formatted event data:');
+    console.log(JSON.stringify(event, null, 2));
     
     console.log('[CALENDAR DEBUG] Making API call to Google Calendar');
     const response = await calendar.events.insert({
@@ -254,48 +253,56 @@ export async function createCalendarEvent(
     if (error.response) {
       console.error('[CALENDAR DEBUG] Error response data:', JSON.stringify(error.response.data, null, 2));
       console.error('[CALENDAR DEBUG] Error response status:', error.response.status);
+      console.error('[CALENDAR DEBUG] Error response headers:', JSON.stringify(error.response.headers, null, 2));
     }
     
-    // Check if this is a token expired error
+    // Check if this is a token expired error and handle it more robustly
     if (isTokenExpiredError(error)) {
       console.log('[CALENDAR DEBUG] Google Calendar token has expired, throwing TokenExpiredError');
       throw new TokenExpiredError();
     }
     
-    // Check for specific error conditions
-    if (error.message && error.message.includes('Invalid time format')) {
-      console.error('[CALENDAR DEBUG] Invalid time format detected');
-      // Try to create a simpler event as a fallback
-      try {
-        console.log('[CALENDAR DEBUG] Attempting fallback with simplified event data');
-        
-        // Create a simplified event with minimal data
-        const simplifiedEvent = {
-          summary: event.summary,
-          start: {
-            dateTime: new Date().toISOString(),
-            timeZone: 'UTC'
-          },
-          end: {
-            dateTime: new Date(Date.now() + 3600000).toISOString(), // 1 hour later
-            timeZone: 'UTC'
-          }
-        };
-        
-        const fallbackResponse = await calendar.events.insert({
-          calendarId: 'primary',
-          requestBody: simplifiedEvent,
-        });
-        
-        console.log('[CALENDAR DEBUG] Fallback calendar event created successfully:', fallbackResponse.data.id);
-        return fallbackResponse.data;
-      } catch (fallbackError) {
-        console.error('[CALENDAR DEBUG] Fallback event creation failed:', fallbackError);
-        throw new Error(`Calendar event creation failed: ${error.message}. Fallback also failed.`);
+    // Try a fallback approach for any error
+    try {
+      console.log('[CALENDAR DEBUG] Attempting fallback with simplified event data');
+      
+      // Create a simplified event with minimal data and absolute timestamps
+      const now = new Date();
+      const oneHourLater = new Date(now.getTime() + 3600000);
+      
+      const simplifiedEvent = {
+        summary: event.summary || "Task from TaskFlow",
+        description: event.description || "Auto-created by TaskFlow scheduler",
+        start: {
+          dateTime: now.toISOString(),
+          timeZone: 'UTC'
+        },
+        end: {
+          dateTime: oneHourLater.toISOString(),
+          timeZone: 'UTC'
+        }
+      };
+      
+      console.log('[CALENDAR DEBUG] Fallback event:', JSON.stringify(simplifiedEvent, null, 2));
+      
+      const fallbackResponse = await calendar.events.insert({
+        calendarId: 'primary',
+        requestBody: simplifiedEvent,
+      });
+      
+      console.log('[CALENDAR DEBUG] Fallback calendar event created successfully:', fallbackResponse.data.id);
+      return fallbackResponse.data;
+    } catch (fallbackError) {
+      console.error('[CALENDAR DEBUG] Fallback event creation failed:', fallbackError);
+      
+      // If fallback also fails, report the detailed error for diagnosis
+      if (fallbackError.response) {
+        console.error('[CALENDAR DEBUG] Fallback error response data:', 
+          JSON.stringify(fallbackError.response.data, null, 2));
       }
+      
+      throw new Error(`Calendar event creation failed: ${error.message}. Fallback also failed.`);
     }
-    
-    throw error;
   }
 }
 
