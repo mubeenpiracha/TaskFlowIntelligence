@@ -345,7 +345,8 @@ async function processMessageEvent(message: any, teamId: string): Promise<{
             timeRequired: timeRequired,
             urgency: analysis.urgency || 3,
             importance: analysis.importance || 3,
-            recurringPattern: "none"
+            recurringPattern: "none",
+            workspaceId: slackUser.workspaceId || 1 // Include workspace ID from user
           });
           
           console.log(`Task suggestion sent to user ${slackUser.slackUserId} for message ${message.ts}`);

@@ -68,6 +68,7 @@ export interface SlackMessage {
   customUrgency?: number;
   customImportance?: number;
   customRecurringPattern?: string | null;
+  workspaceId?: number;
 }
 
 /**
@@ -1558,6 +1559,7 @@ export async function sendTaskSuggestion(userId: string, taskSuggestion: {
   urgency: number;
   importance: number;
   recurringPattern?: string;
+  workspaceId?: number;
 }) {
   try {
     console.log(`Sending task suggestion to user ${userId}`);
@@ -1620,7 +1622,8 @@ export async function sendTaskSuggestion(userId: string, taskSuggestion: {
               priority: taskSuggestion.priority,
               timeRequired: taskSuggestion.timeRequired,
               dueDate: taskSuggestion.dueDate,
-              useDefaults: true
+              useDefaults: true,
+              workspaceId: taskSuggestion.workspaceId
             }),
             action_id: "create_task_default"
           },
@@ -1643,7 +1646,8 @@ export async function sendTaskSuggestion(userId: string, taskSuggestion: {
               priority: taskSuggestion.priority,
               timeRequired: taskSuggestion.timeRequired,
               urgency: taskSuggestion.urgency || 3,
-              importance: taskSuggestion.importance || 3
+              importance: taskSuggestion.importance || 3,
+              workspaceId: taskSuggestion.workspaceId
             }),
             action_id: "customize_task"
           },
