@@ -1,18 +1,45 @@
-import { pgTable, text, serial, integer, boolean, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, integer, boolean, timestamp, uniqueIndex, index } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
+// Define the main database tables
+export const workspaces = pgTable("workspaces", {
+  id: serial("id").primaryKey(),
+  slackWorkspaceId: text("slack_workspace_id").notNull(),
+  slackWorkspaceName: text("slack_workspace_name").notNull(),
+  slackBotToken: text("slack_bot_token").notNull(),
+  slackClientId: text("slack_client_id").notNull(),
+  slackClientSecret: text("slack_client_secret").notNull(),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+  active: boolean("active").notNull().default(true),
+  // Settings for the entire workspace
+  maxTasksPerUser: integer("max_tasks_per_user").default(100),
+  allowAnonymousTaskCreation: boolean("allow_anonymous_task_creation").default(true),
+}, (table) => {
+  return {
+    workspaceIdIdx: uniqueIndex("workspace_id_idx").on(table.slackWorkspaceId),
+  };
+});
+
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
-  username: text("username").notNull().unique(),
+  username: text("username").notNull(),
   password: text("password").notNull(),
   email: text("email").notNull(),
   slackUserId: text("slack_user_id"),
   slackAccessToken: text("slack_access_token"),
   googleRefreshToken: text("google_refresh_token"),
+  // Update to reference the workspace id from the workspaces table
+  workspaceId: integer("workspace_id"),
   slackWorkspace: text("slack_workspace"),
   slackChannelPreferences: text("slack_channel_preferences"),
   timezone: text("timezone").default("UTC").notNull(),
+}, (table) => {
+  return {
+    usernameIdx: uniqueIndex("username_idx").on(table.username),
+    workspaceIdIdx: index("user_workspace_id_idx").on(table.workspaceId),
+    slackUserIdIdx: index("slack_user_id_idx").on(table.slackUserId),
+  };
 });
 
 export const workingHours = pgTable("working_hours", {
@@ -32,11 +59,17 @@ export const workingHours = pgTable("working_hours", {
   focusTimeEnabled: boolean("focus_time_enabled").default(true),
   focusTimeDuration: text("focus_time_duration").default("01:00"),
   focusTimePreference: text("focus_time_preference").default("morning"),
+}, (table) => {
+  return {
+    userIdIdx: index("working_hours_user_id_idx").on(table.userId),
+  };
 });
 
 export const tasks = pgTable("tasks", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull(),
+  // Add workspace ID for multi-workspace support
+  workspaceId: integer("workspace_id"),
   title: text("title").notNull(),
   description: text("description"),
   priority: text("priority").notNull().default("medium"),
@@ -46,6 +79,10 @@ export const tasks = pgTable("tasks", {
   completed: boolean("completed").notNull().default(false),
   slackMessageId: text("slack_message_id"),
   slackChannelId: text("slack_channel_id"),
+  // Add thread timestamp for better message threaded replies
+  slackThreadTs: text("slack_thread_ts"),
+  // Store the Slack message timestamp that will be used for updating messages
+  slackInteractionMessageTs: text("slack_interaction_message_ts"),
   googleEventId: text("google_event_id"),
   status: text("status").notNull().default("pending"),
   createdAt: timestamp("created_at").notNull().defaultNow(),
@@ -59,6 +96,22 @@ export const tasks = pgTable("tasks", {
   recurringPattern: text("recurring_pattern"),
   // Track if the task has been displayed to the user in the UI
   displayed: boolean("displayed").notNull().default(false),
+}, (table) => {
+  return {
+    workspaceIdIdx: index("task_workspace_id_idx").on(table.workspaceId),
+    userIdIdx: index("task_user_id_idx").on(table.userId),
+    slackMessageIdIdx: index("slack_message_id_idx").on(table.slackMessageId),
+  };
+});
+
+export const insertWorkspaceSchema = createInsertSchema(workspaces).pick({
+  slackWorkspaceId: true,
+  slackWorkspaceName: true,
+  slackBotToken: true,
+  slackClientId: true,
+  slackClientSecret: true,
+  maxTasksPerUser: true,
+  allowAnonymousTaskCreation: true,
 });
 
 export const insertUserSchema = createInsertSchema(users).pick({
@@ -68,6 +121,7 @@ export const insertUserSchema = createInsertSchema(users).pick({
   slackUserId: true,
   slackAccessToken: true,
   googleRefreshToken: true,
+  workspaceId: true,
   slackWorkspace: true,
   slackChannelPreferences: true,
   timezone: true,
@@ -93,6 +147,7 @@ export const insertWorkingHoursSchema = createInsertSchema(workingHours).pick({
 
 export const insertTaskSchema = createInsertSchema(tasks).pick({
   userId: true,
+  workspaceId: true,
   title: true,
   description: true,
   priority: true,
@@ -102,6 +157,8 @@ export const insertTaskSchema = createInsertSchema(tasks).pick({
   completed: true,
   slackMessageId: true,
   slackChannelId: true,
+  slackThreadTs: true,
+  slackInteractionMessageTs: true,
   googleEventId: true,
   status: true,
   scheduledStart: true,
