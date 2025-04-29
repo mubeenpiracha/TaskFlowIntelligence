@@ -1,10 +1,11 @@
 import { eq, and } from 'drizzle-orm';
 import { db } from './db';
 import { 
-  users, workingHours, tasks,
+  users, workingHours, tasks, workspaces,
   type User, type InsertUser, 
   type WorkingHours, type InsertWorkingHours,
-  type Task, type InsertTask
+  type Task, type InsertTask,
+  type Workspace, type InsertWorkspace
 } from '@shared/schema';
 import type { IStorage } from './storage';
 import pkg from 'pg';
@@ -14,6 +15,77 @@ const { Pool } = pkg;
 const pool = new Pool({ connectionString: process.env.DATABASE_URL });
 
 export class PgStorage implements IStorage {
+  // Workspace operations
+  async getWorkspace(id: number): Promise<Workspace | undefined> {
+    try {
+      const result = await db.select().from(workspaces).where(eq(workspaces.id, id));
+      return result[0];
+    } catch (error) {
+      console.error(`[DB] Error getting workspace ${id}:`, error);
+      return undefined;
+    }
+  }
+  
+  async getWorkspaceBySlackId(slackWorkspaceId: string): Promise<Workspace | undefined> {
+    try {
+      const result = await db.select().from(workspaces).where(eq(workspaces.slackWorkspaceId, slackWorkspaceId));
+      return result[0];
+    } catch (error) {
+      console.error(`[DB] Error getting workspace by Slack ID ${slackWorkspaceId}:`, error);
+      return undefined;
+    }
+  }
+  
+  async getAllWorkspaces(): Promise<Workspace[]> {
+    try {
+      return await db.select().from(workspaces);
+    } catch (error) {
+      console.error('[DB] Error getting all workspaces:', error);
+      return [];
+    }
+  }
+  
+  async createWorkspace(workspace: InsertWorkspace): Promise<Workspace> {
+    try {
+      const result = await db.insert(workspaces).values(workspace).returning();
+      return result[0];
+    } catch (error) {
+      console.error('[DB] Error creating workspace:', error);
+      throw error;
+    }
+  }
+  
+  async updateWorkspace(id: number, workspaceUpdate: Partial<InsertWorkspace>): Promise<Workspace | undefined> {
+    try {
+      const result = await db
+        .update(workspaces)
+        .set(workspaceUpdate)
+        .where(eq(workspaces.id, id))
+        .returning();
+      return result[0];
+    } catch (error) {
+      console.error(`[DB] Error updating workspace ${id}:`, error);
+      return undefined;
+    }
+  }
+  
+  async getUsersByWorkspace(workspaceId: number): Promise<User[]> {
+    try {
+      return await db.select().from(users).where(eq(users.workspaceId, workspaceId));
+    } catch (error) {
+      console.error(`[DB] Error getting users for workspace ${workspaceId}:`, error);
+      return [];
+    }
+  }
+  
+  async getTasksByWorkspace(workspaceId: number): Promise<Task[]> {
+    try {
+      return await db.select().from(tasks).where(eq(tasks.workspaceId, workspaceId));
+    } catch (error) {
+      console.error(`[DB] Error getting tasks for workspace ${workspaceId}:`, error);
+      return [];
+    }
+  }
   // User operations
   async getUser(id: number): Promise<User | undefined> {
     try {
@@ -87,6 +159,20 @@ export class PgStorage implements IStorage {
   async createUser(user: InsertUser): Promise<User> {
     const result = await db.insert(users).values(user).returning();
     return result[0];
+  }
+  
+  async updateUser(id: number, userData: Partial<InsertUser>): Promise<User | undefined> {
+    try {
+      const result = await db.update(users)
+        .set(userData)
+        .where(eq(users.id, id))
+        .returning();
+      
+      return result[0];
+    } catch (error) {
+      console.error(`[DB] Error updating user ${id}:`, error);
+      return undefined;
+    }
   }
   
   async updateUserGoogleToken(id: number, token: string): Promise<User | undefined> {
@@ -214,9 +300,10 @@ export class PgStorage implements IStorage {
     return result[0];
   }
   
-  async createPendingTask(userId: number, slackMessageId: string, slackChannelId: string, title: string): Promise<Task> {
+  async createPendingTask(userId: number, workspaceId: number, slackMessageId: string, slackChannelId: string, title: string): Promise<Task> {
     const task: InsertTask = {
       userId,
+      workspaceId,
       title,
       slackMessageId,
       slackChannelId,

@@ -23,6 +23,7 @@ export interface IStorage {
   getAllUsers(): Promise<User[]>;
   getUsersByWorkspace(workspaceId: number): Promise<User[]>;
   createUser(user: InsertUser): Promise<User>;
+  updateUser(id: number, userData: Partial<InsertUser>): Promise<User | undefined>;
   updateUserGoogleToken(id: number, token: string): Promise<User | undefined>;
   disconnectUserGoogleCalendar(id: number): Promise<User | undefined>;
   updateUserSlackInfo(id: number, slackUserId: string, workspace: string, accessToken: string | null): Promise<User | undefined>;
@@ -165,6 +166,15 @@ export class MemStorage implements IStorage {
     };
     this.users.set(id, user);
     return user;
+  }
+  
+  async updateUser(id: number, userData: Partial<InsertUser>): Promise<User | undefined> {
+    const user = this.users.get(id);
+    if (!user) return undefined;
+    
+    const updatedUser = { ...user, ...userData };
+    this.users.set(id, updatedUser);
+    return updatedUser;
   }
 
   async updateUserGoogleToken(id: number, token: string): Promise<User | undefined> {
