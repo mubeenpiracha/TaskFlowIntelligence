@@ -1,5 +1,6 @@
 import { WebClient } from '@slack/web-api';
 import { SLACK_OAUTH_REDIRECT_URL } from '../config';
+import { storage } from '../storage';
 
 // Check if Slack API credentials are set
 if (!process.env.SLACK_CLIENT_ID || !process.env.SLACK_CLIENT_SECRET) {
@@ -60,6 +61,7 @@ export async function exchangeCodeForToken(code: string): Promise<{
   userId: string;
   teamId: string;
   teamName: string;
+  workspaceId?: number;  // Our internal workspace ID (optional if workspace creation fails)
 }> {
   if (!process.env.SLACK_CLIENT_ID || !process.env.SLACK_CLIENT_SECRET) {
     throw new Error('Slack client credentials are not configured');
@@ -98,14 +100,57 @@ export async function exchangeCodeForToken(code: string): Promise<{
       throw new Error('No access tokens provided in Slack OAuth response. This app requires OAuth token access.');
     }
     
-    // Return both tokens and user information
-    return {
-      botAccessToken,
-      userAccessToken,
-      userId: response.authed_user.id,
-      teamId: response.team.id,
-      teamName: response.team.name || response.team.id
-    };
+    // Get or create workspace record in our database
+    const teamId = response.team.id;
+    const teamName = response.team.name || response.team.id;
+    
+    // Save the workspace information and bot token
+    try {
+      let workspace = await storage.getWorkspaceBySlackId(teamId);
+      
+      // Create workspace if it doesn't exist, otherwise update it
+      if (!workspace) {
+        console.log(`Creating new workspace record for Slack team ${teamName} (${teamId})`);
+        workspace = await storage.createWorkspace({
+          slackWorkspaceId: teamId,
+          slackWorkspaceName: teamName,
+          slackBotToken: botAccessToken || '',
+          slackClientId: process.env.SLACK_CLIENT_ID || '',
+          slackClientSecret: process.env.SLACK_CLIENT_SECRET || '',
+          active: true,
+          maxTasksPerUser: 100,
+          allowAnonymousTaskCreation: true
+        });
+      } else {
+        console.log(`Updating existing workspace record for Slack team ${teamName} (${teamId})`);
+        workspace = await storage.updateWorkspace(workspace.id, {
+          slackWorkspaceName: teamName,
+          slackBotToken: botAccessToken || workspace.slackBotToken,
+          active: true
+        });
+      }
+      
+      // Return both tokens, user information, and our internal workspace ID
+      return {
+        botAccessToken,
+        userAccessToken,
+        userId: response.authed_user.id,
+        teamId,
+        teamName,
+        workspaceId: workspace.id
+      };
+    } catch (storageError) {
+      console.error('Error saving workspace information:', storageError);
+      
+      // Still return tokens and basic info even if saving workspace failed
+      return {
+        botAccessToken,
+        userAccessToken,
+        userId: response.authed_user.id,
+        teamId,
+        teamName
+      };
+    }
   } catch (error) {
     console.error('Error exchanging code for token:', error);
     throw error;

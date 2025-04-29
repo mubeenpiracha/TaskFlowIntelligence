@@ -567,23 +567,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
         teamId, 
         teamName, 
         botAccessToken, 
-        userAccessToken 
+        userAccessToken,
+        workspaceId 
       } = await exchangeCodeForToken(code);
       
       // Store the Slack user ID, workspace, and user token in the user record
-      // We store the user token (xoxp-) for personalized interactions
-      await storage.updateUserSlackInfo(
+      // We also store the internal workspace ID from our database
+      const user = await storage.updateUserSlackInfo(
         req.session.userId, 
         userId, 
         teamName, 
         userAccessToken  // Store the user token from the authed_user object
       );
       
+      // Update the user's workspace ID if workspaceId was returned
+      if (workspaceId && user) {
+        await storage.updateUser(req.session.userId, { workspaceId });
+        console.log(`Associated user ${req.session.userId} with workspace ID ${workspaceId}`);
+      }
+      
       // Create default empty channel preferences
       await saveChannelPreferences(req.session.userId, []);
       
       // Log success and token types for debugging
-      console.log(`Slack connected for user ${req.session.userId}: user token = ${userAccessToken ? 'present' : 'missing'}, bot token = ${botAccessToken ? 'present' : 'missing'}`);
+      console.log(`Slack connected for user ${req.session.userId}: user token = ${userAccessToken ? 'present' : 'missing'}, bot token = ${botAccessToken ? 'present' : 'missing'}, workspaceId = ${workspaceId || 'missing'}`);
       
       res.redirect('/#/settings?slack_connected=true');
     } catch (error) {
