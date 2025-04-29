@@ -250,6 +250,39 @@ async function scheduleTasksForUser(user: User, tasks: Task[]) {
  */
 async function scheduleTaskWithEventData(user: User, task: Task, eventData: any) {
   try {
+    // Validate that the event start time is not in the past
+    const now = new Date();
+    const eventStartTime = new Date(eventData.start.dateTime);
+    
+    if (eventStartTime < now) {
+      console.warn(`[SCHEDULER] Attempted to schedule task ${task.id} in the past. Adjusting start time.`);
+      
+      // Adjust start time to nearest future 15-minute slot
+      const adjustedStartTime = new Date(now);
+      const minutes = adjustedStartTime.getMinutes();
+      const roundedMinutes = Math.ceil(minutes / 15) * 15;
+      adjustedStartTime.setMinutes(roundedMinutes, 0, 0);
+      
+      // If we rounded to the next hour
+      if (roundedMinutes === 60) {
+        adjustedStartTime.setMinutes(0);
+        adjustedStartTime.setHours(adjustedStartTime.getHours() + 1);
+      }
+      
+      // Calculate new end time based on original duration
+      const originalStartTime = new Date(eventData.start.dateTime);
+      const originalEndTime = new Date(eventData.end.dateTime);
+      const durationMs = originalEndTime.getTime() - originalStartTime.getTime();
+      
+      const adjustedEndTime = new Date(adjustedStartTime.getTime() + durationMs);
+      
+      // Update event data with adjusted times
+      eventData.start.dateTime = adjustedStartTime.toISOString().replace('Z', '');
+      eventData.end.dateTime = adjustedEndTime.toISOString().replace('Z', '');
+      
+      console.log(`[SCHEDULER] Adjusted event time to: ${eventData.start.dateTime} - ${eventData.end.dateTime}`);
+    }
+    
     // Create the calendar event
     const event = await createEvent(user, eventData);
     
@@ -316,6 +349,17 @@ function findAvailableSlots(
   let currentDate = new Date(startDate);
   currentDate.setMinutes(0, 0, 0);
   currentDate.setHours(currentDate.getHours() + 1);
+  
+  // Ensure we're not scheduling in the past
+  const now = new Date();
+  if (currentDate < now) {
+    console.log(`[SCHEDULER] Adjusted start time from past (${currentDate.toISOString()}) to now (${now.toISOString()})`);
+    currentDate = new Date(now);
+    // Round up to the nearest 15-minute interval
+    const minutes = currentDate.getMinutes();
+    const roundedMinutes = Math.ceil(minutes / 15) * 15;
+    currentDate.setMinutes(roundedMinutes, 0, 0);
+  }
   
   // Generate potential slots during working hours
   while (currentDate < endDate) {
@@ -445,7 +489,11 @@ function selectOptimalSlot(
 function calculateTaskTimeSlot(task: Task): { startTime: Date, endTime: Date } {
   // Start with current time as a base
   const now = new Date();
-  let startTime = new Date();
+  
+  // Add 15 minutes to current time to ensure we're always scheduling in the future
+  // This gives a buffer for API calls and processing time
+  const nowPlus15Min = new Date(now.getTime() + 15 * 60 * 1000);
+  let startTime = new Date(nowPlus15Min);
   
   // If task has a due date/time, use that to calculate backward
   if (task.dueDate) {
@@ -470,33 +518,37 @@ function calculateTaskTimeSlot(task: Task): { startTime: Date, endTime: Date } {
         startTime.setHours(startTime.getHours() - 48); // 2 days before for low priority
       }
       
-      // If the calculated start time is in the past, move it to now + 1 hour
-      if (startTime < now) {
-        startTime = new Date(now);
-        startTime.setHours(now.getHours() + 1);
+      // If the calculated start time is in the past, move it to now + buffer time
+      if (startTime < nowPlus15Min) {
+        console.log(`[SCHEDULER] Task ${task.id}: Adjusted start time from past (${startTime.toISOString()}) to future`);
+        startTime = new Date(nowPlus15Min);
+        startTime.setHours(startTime.getHours() + 1); // Add another hour for good measure
       }
     } else {
       // Just due date without time, schedule for morning of due date
       startTime = parse(task.dueDate, 'yyyy-MM-dd', new Date());
       startTime.setHours(9, 0, 0, 0); // 9:00 AM
       
-      // If the due date is today and it's already past 9 AM, schedule for now + 1 hour
-      if (startTime < now) {
-        startTime = new Date(now);
-        startTime.setHours(now.getHours() + 1);
+      // If the due date is today and it's already past 9 AM, schedule for now + buffer time
+      if (startTime < nowPlus15Min) {
+        console.log(`[SCHEDULER] Task ${task.id}: Adjusted date-only due time from past (${startTime.toISOString()}) to future`);
+        startTime = new Date(nowPlus15Min);
+        startTime.setHours(startTime.getHours() + 1); // Add another hour for good measure
       }
     }
   } else {
     // No due date, schedule based on priority
-    startTime = new Date(now);
+    startTime = new Date(nowPlus15Min); // Start from safe future time
     
     if (task.priority === 'high') {
-      startTime.setHours(now.getHours() + 1); // Schedule in 1 hour for high priority
+      startTime.setHours(startTime.getHours() + 1); // Schedule in 1 hour for high priority
     } else if (task.priority === 'medium') {
-      startTime.setHours(now.getHours() + 3); // Schedule in 3 hours for medium priority
+      startTime.setHours(startTime.getHours() + 3); // Schedule in 3 hours for medium priority
     } else {
-      startTime.setHours(now.getHours() + 24); // Schedule tomorrow for low priority
+      startTime.setHours(startTime.getHours() + 24); // Schedule tomorrow for low priority
     }
+    
+    console.log(`[SCHEDULER] Task ${task.id}: Scheduled without due date at ${startTime.toISOString()} based on priority ${task.priority || 'medium'}`);
   }
   
   // Calculate end time based on time required
