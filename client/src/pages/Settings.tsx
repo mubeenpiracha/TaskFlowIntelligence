@@ -78,16 +78,22 @@ export default function Settings() {
   });
   
   // Fetch Slack OAuth URL
-  const { data: slackAuthData } = useQuery({
+  const { data: slackAuthData, isLoading: isLoadingSlackAuth, refetch: refetchSlackAuthUrl } = useQuery({
     queryKey: ['/api/auth/slack/url'],
     queryFn: async () => {
       try {
-        return await getSlackAuthUrl();
+        const url = await getSlackAuthUrl();
+        console.log("Received Slack auth URL:", url);
+        return { url };
       } catch (error) {
         console.error("Error fetching Slack auth URL:", error);
         return { url: "" };
       }
-    }
+    },
+    // This is important to ensure we always have the most up-to-date auth URL
+    refetchOnWindowFocus: true,
+    // Don't stale the auth URL data so we always refetch
+    staleTime: 0
   });
   
   // Fetch Slack channels
@@ -237,18 +243,26 @@ export default function Settings() {
   };
   
   // Handle Slack connection
-  const handleConnectSlack = () => {
+  const handleConnectSlack = async () => {
     console.log("Slack reconnect clicked, auth data:", slackAuthData);
     
-    if (slackAuthData?.url) {
-      console.log("Redirecting to Slack auth URL:", slackAuthData.url);
-      // Use window.open instead of location.href to avoid potential navigation issues
-      window.open(slackAuthData.url, "_self");
-    } else {
-      console.error("No Slack auth URL available");
+    try {
+      // Always refetch the auth URL to get the latest
+      await refetchSlackAuthUrl();
+      
+      if (slackAuthData?.url) {
+        console.log("Redirecting to Slack auth URL:", slackAuthData.url);
+        // Use window.location.href for more reliable redirection
+        window.location.href = slackAuthData.url;
+      } else {
+        // If still no URL after refetch, throw error
+        throw new Error("No Slack authorization URL available");
+      }
+    } catch (error) {
+      console.error("Failed to connect to Slack:", error);
       toast({
         title: "Error",
-        description: "Could not get Slack authorization URL.",
+        description: "Could not connect to Slack. Please try again later.",
         variant: "destructive",
       });
     }

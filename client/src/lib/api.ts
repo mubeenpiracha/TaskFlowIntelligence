@@ -412,8 +412,17 @@ export async function getGoogleCalendarAuthUrl(): Promise<string> {
  * @returns URL to redirect the user to for Slack authorization
  */
 export async function getSlackAuthUrl(): Promise<string> {
-  const response = await fetchApi<{ url: string }>('/api/auth/slack/url');
-  return response.url;
+  try {
+    const response = await fetchApi<{ url: string }>('/api/auth/slack/url');
+    console.log("Slack auth URL response:", response);
+    if (!response || !response.url) {
+      throw new Error("Invalid Slack auth URL response");
+    }
+    return response.url;
+  } catch (error) {
+    console.error("Failed to get Slack auth URL:", error);
+    throw error;
+  }
 }
 
 /**
