@@ -334,6 +334,7 @@ export async function createTaskFromSlackMessage(
       dueDate,
       dueTime,
       completed: false,
+      status: 'accepted', // Set status to 'accepted' so the scheduler will pick it up
       slackMessageId: message.ts,
       slackChannelId: message.channelId || null,
       googleEventId: null,
