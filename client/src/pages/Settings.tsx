@@ -238,9 +238,14 @@ export default function Settings() {
   
   // Handle Slack connection
   const handleConnectSlack = () => {
+    console.log("Slack reconnect clicked, auth data:", slackAuthData);
+    
     if (slackAuthData?.url) {
-      window.location.href = slackAuthData.url;
+      console.log("Redirecting to Slack auth URL:", slackAuthData.url);
+      // Use window.open instead of location.href to avoid potential navigation issues
+      window.open(slackAuthData.url, "_self");
     } else {
+      console.error("No Slack auth URL available");
       toast({
         title: "Error",
         description: "Could not get Slack authorization URL.",
