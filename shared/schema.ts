@@ -57,6 +57,8 @@ export const tasks = pgTable("tasks", {
   urgency: integer("urgency"),
   // Recurring task pattern (daily, weekly, biweekly, monthly, none)
   recurringPattern: text("recurring_pattern"),
+  // Track if the task has been displayed to the user in the UI
+  displayed: boolean("displayed").notNull().default(false),
 });
 
 export const insertUserSchema = createInsertSchema(users).pick({
@@ -107,6 +109,7 @@ export const insertTaskSchema = createInsertSchema(tasks).pick({
   importance: true,
   urgency: true,
   recurringPattern: true,
+  displayed: true,
 });
 
 export type InsertUser = z.infer<typeof insertUserSchema>;

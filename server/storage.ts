@@ -38,6 +38,11 @@ export interface IStorage {
   deleteTask(id: number): Promise<boolean>;
   markTaskComplete(id: number, completed: boolean): Promise<Task | undefined>;
   createPendingTask(userId: number, slackMessageId: string, slackChannelId: string, title: string): Promise<Task>;
+  
+  // Task display operations
+  getUndisplayedTasks(userId: number): Promise<Task[]>;
+  markTaskDisplayed(id: number, displayed: boolean): Promise<Task | undefined>;
+  resetAllTaskDisplayStatus(userId: number): Promise<number>;
 }
 
 export class MemStorage implements IStorage {
