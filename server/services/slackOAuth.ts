@@ -1,6 +1,6 @@
 import { WebClient } from '@slack/web-api';
 import { SLACK_OAUTH_REDIRECT_URL } from '../config';
-import { storage } from '../storage';
+import { storage, type Workspace } from '../storage';
 
 // Check if Slack API credentials are set
 if (!process.env.SLACK_CLIENT_ID || !process.env.SLACK_CLIENT_SECRET) {
@@ -137,7 +137,7 @@ export async function exchangeCodeForToken(code: string): Promise<{
         userId: response.authed_user.id,
         teamId,
         teamName,
-        workspaceId: workspace.id
+        workspaceId: workspace?.id
       };
     } catch (storageError) {
       console.error('Error saving workspace information:', storageError);
