@@ -767,27 +767,47 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Check if this is the initial page load or a user-initiated refresh
       const isInitialLoad = req.query.initialLoad === 'true';
       const isManualRefresh = req.query.refresh === 'true';
+      const showAllTasks = req.query.showAll === 'true'; // New parameter to show all tasks
       
       // If this is a manual refresh or initial load, we reset the display status for all tasks 
       // This ensures users can see all tasks again after a refresh
-      if (isManualRefresh || isInitialLoad) {
+      if (isManualRefresh || (isInitialLoad && showAllTasks)) {
         const resetCount = await storage.resetAllTaskDisplayStatus(req.session.userId!);
-        console.log(`Reset display status for ${resetCount} tasks due to ${isManualRefresh ? 'manual refresh' : 'initial load'}`);
+        console.log(`Reset display status for ${resetCount} tasks due to ${isManualRefresh ? 'manual refresh' : 'initial load with showAll'}`);
       }
       
-      // Get undisplayed and pending tasks from the database
+      // Get pending tasks from the database
       const pendingTasks = await storage.getTasksByStatus(req.session.userId!, 'pending');
       
-      // For regular polling, only return tasks that haven't been displayed before
-      // For manual refresh or initial load, return all pending tasks (since we've reset their status)
-      const undisplayedTasks = isManualRefresh || isInitialLoad 
-        ? pendingTasks 
-        : await storage.getUndisplayedTasks(req.session.userId!);
-        
-      // Filter to only include pending tasks from our undisplayed set
-      const filteredTasks = undisplayedTasks.filter(task => 
-        task.status === 'pending' && pendingTasks.some(pt => pt.id === task.id)
-      );
+      // Calculate the cutoff date for "new" tasks (last 24 hours by default)
+      const now = new Date();
+      const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      
+      // Filter tasks based on whether they're new, the user explicitly requested all tasks,
+      // or it's a manual refresh
+      let filteredTasks = [];
+      
+      if (isManualRefresh || showAllTasks) {
+        // For manual refresh or when all tasks requested, show all pending tasks
+        filteredTasks = pendingTasks;
+      } else if (isInitialLoad) {
+        // For initial load (without showAll), only show tasks from the last 24 hours
+        // that haven't been marked as displayed yet
+        const undisplayedTasks = await storage.getUndisplayedTasks(req.session.userId!);
+        filteredTasks = undisplayedTasks.filter(task => {
+          // Keep task if it's pending and created within the last 24 hours
+          const taskDate = task.createdAt ? new Date(task.createdAt) : null;
+          return task.status === 'pending' && 
+                 pendingTasks.some(pt => pt.id === task.id) && 
+                 (taskDate ? taskDate > oneDayAgo : false);
+        });
+      } else {
+        // For regular polling, only show undisplayed tasks
+        const undisplayedTasks = await storage.getUndisplayedTasks(req.session.userId!);
+        filteredTasks = undisplayedTasks.filter(task => 
+          task.status === 'pending' && pendingTasks.some(pt => pt.id === task.id)
+        );
+      }
       
       // Mark these tasks as displayed in the database
       await Promise.all(filteredTasks.map(task => 
@@ -795,7 +815,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
       ));
       
       console.log(`Returning ${filteredTasks.length} of ${pendingTasks.length} pending tasks (${isManualRefresh ? 'manual refresh' : isInitialLoad ? 'initial load' : 'regular polling'})`);
-      console.log(`${undisplayedTasks.length} total undisplayed tasks found`);
+      console.log(`Showing ${showAllTasks ? 'all tasks' : 'only recent/undisplayed tasks'}`);
+      console.log(`Total pending tasks: ${pendingTasks.length}`);
+      
       
       // Format tasks to match the expected SlackMessage format from the frontend
       const formattedTasks = filteredTasks.map(task => ({
