@@ -14,73 +14,56 @@ export function formatDateForGoogleCalendar(
   dateStr: string | Date,
   timezone: string = 'UTC',
 ): string {
-  // The Google Calendar API expects RFC 3339 format dates with timezone offset
-  // Example: 2025-04-30T14:00:00+04:00 for Asia/Dubai timezone
-  
+  // Simpler, more direct approach for RFC 3339 format with timezone offset
   try {
+    console.log(`[DATE UTILS] Formatting date: ${dateStr} for timezone: ${timezone}`);
+    
     // Create a date object from the input
-    const date = typeof dateStr === "string" ? new Date(dateStr) : dateStr;
+    const date = typeof dateStr === "string" ? new Date(dateStr) : new Date(dateStr);
     
-    // Get the timezone offset for the specified IANA timezone
-    // We need to format the date with the timezone offset directly embedded
-    // This is required for proper timeMin/timeMax parameters
-    
-    // Using toLocaleString with options to get the date in the user's timezone
-    // with proper UTC offset
-    const options: Intl.DateTimeFormatOptions = {
-      timeZone: timezone,
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false,
-      timeZoneName: 'short'
+    // Get the timezone offset dictionary - mapping IANA timezone to UTC offset
+    const timezoneOffsets: Record<string, string> = {
+      'UTC': '+00:00',
+      'Europe/London': '+00:00',
+      'Europe/Paris': '+01:00',
+      'Europe/Berlin': '+01:00',
+      'Europe/Athens': '+02:00',
+      'Europe/Moscow': '+03:00',
+      'Asia/Dubai': '+04:00',
+      'Asia/Kolkata': '+05:30',
+      'Asia/Shanghai': '+08:00',
+      'Asia/Tokyo': '+09:00',
+      'Australia/Sydney': '+10:00',
+      'Pacific/Auckland': '+12:00',
+      'America/New_York': '-05:00',
+      'America/Chicago': '-06:00',
+      'America/Denver': '-07:00',
+      'America/Los_Angeles': '-08:00',
+      'America/Anchorage': '-09:00',
+      'Pacific/Honolulu': '-10:00',
     };
     
-    // Get the formatted date with timezone info
-    const formattedDate = date.toLocaleString('en-US', options);
+    // Get the offset for the specified timezone, default to +00:00 if not found
+    const offset = timezoneOffsets[timezone] || '+00:00';
     
-    // Extract the timezone offset from the formatted date
-    // Split at the space before the timezone name (e.g., "2025-04-30, 14:00:00 GMT+4")
-    const dateParts = formattedDate.split(' ');
-    let timezoneOffset = dateParts[dateParts.length - 1];
+    // Format the date in ISO format and replace the Z with the proper offset
+    const isoString = date.toISOString();
+    const formattedDate = isoString.replace(/\.\d{3}Z$/, offset);
     
-    // Convert timezone name (like GMT+4) to ISO format (+04:00)
-    let offset = '';
-    if (timezoneOffset.includes('GMT+')) {
-      const hours = timezoneOffset.replace('GMT+', '');
-      offset = `+${hours.padStart(2, '0')}:00`;
-    } else if (timezoneOffset.includes('GMT-')) {
-      const hours = timezoneOffset.replace('GMT-', '');
-      offset = `-${hours.padStart(2, '0')}:00`;
-    } else {
-      // Default to +00:00 if we can't parse the offset
-      offset = '+00:00';
-    }
-    
-    // Format date in ISO 8601 format with proper timezone offset
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    
-    // Get the time components from the formatted string to ensure they're in the target timezone
-    // Format: "04/30/2025, 14:00:00 GMT+4"
-    const timeWithDate = dateParts[1]; // Should be like "14:00:00"
-    const timeComponents = timeWithDate.replace(',', '').split(':');
-    const hours = timeComponents[0].padStart(2, '0');
-    const minutes = timeComponents[1].padStart(2, '0');
-    const seconds = timeComponents[2].padStart(2, '0');
-    
-    // Assemble the final ISO string with embedded timezone offset
-    return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}${offset}`;
+    console.log(`[DATE UTILS] Formatted date with offset: ${formattedDate}`);
+    return formattedDate;
   } catch (error) {
     console.error('[DATE UTILS] Error formatting date for Google Calendar:', error);
     
-    // Fallback to simpler formatting without timezone if there's an error
-    const date = typeof dateStr === "string" ? new Date(dateStr) : dateStr;
-    return date.toISOString().replace('Z', '+00:00');
+    // Fallback to ISO format but still with proper timezone offset instead of Z
+    try {
+      const date = typeof dateStr === "string" ? new Date(dateStr) : dateStr;
+      return date.toISOString().replace(/\.\d{3}Z$/, '+00:00');
+    } catch (fallbackError) {
+      console.error('[DATE UTILS] Fallback formatting also failed:', fallbackError);
+      // Ultimate fallback: just return the current time in ISO format with +00:00
+      return new Date().toISOString().replace(/\.\d{3}Z$/, '+00:00');
+    }
   }
 }
 

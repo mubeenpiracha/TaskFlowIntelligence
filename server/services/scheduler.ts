@@ -221,15 +221,21 @@ async function scheduleTasksForUser(user: User, tasks: Task[]) {
       console.log(`[SCHEDULER] Selected optimal slot: ${optimalSlot.start.toISOString()} - ${optimalSlot.end.toISOString()}`);
       
       // Create event data with the optimal slot
+      // Format the dates with proper timezone offsets using our enhanced dateUtils formatter
+      const { formatDateForGoogleCalendar } = require('../utils/dateUtils');
+      
+      const startDateTime = formatDateForGoogleCalendar(optimalSlot.start, userTimezone);
+      const endDateTime = formatDateForGoogleCalendar(optimalSlot.end, userTimezone);
+      
       const eventData = {
         summary: task.title,
         description: task.description || undefined,
         start: {
-          dateTime: optimalSlot.start.toISOString().replace('Z', ''),
+          dateTime: startDateTime,
           timeZone: userTimezone
         },
         end: {
-          dateTime: optimalSlot.end.toISOString().replace('Z', ''),
+          dateTime: endDateTime,
           timeZone: userTimezone
         }
       };

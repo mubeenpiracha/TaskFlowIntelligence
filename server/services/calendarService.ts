@@ -65,6 +65,17 @@ export async function createEvent(
     event.end.timeZone = userTimezone;
   }
   
+  // Format the dateTime with timezone offset if present
+  if (event.start && event.start.dateTime) {
+    // Apply our timezone-aware formatting that embeds the offset
+    event.start.dateTime = formatDateForGoogleCalendar(event.start.dateTime, userTimezone);
+  }
+  
+  if (event.end && event.end.dateTime) {
+    // Apply our timezone-aware formatting that embeds the offset
+    event.end.dateTime = formatDateForGoogleCalendar(event.end.dateTime, userTimezone);
+  }
+  
   return await createCalendarEvent(user.googleRefreshToken, event);
 }
 
