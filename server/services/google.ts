@@ -1,6 +1,7 @@
 import { google, calendar_v3 } from 'googleapis';
 import { OAuth2Client } from 'google-auth-library';
 import { GOOGLE_CALENDAR_REDIRECT_URL, GOOGLE_LOGIN_REDIRECT_URL } from '../config';
+import { formatDateForGoogleCalendar } from '../utils/dateUtils';
 
 // Check if Google API credentials are set
 if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
@@ -213,7 +214,7 @@ export async function createCalendarEvent(
     }
     
     // Format dates properly for Google Calendar API using our dedicated formatter function
-    const { formatDateForGoogleCalendar } = require('../utils/dateUtils');
+    // We've already imported formatDateForGoogleCalendar at the top of the file
     
     if (event.start.dateTime) {
       // Convert to Date object to normalize the format
@@ -281,7 +282,7 @@ export async function createCalendarEvent(
       const timeZone = event.start?.timeZone || 'UTC';
       
       // Format dates with timezone offset using our helper function
-      const { formatDateForGoogleCalendar } = require('../utils/dateUtils');
+      // We already imported formatDateForGoogleCalendar at the top of the file
       
       // Use the timezone from the original event
       const startDateTime = formatDateForGoogleCalendar(now, timeZone);
@@ -346,19 +347,17 @@ export async function updateCalendarEvent(
     
     // Format the date fields with proper timezone offsets if they exist
     if (event.start?.dateTime) {
-      const { formatDateForGoogleCalendar } = require('../utils/dateUtils');
       const timezone = event.start.timeZone || 'UTC';
       
-      // Apply timezone formatting to the dateTime field
+      // Apply timezone formatting to the dateTime field using our imported formatter
       event.start.dateTime = formatDateForGoogleCalendar(new Date(event.start.dateTime), timezone);
       console.log(`[CALENDAR DEBUG] Formatted start datetime: ${event.start.dateTime}`);
     }
     
     if (event.end?.dateTime) {
-      const { formatDateForGoogleCalendar } = require('../utils/dateUtils');
       const timezone = event.end.timeZone || 'UTC';
       
-      // Apply timezone formatting to the dateTime field
+      // Apply timezone formatting to the dateTime field using our imported formatter
       event.end.dateTime = formatDateForGoogleCalendar(new Date(event.end.dateTime), timezone);
       console.log(`[CALENDAR DEBUG] Formatted end datetime: ${event.end.dateTime}`);
     }
