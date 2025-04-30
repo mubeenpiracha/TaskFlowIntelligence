@@ -7,6 +7,15 @@ import { apiRequest } from './queryClient';
 import { ApiErrorResponse, ErrorCode, getErrorMessage } from './errorTypes';
 import { toast } from '@/hooks/use-toast';
 
+// Type definitions for API responses
+export interface SlackChannel {
+  id: string;
+  name: string;
+  is_private: boolean;
+  is_mpim?: boolean;
+  is_im?: boolean;
+}
+
 /**
  * Fetch data from the API with standardized error handling
  * 

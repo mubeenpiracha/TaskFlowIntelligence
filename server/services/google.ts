@@ -263,7 +263,7 @@ export async function createCalendarEvent(
     }
     
     return response.data;
-  } catch (error) {
+  } catch (error: any) {
     console.error('[CALENDAR DEBUG] Error creating calendar event:', error);
     
     // Log more detailed error info if available
@@ -323,7 +323,7 @@ export async function createCalendarEvent(
       
       console.log('[CALENDAR DEBUG] Fallback calendar event created successfully:', fallbackResponse.data.id);
       return fallbackResponse.data;
-    } catch (fallbackError) {
+    } catch (fallbackError: any) {
       console.error('[CALENDAR DEBUG] Fallback event creation failed:', fallbackError);
       
       // If fallback also fails, report the detailed error for diagnosis
@@ -379,7 +379,7 @@ export async function updateCalendarEvent(
     
     console.log('[CALENDAR DEBUG] Successfully updated calendar event:', eventId);
     return response.data;
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error updating calendar event:', error);
     
     // Check if this is a token expired error
@@ -411,7 +411,7 @@ export async function deleteCalendarEvent(
     });
     
     return true;
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error deleting calendar event:', error);
     
     // Check if this is a token expired error
@@ -470,7 +470,7 @@ export async function listCalendarEvents(
     console.log(`[CALENDAR] Successfully retrieved ${response.data.items?.length || 0} events`);
     
     return response.data.items || [];
-  } catch (error) {
+  } catch (error: any) {
     console.error('[CALENDAR] Error listing calendar events:', error);
     
     // Check if this is a token expired error
