@@ -15,16 +15,15 @@ export function formatDateForGoogleCalendar(
   timezone?: string,
 ): string {
   // The Google Calendar API expects RFC 3339 format dates
-  // We should keep any timezone information if it's in the original string
+  // We should remove 'Z' suffix to avoid forcing UTC timezone
+  // Timezone handling will be done via the timeZone parameter in the API call
 
-  // If it's a Date object, convert to ISO string
+  // If it's a Date object, convert to ISO string and remove Z
   const isoString =
     typeof dateStr === "string"
-      ? dateStr
+      ? dateStr.endsWith("Z") ? dateStr.replace("Z", "") : dateStr
       : dateStr.toISOString().replace("Z", "");
 
-  // For now, just return the ISO string as is - the timezone handling
-  // will be done via the timeZone parameter in the API call
   return isoString;
 }
 

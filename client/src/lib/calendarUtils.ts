@@ -22,13 +22,16 @@ export function formatDate(date: Date, formatStr: string = 'MMM d, yyyy'): strin
 /**
  * Formats a date for the Google Calendar API
  * Uses RFC 3339 format with timezone
+ * Removes the 'Z' suffix to avoid forcing UTC timezone
+ * when sending to Google Calendar API
  * 
  * @param date Date to format 
- * @returns Formatted date string in RFC 3339 format
+ * @returns Formatted date string in RFC 3339 format without Z suffix
  */
 export function formatDateForCalendarAPI(date: Date): string {
   if (!isValid(date)) throw new Error('Invalid date for calendar API');
-  return date.toISOString();
+  // Remove the 'Z' suffix to maintain timezone consistency with server
+  return date.toISOString().replace('Z', '');
 }
 
 /**
