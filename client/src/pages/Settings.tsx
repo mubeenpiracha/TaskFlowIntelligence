@@ -116,11 +116,11 @@ export default function Settings() {
     queryKey: ['/api/slack/channels/preferences'],
     queryFn: async () => {
       try {
-        if (!isSlackConnected) return { channelIds: [] };
+        if (!isSlackConnected) return [];
         return await getSlackChannelPreferences();
       } catch (error) {
         console.error("Error fetching channel preferences:", error);
-        return { channelIds: [] };
+        return [];
       }
     },
     enabled: !!user?.slackUserId,
@@ -302,8 +302,8 @@ export default function Settings() {
   
   // Effect to set selected channels when preferences are loaded
   useEffect(() => {
-    if (channelPrefs?.channelIds) {
-      setSelectedChannels(channelPrefs.channelIds);
+    if (channelPrefs && Array.isArray(channelPrefs)) {
+      setSelectedChannels(channelPrefs);
     }
   }, [channelPrefs]);
   
