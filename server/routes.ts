@@ -299,6 +299,43 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
+  // Get user's Slack channel preferences
+  app.get('/api/user/slack-channels', requireAuth, async (req, res) => {
+    try {
+      const user = await storage.getUser(req.session.userId!);
+      if (!user) {
+        return res.status(404).json({ message: 'User not found' });
+      }
+      
+      res.json({ channels: user.slackChannelPreferences || '[]' });
+      console.log(`[SLACK] Retrieved channel preferences for user ${req.session.userId}`);
+    } catch (error) {
+      console.error('[SLACK] Error fetching Slack channel preferences:', error);
+      res.status(500).json({ message: 'Server error' });
+    }
+  });
+  
+  // Update user's Slack channel preferences
+  app.patch('/api/user/slack-channels', requireAuth, async (req, res) => {
+    try {
+      const { channels } = req.body;
+      if (!channels) {
+        return res.status(400).json({ message: 'Channels are required' });
+      }
+      
+      const user = await storage.updateUserSlackChannelPreferences(req.session.userId!, channels);
+      if (!user) {
+        return res.status(404).json({ message: 'User not found' });
+      }
+      
+      res.json({ success: true, message: 'Slack channel preferences updated successfully' });
+      console.log(`[SLACK] Updated channel preferences for user ${req.session.userId}`);
+    } catch (error) {
+      console.error('[SLACK] Error updating Slack channel preferences:', error);
+      res.status(500).json({ message: 'Server error' });
+    }
+  });
+  
   // Google OAuth routes
   // 1. Connect calendar for existing user
   app.get('/api/auth/google/calendar/url', requireAuth, (req, res) => {
