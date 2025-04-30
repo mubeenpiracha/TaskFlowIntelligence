@@ -192,15 +192,22 @@ async function scheduleTasksForUser(user: User, tasks: Task[]) {
         const { startTime, endTime } = calculateTaskTimeSlot(task);
         
         // Create event data
+        // Import formatDateForGoogleCalendar for proper timezone handling
+        const { formatDateForGoogleCalendar } = require('../utils/dateUtils');
+        
+        // Format dates with proper timezone offsets
+        const startDateTime = formatDateForGoogleCalendar(startTime, userTimezone);
+        const endDateTime = formatDateForGoogleCalendar(endTime, userTimezone);
+        
         const eventData = {
           summary: task.title,
           description: task.description || undefined,
           start: {
-            dateTime: startTime.toISOString().replace('Z', ''),
+            dateTime: startDateTime,
             timeZone: userTimezone
           },
           end: {
-            dateTime: endTime.toISOString().replace('Z', ''),
+            dateTime: endDateTime,
             timeZone: userTimezone
           }
         };
@@ -282,9 +289,15 @@ async function scheduleTaskWithEventData(user: User, task: Task, eventData: any)
       
       const adjustedEndTime = new Date(adjustedStartTime.getTime() + durationMs);
       
-      // Update event data with adjusted times
-      eventData.start.dateTime = adjustedStartTime.toISOString().replace('Z', '');
-      eventData.end.dateTime = adjustedEndTime.toISOString().replace('Z', '');
+      // Import formatDateForGoogleCalendar 
+      const { formatDateForGoogleCalendar } = require('../utils/dateUtils');
+      
+      // Get user timezone
+      const userTimezone = user.timezone || 'UTC';
+      
+      // Format with proper timezone offset
+      eventData.start.dateTime = formatDateForGoogleCalendar(adjustedStartTime, userTimezone);
+      eventData.end.dateTime = formatDateForGoogleCalendar(adjustedEndTime, userTimezone);
       
       console.log(`[SCHEDULER] Adjusted event time to: ${eventData.start.dateTime} - ${eventData.end.dateTime}`);
     }

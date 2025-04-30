@@ -21,30 +21,62 @@ export function formatDateForGoogleCalendar(
     // Create a date object from the input
     const date = typeof dateStr === "string" ? new Date(dateStr) : new Date(dateStr);
     
-    // Get the timezone offset dictionary - mapping IANA timezone to UTC offset
-    const timezoneOffsets: Record<string, string> = {
-      'UTC': '+00:00',
-      'Europe/London': '+00:00',
-      'Europe/Paris': '+01:00',
-      'Europe/Berlin': '+01:00',
-      'Europe/Athens': '+02:00',
-      'Europe/Moscow': '+03:00',
-      'Asia/Dubai': '+04:00',
-      'Asia/Kolkata': '+05:30',
-      'Asia/Shanghai': '+08:00',
-      'Asia/Tokyo': '+09:00',
-      'Australia/Sydney': '+10:00',
-      'Pacific/Auckland': '+12:00',
-      'America/New_York': '-05:00',
-      'America/Chicago': '-06:00',
-      'America/Denver': '-07:00',
-      'America/Los_Angeles': '-08:00',
-      'America/Anchorage': '-09:00',
-      'Pacific/Honolulu': '-10:00',
-    };
+    // Use Intl.DateTimeFormat to get the actual timezone offset for any IANA timezone
+    // This is much more accurate than using a static dictionary, as it handles all IANA timezones
+    // and accounts for daylight saving time changes
+    let offset = '+00:00'; // Default to UTC
     
-    // Get the offset for the specified timezone, default to +00:00 if not found
-    const offset = timezoneOffsets[timezone] || '+00:00';
+    try {
+      // Format current date with target timezone
+      const formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: timezone,
+        timeZoneName: 'short'
+      });
+      
+      // Get the timezone name from the formatter to extract the offset
+      const formattedParts = formatter.formatToParts(date);
+      const timeZonePart = formattedParts.find(part => part.type === 'timeZoneName');
+      
+      // Extract the offset from the timezone name (e.g., "GMT-5" -> "-05:00")
+      if (timeZonePart?.value) {
+        // Extract offset from string like "GMT-5" or "GMT+5:30"
+        const match = timeZonePart.value.match(/GMT([+-])(\d+)(?::(\d+))?/);
+        if (match) {
+          const sign = match[1]; // '+' or '-'
+          let hours = match[2].padStart(2, '0'); // Ensure 2 digits
+          const minutes = match[3] ? match[3].padStart(2, '0') : '00';
+          offset = `${sign}${hours}:${minutes}`;
+        }
+      }
+      
+      console.log(`[DATE UTILS] Detected offset for ${timezone}: ${offset}`);
+    } catch (err) {
+      console.warn(`[DATE UTILS] Error getting timezone offset for ${timezone}, using default: ${offset}`);
+      
+      // Fallback to static dictionary if Intl approach fails
+      const timezoneOffsets: Record<string, string> = {
+        'UTC': '+00:00',
+        'Europe/London': '+00:00',
+        'Europe/Paris': '+01:00',
+        'Europe/Berlin': '+01:00',
+        'Europe/Athens': '+02:00',
+        'Europe/Moscow': '+03:00',
+        'Asia/Dubai': '+04:00',
+        'Asia/Kolkata': '+05:30',
+        'Asia/Shanghai': '+08:00',
+        'Asia/Tokyo': '+09:00',
+        'Australia/Sydney': '+10:00',
+        'Pacific/Auckland': '+12:00',
+        'America/New_York': '-05:00',
+        'America/Chicago': '-06:00',
+        'America/Denver': '-07:00',
+        'America/Los_Angeles': '-08:00',
+        'America/Anchorage': '-09:00',
+        'Pacific/Honolulu': '-10:00',
+      };
+      
+      offset = timezoneOffsets[timezone] || '+00:00';
+    }
     
     // Format the date in ISO format and replace the Z with the proper offset
     const isoString = date.toISOString();

@@ -212,35 +212,25 @@ export async function createCalendarEvent(
       throw new Error('Event missing required start or end time');
     }
     
-    // Format dates properly for Google Calendar API
-    // We need to keep the local timezone information and NOT convert to UTC
+    // Format dates properly for Google Calendar API using our dedicated formatter function
+    const { formatDateForGoogleCalendar } = require('../utils/dateUtils');
+    
     if (event.start.dateTime) {
-      if (event.start.dateTime.endsWith('Z')) {
-        // Remove the Z to avoid forcing UTC timezone
-        event.start.dateTime = event.start.dateTime.slice(0, -1);
-        console.log('[CALENDAR DEBUG] Removed trailing Z from start time to preserve local timezone');
-      }
+      // Convert to Date object to normalize the format
+      const startDateTime = new Date(event.start.dateTime);
+      // Apply our timezone-aware formatting that embeds the offset correctly
+      event.start.dateTime = formatDateForGoogleCalendar(startDateTime, event.start.timeZone);
       
-      // Add timezone offset if not present
-      if (!event.start.dateTime.includes('+') && !event.start.dateTime.includes('-', 10)) {
-        // No timezone info present, append the timeZone using offset format
-        // For now we'll keep the original format and rely on the timeZone field
-        console.log('[CALENDAR DEBUG] Start time has no timezone offset, relying on timeZone field');
-      }
+      console.log(`[CALENDAR DEBUG] Formatted start datetime for create: ${event.start.dateTime}`);
     }
     
     if (event.end.dateTime) {
-      if (event.end.dateTime.endsWith('Z')) {
-        // Remove the Z to avoid forcing UTC timezone
-        event.end.dateTime = event.end.dateTime.slice(0, -1);
-        console.log('[CALENDAR DEBUG] Removed trailing Z from end time to preserve local timezone');
-      }
+      // Convert to Date object to normalize the format
+      const endDateTime = new Date(event.end.dateTime);
+      // Apply our timezone-aware formatting that embeds the offset correctly
+      event.end.dateTime = formatDateForGoogleCalendar(endDateTime, event.end.timeZone);
       
-      // Add timezone offset if not present
-      if (!event.end.dateTime.includes('+') && !event.end.dateTime.includes('-', 10)) {
-        // No timezone info present, we'll rely on the timeZone field
-        console.log('[CALENDAR DEBUG] End time has no timezone offset, relying on timeZone field');
-      }
+      console.log(`[CALENDAR DEBUG] Formatted end datetime for create: ${event.end.dateTime}`);
     }
     
     // Ensure we have timezone information
@@ -290,18 +280,16 @@ export async function createCalendarEvent(
       // Preserve the original timezone if available
       const timeZone = event.start?.timeZone || 'UTC';
       
-      // Format dates without Z suffix to avoid forcing UTC
-      let startDateTime = now.toISOString();
-      let endDateTime = oneHourLater.toISOString();
+      // Format dates with timezone offset using our helper function
+      const { formatDateForGoogleCalendar } = require('../utils/dateUtils');
       
-      // Remove Z suffix to avoid forcing UTC
-      if (startDateTime.endsWith('Z')) {
-        startDateTime = startDateTime.slice(0, -1);
-      }
+      // Use the timezone from the original event
+      const startDateTime = formatDateForGoogleCalendar(now, timeZone);
+      const endDateTime = formatDateForGoogleCalendar(oneHourLater, timeZone);
       
-      if (endDateTime.endsWith('Z')) {
-        endDateTime = endDateTime.slice(0, -1);
-      }
+      console.log(`[CALENDAR DEBUG] Formatted fallback dates with timezone ${timeZone}:`);
+      console.log(`Start: ${startDateTime}`);
+      console.log(`End: ${endDateTime}`);
       
       const simplifiedEvent = {
         summary: event.summary || "Task from TaskFlow",
@@ -354,12 +342,34 @@ export async function updateCalendarEvent(
   const calendar = createCalendarClient(refreshToken);
   
   try {
+    console.log('[CALENDAR DEBUG] Preparing to update calendar event:', eventId);
+    
+    // Format the date fields with proper timezone offsets if they exist
+    if (event.start?.dateTime) {
+      const { formatDateForGoogleCalendar } = require('../utils/dateUtils');
+      const timezone = event.start.timeZone || 'UTC';
+      
+      // Apply timezone formatting to the dateTime field
+      event.start.dateTime = formatDateForGoogleCalendar(new Date(event.start.dateTime), timezone);
+      console.log(`[CALENDAR DEBUG] Formatted start datetime: ${event.start.dateTime}`);
+    }
+    
+    if (event.end?.dateTime) {
+      const { formatDateForGoogleCalendar } = require('../utils/dateUtils');
+      const timezone = event.end.timeZone || 'UTC';
+      
+      // Apply timezone formatting to the dateTime field
+      event.end.dateTime = formatDateForGoogleCalendar(new Date(event.end.dateTime), timezone);
+      console.log(`[CALENDAR DEBUG] Formatted end datetime: ${event.end.dateTime}`);
+    }
+    
     const response = await calendar.events.patch({
       calendarId: 'primary',
       eventId: eventId,
       requestBody: event,
     });
     
+    console.log('[CALENDAR DEBUG] Successfully updated calendar event:', eventId);
     return response.data;
   } catch (error) {
     console.error('Error updating calendar event:', error);
