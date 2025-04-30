@@ -369,7 +369,7 @@ export async function updateUserTimezone(timezone: string) {
  * @returns Updated user object
  */
 export async function disconnectGoogleCalendar() {
-  return submitApi('/api/auth/google/calendar/disconnect', {}, 'POST');
+  return submitApi('/api/auth/google/disconnect', {}, 'POST');
 }
 
 /**
