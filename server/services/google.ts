@@ -253,6 +253,15 @@ export async function createCalendarEvent(
     });
     
     console.log('[CALENDAR DEBUG] Calendar event created successfully, event ID:', response.data.id);
+    
+    // Debug output to check for Z value timestamps in the Google Calendar API response
+    if (response.data.start?.dateTime) {
+      console.log('[CALENDAR DEBUG] Response start dateTime format:', response.data.start.dateTime);
+    }
+    if (response.data.end?.dateTime) {
+      console.log('[CALENDAR DEBUG] Response end dateTime format:', response.data.end.dateTime);
+    }
+    
     return response.data;
   } catch (error) {
     console.error('[CALENDAR DEBUG] Error creating calendar event:', error);
