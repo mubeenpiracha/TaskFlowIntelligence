@@ -141,6 +141,40 @@ export function getDateRangeForView(
 }
 
 /**
+ * Process date strings returned from Google Calendar API to ensure consistent format
+ * 
+ * Google Calendar API often returns dates with 'Z' suffix even when a timezone was specified
+ * This function normalizes the format to use explicit timezone offsets instead of 'Z'
+ * 
+ * @param dateString Date string from Google Calendar API (potentially with Z suffix)
+ * @param timezone User's timezone (IANA format)
+ * @returns Properly formatted date string with explicit timezone offset
+ */
+export function normalizeGoogleCalendarDate(dateString: string, timezone: string = 'UTC'): string {
+  if (!dateString) return dateString;
+  console.log(`[DATE UTILS] Normalizing Google Calendar date: ${dateString}`);
+  
+  // If the date already has an explicit offset like +00:00, it's already formatted correctly
+  if (/[+-]\d{2}:\d{2}$/.test(dateString)) {
+    console.log(`[DATE UTILS] Date already has offset, returning as is: ${dateString}`);
+    return dateString;
+  }
+  
+  // If the date has a Z suffix, we need to replace it with an explicit offset
+  if (dateString.endsWith('Z')) {
+    console.log(`[DATE UTILS] Converting Z suffix to explicit offset for ${dateString}`);
+    const date = new Date(dateString);
+    return formatDateForGoogleCalendar(date, timezone);
+  }
+  
+  // If the date has no timezone information, assume it's in the user's timezone
+  // and format it with an explicit offset
+  console.log(`[DATE UTILS] Adding timezone offset to date without timezone info: ${dateString}`);
+  const date = new Date(dateString);
+  return formatDateForGoogleCalendar(date, timezone);
+}
+
+/**
  * Validate a timezone string against IANA timezone database names
  *
  * @param timezone Timezone string to validate

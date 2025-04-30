@@ -1,7 +1,7 @@
 import { google, calendar_v3 } from 'googleapis';
 import { OAuth2Client } from 'google-auth-library';
 import { GOOGLE_CALENDAR_REDIRECT_URL, GOOGLE_LOGIN_REDIRECT_URL } from '../config';
-import { formatDateForGoogleCalendar } from '../utils/dateUtils';
+import { formatDateForGoogleCalendar, normalizeGoogleCalendarDate } from '../utils/dateUtils';
 
 // Check if Google API credentials are set
 if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
@@ -257,9 +257,28 @@ export async function createCalendarEvent(
     // Debug output to check for Z value timestamps in the Google Calendar API response
     if (response.data.start?.dateTime) {
       console.log('[CALENDAR DEBUG] Response start dateTime format:', response.data.start.dateTime);
+      
+      // Normalize the timestamps to ensure consistent format with proper timezone info
+      if (response.data.start.timeZone) {
+        response.data.start.dateTime = normalizeGoogleCalendarDate(
+          response.data.start.dateTime, 
+          response.data.start.timeZone
+        );
+        console.log('[CALENDAR DEBUG] Normalized start dateTime:', response.data.start.dateTime);
+      }
     }
+    
     if (response.data.end?.dateTime) {
       console.log('[CALENDAR DEBUG] Response end dateTime format:', response.data.end.dateTime);
+      
+      // Normalize the timestamps to ensure consistent format with proper timezone info
+      if (response.data.end.timeZone) {
+        response.data.end.dateTime = normalizeGoogleCalendarDate(
+          response.data.end.dateTime, 
+          response.data.end.timeZone
+        );
+        console.log('[CALENDAR DEBUG] Normalized end dateTime:', response.data.end.dateTime);
+      }
     }
     
     return response.data;
@@ -378,6 +397,24 @@ export async function updateCalendarEvent(
     });
     
     console.log('[CALENDAR DEBUG] Successfully updated calendar event:', eventId);
+    
+    // Normalize the response timestamps to ensure consistent format
+    if (response.data.start?.dateTime && response.data.start.timeZone) {
+      response.data.start.dateTime = normalizeGoogleCalendarDate(
+        response.data.start.dateTime,
+        response.data.start.timeZone
+      );
+      console.log('[CALENDAR DEBUG] Normalized updated start dateTime:', response.data.start.dateTime);
+    }
+    
+    if (response.data.end?.dateTime && response.data.end.timeZone) {
+      response.data.end.dateTime = normalizeGoogleCalendarDate(
+        response.data.end.dateTime,
+        response.data.end.timeZone
+      );
+      console.log('[CALENDAR DEBUG] Normalized updated end dateTime:', response.data.end.dateTime);
+    }
+    
     return response.data;
   } catch (error: any) {
     console.error('Error updating calendar event:', error);
@@ -469,6 +506,32 @@ export async function listCalendarEvents(
     // Log the successful response for debugging
     console.log(`[CALENDAR] Successfully retrieved ${response.data.items?.length || 0} events`);
     
+    // Normalize all event timestamps to ensure consistent format
+    if (response.data.items && response.data.items.length > 0) {
+      const userTimezone = timezone || 'UTC';
+      console.log(`[CALENDAR] Normalizing event timestamps with timezone: ${userTimezone}`);
+      
+      response.data.items.forEach(event => {
+        // Process start dateTime if present
+        if (event.start?.dateTime) {
+          event.start.dateTime = normalizeGoogleCalendarDate(
+            event.start.dateTime,
+            event.start.timeZone || userTimezone
+          );
+        }
+        
+        // Process end dateTime if present
+        if (event.end?.dateTime) {
+          event.end.dateTime = normalizeGoogleCalendarDate(
+            event.end.dateTime,
+            event.end.timeZone || userTimezone
+          );
+        }
+      });
+      
+      console.log(`[CALENDAR] Normalized timestamps for ${response.data.items.length} events`);
+    }
+    
     return response.data.items || [];
   } catch (error: any) {
     console.error('[CALENDAR] Error listing calendar events:', error);
@@ -506,7 +569,7 @@ export async function getUserProfile(accessToken: string) {
   try {
     const response = await oauth2.userinfo.get();
     return response.data;
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error getting user profile:', error);
     
     // Check if this is a token expired error
