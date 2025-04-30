@@ -6,6 +6,7 @@ import { storage } from '../storage';
 import { createEvent, getCalendarEvents } from './calendarService';
 import { User, Task } from '@shared/schema';
 import { addHours, addMinutes, parse, format } from 'date-fns';
+import { formatDateForGoogleCalendar } from '../utils/dateUtils';
 
 // Run interval in milliseconds (check every 30 seconds)
 const SCHEDULE_INTERVAL = 30 * 1000;
@@ -192,10 +193,7 @@ async function scheduleTasksForUser(user: User, tasks: Task[]) {
         const { startTime, endTime } = calculateTaskTimeSlot(task);
         
         // Create event data
-        // Import formatDateForGoogleCalendar for proper timezone handling
-        const { formatDateForGoogleCalendar } = require('../utils/dateUtils');
-        
-        // Format dates with proper timezone offsets
+        // Format dates with proper timezone offsets using our imported formatter function
         const startDateTime = formatDateForGoogleCalendar(startTime, userTimezone);
         const endDateTime = formatDateForGoogleCalendar(endTime, userTimezone);
         
@@ -229,7 +227,7 @@ async function scheduleTasksForUser(user: User, tasks: Task[]) {
       
       // Create event data with the optimal slot
       // Format the dates with proper timezone offsets using our enhanced dateUtils formatter
-      const { formatDateForGoogleCalendar } = require('../utils/dateUtils');
+      // We already have the import at the top of the file
       
       const startDateTime = formatDateForGoogleCalendar(optimalSlot.start, userTimezone);
       const endDateTime = formatDateForGoogleCalendar(optimalSlot.end, userTimezone);
@@ -289,13 +287,10 @@ async function scheduleTaskWithEventData(user: User, task: Task, eventData: any)
       
       const adjustedEndTime = new Date(adjustedStartTime.getTime() + durationMs);
       
-      // Import formatDateForGoogleCalendar 
-      const { formatDateForGoogleCalendar } = require('../utils/dateUtils');
-      
       // Get user timezone
       const userTimezone = user.timezone || 'UTC';
       
-      // Format with proper timezone offset
+      // Format with proper timezone offset using our imported formatter function
       eventData.start.dateTime = formatDateForGoogleCalendar(adjustedStartTime, userTimezone);
       eventData.end.dateTime = formatDateForGoogleCalendar(adjustedEndTime, userTimezone);
       
