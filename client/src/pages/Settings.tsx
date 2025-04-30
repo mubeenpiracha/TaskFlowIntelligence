@@ -69,7 +69,9 @@ export default function Settings() {
     queryKey: ['/api/auth/google/calendar/url'],
     queryFn: async () => {
       try {
-        return await getGoogleCalendarAuthUrl();
+        const url = await getGoogleCalendarAuthUrl();
+        console.log("Received Google Calendar auth URL:", url);
+        return { url };
       } catch (error) {
         console.error("Error fetching Google auth URL:", error);
         return { url: "" };
