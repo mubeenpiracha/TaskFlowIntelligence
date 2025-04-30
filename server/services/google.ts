@@ -424,25 +424,28 @@ export async function listCalendarEvents(
   
   try {
     // Ensure both timeMin and timeMax are properly formatted with timezone information
-    // Google Calendar API expects RFC 3339 format, like: 2025-04-28T15:55:04.208Z
+    // Google Calendar API expects RFC 3339 format with timezone offset, like: 2025-04-28T15:55:04+04:00
     
-    // If we need to process the timestamps further, we can convert and manipulate them:
-    // For now, we'll use the provided timestamps directly, but log them for debugging
+    // Log the request URL for debugging
+    const requestUrl = new URL('https://www.googleapis.com/calendar/v3/calendars/primary/events');
+    requestUrl.searchParams.append('timeMin', timeMin);
+    requestUrl.searchParams.append('timeMax', timeMax);
+    requestUrl.searchParams.append('singleEvents', 'true');
+    requestUrl.searchParams.append('orderBy', 'startTime');
+    if (timezone) {
+      requestUrl.searchParams.append('timeZone', timezone);
+    }
     
-    console.log('[CALENDAR] Listing events with parameters:');
-    console.log(`[CALENDAR] timeMin: ${timeMin}`);
-    console.log(`[CALENDAR] timeMax: ${timeMax}`);
-    console.log(`[CALENDAR] timezone: ${timezone || 'not specified'}`);
+    console.log('[CALENDAR] Request URL:', requestUrl.toString());
     
     // Make the request to Google Calendar API
+    // Note: We're no longer passing timeZone parameter since it's already embedded in timeMin/timeMax
     const response = await calendar.events.list({
       calendarId: 'primary',
       timeMin: timeMin,
       timeMax: timeMax,
       singleEvents: true,
-      orderBy: 'startTime',
-      // Only include timezone if it's provided
-      ...(timezone && { timeZone: timezone })
+      orderBy: 'startTime'
     });
     
     // Log the successful response for debugging
