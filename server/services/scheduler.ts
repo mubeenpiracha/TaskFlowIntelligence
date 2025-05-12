@@ -92,11 +92,36 @@ async function scheduleTasksForUser(user: User, tasks: Task[]) {
       
       // Determine time required for the task
       let taskDurationMs = 3600000; // 1 hour default
-      if (task.timeRequired) {
-        const [hours, minutes] = task.timeRequired.split(':').map(Number);
-        taskDurationMs = (hours * 60 * 60 * 1000) + (minutes * 60 * 1000);
+      if (task.timeRequired && typeof task.timeRequired === 'string' && task.timeRequired.includes(':')) {
+        try {
+          const [hours, minutes] = task.timeRequired.split(':').map(n => {
+            const parsed = parseInt(n, 10);
+            return isNaN(parsed) ? 0 : parsed;
+          });
+          
+          // Ensure we have valid numbers
+          const validHours = isNaN(hours) ? 0 : hours;
+          const validMinutes = isNaN(minutes) ? 0 : minutes;
+          
+          // Calculate duration with valid numbers
+          taskDurationMs = (validHours * 60 * 60 * 1000) + (validMinutes * 60 * 1000);
+          
+          // If we somehow still got 0 or invalid duration, use default
+          if (isNaN(taskDurationMs) || taskDurationMs <= 0) {
+            console.log(`[SCHEDULER] Invalid task duration for task ${task.id}, using default 1 hour`);
+            taskDurationMs = 3600000; // 1 hour default
+          }
+        } catch (error) {
+          console.error(`[SCHEDULER] Error parsing task duration for task ${task.id}:`, error);
+          taskDurationMs = 3600000; // 1 hour default
+        }
+      } else {
+        console.log(`[SCHEDULER] No time required specified for task ${task.id}, using default 1 hour`);
       }
-      console.log(`[SCHEDULER] Task ${task.id} requires ${taskDurationMs / 60000} minutes`);
+      
+      // Ensure we have a valid duration to display
+      const taskDurationMinutes = Math.round(taskDurationMs / 60000);
+      console.log(`[SCHEDULER] Task ${task.id} requires ${taskDurationMinutes} minutes`);
       
       // Determine the deadline (due date/time or a reasonable future date)
       let deadline = new Date();
@@ -223,7 +248,63 @@ async function scheduleTasksForUser(user: User, tasks: Task[]) {
         now
       );
       
-      console.log(`[SCHEDULER] Selected optimal slot: ${optimalSlot.start.toISOString()} - ${optimalSlot.end.toISOString()}`);
+      // Check if we have a valid optimal slot with valid date objects
+      if (!optimalSlot || !optimalSlot.start || !optimalSlot.end) {
+        console.log(`[SCHEDULER] No valid optimal slot found for task ${task.id}. Creating fallback event.`);
+        
+        // Create a fallback event with default time (30 mins from now)
+        const fallbackStart = new Date(now.getTime() + 3600000); // 1 hour from now
+        const fallbackEnd = new Date(fallbackStart.getTime() + 1800000); // 30 minutes duration
+        
+        const startDateTime = formatDateForGoogleCalendar(fallbackStart, userTimezone);
+        const endDateTime = formatDateForGoogleCalendar(fallbackEnd, userTimezone);
+        
+        const eventData = {
+          summary: task.title,
+          description: task.description || 'Automatically scheduled by TaskFlow',
+          start: {
+            dateTime: startDateTime,
+            timeZone: userTimezone
+          },
+          end: {
+            dateTime: endDateTime,
+            timeZone: userTimezone
+          }
+        };
+        
+        console.log(`[SCHEDULER] Creating fallback Google Calendar event for task ${task.id}`);
+        scheduleTaskWithEventData(user, task, eventData);
+        continue;
+      }
+      
+      try {
+        console.log(`[SCHEDULER] Selected optimal slot: ${optimalSlot.start.toISOString()} - ${optimalSlot.end.toISOString()}`);
+      } catch (error) {
+        console.error(`[SCHEDULER] Error logging optimal slot for task ${task.id}:`, error);
+        // Create a fallback event if dates are invalid
+        const fallbackStart = new Date(now.getTime() + 3600000); // 1 hour from now
+        const fallbackEnd = new Date(fallbackStart.getTime() + 1800000); // 30 minutes duration
+        
+        const startDateTime = formatDateForGoogleCalendar(fallbackStart, userTimezone);
+        const endDateTime = formatDateForGoogleCalendar(fallbackEnd, userTimezone);
+        
+        const eventData = {
+          summary: task.title,
+          description: task.description || 'Automatically scheduled by TaskFlow',
+          start: {
+            dateTime: startDateTime,
+            timeZone: userTimezone
+          },
+          end: {
+            dateTime: endDateTime,
+            timeZone: userTimezone
+          }
+        };
+        
+        console.log(`[SCHEDULER] Creating fallback Google Calendar event for task ${task.id}`);
+        scheduleTaskWithEventData(user, task, eventData);
+        continue;
+      }
       
       // Create event data with the optimal slot
       // Format the dates with proper timezone offsets using our enhanced dateUtils formatter
