@@ -235,7 +235,10 @@ async function scheduleTasksForUser(user: User, tasks: Task[]) {
       
       console.log(`[SCHEDULER] Found ${availableSlots.length} available slots`);
       
+      // If we couldn't find any available slots, throw an error instead of defaulting to a fallback
+      // This prevents overlapping appointments that would create schedule conflicts
       if (availableSlots.length === 0) {
+        console.error(`[SCHEDULER] Could not find any available slots for task ${task.id} within working hours until deadline`);
         throw new Error(`No available slots for task ${task.id}`);
       }
       
@@ -406,10 +409,11 @@ function findAvailableSlots(
   console.log(`[SCHEDULER] Working hours: ${startHour}:${startMinute} - ${endHour}:${endMinute}`);
   console.log(`[SCHEDULER] Working days: ${workingDays.map((day, index) => day ? index : null).filter(day => day !== null).join(', ')}`);
   
-  // Start from the current date, rounded up to the next hour for simplicity
+  // Start from the current date, rounded up to the next 15-minute increment
   let currentDate = new Date(startDate);
-  currentDate.setMinutes(0, 0, 0);
-  currentDate.setHours(currentDate.getHours() + 1);
+  const mins = currentDate.getMinutes();
+  const rounded = Math.ceil(mins / 15) * 15;
+  currentDate.setMinutes(rounded, 0, 0);
   
   // Ensure we're not scheduling in the past
   const now = new Date();
@@ -437,8 +441,12 @@ function findAvailableSlots(
     const currentHour = currentDate.getHours();
     const currentMinute = currentDate.getMinutes();
     
+    // Skip if before working hours, but don't force to start of working hours
+    // This allows the loop to naturally find the next valid working slot
     if (currentHour < startHour || (currentHour === startHour && currentMinute < startMinute)) {
-      currentDate.setHours(startHour, startMinute, 0, 0);
+      // Move to next 15-minute increment
+      currentDate = new Date(currentDate.getTime() + 15 * 60 * 1000);
+      continue;
     }
     
     // Skip if after working hours
@@ -474,37 +482,43 @@ function findAvailableSlots(
       }
     }
     
+    // IMPROVED OVERLAP DETECTION:
     // Check if the slot overlaps with any busy slots
     // Convert all times to UTC milliseconds for accurate comparison
     const slotStartMs = currentDate.getTime();
     const slotEndMs = slotEnd.getTime();
     
-    // Add buffer time (5 minutes) to prevent tight scheduling
-    const bufferMs = 5 * 60 * 1000; // 5 minutes in milliseconds
+    // Add buffer time (10 minutes) to prevent tight scheduling
+    const bufferMs = 10 * 60 * 1000; // 10 minutes in milliseconds
     
     let isOverlapping = false;
+    
+    // IMPORTANT: Always log the slot we're checking - this helps with debugging
+    console.log(`[SCHEDULER] Checking slot: ${new Date(slotStartMs).toISOString()} - ${new Date(slotEndMs).toISOString()}`);
     
     for (const busySlot of busySlots) {
       const busyStartMs = busySlot.start.getTime();
       const busyEndMs = busySlot.end.getTime();
       
-      // Apply buffer to both ends
+      // Apply buffer to both ends of busy slots to prevent back-to-back meetings
       const busyStartWithBuffer = busyStartMs - bufferMs;
       const busyEndWithBuffer = busyEndMs + bufferMs;
       
-      // Slot overlaps with busy period if:
-      // 1. Slot starts during busy period, or
-      // 2. Slot ends during busy period, or
-      // 3. Slot completely contains busy period
+      // TRIPLE-CHECK OVERLAP CONDITIONS:
+      // 1. Slot starts during busy period (including buffer), or
+      // 2. Slot ends during busy period (including buffer), or
+      // 3. Slot completely contains busy period (including buffer), or
+      // 4. Busy period completely contains slot
       const overlaps = (
-        (slotStartMs >= busyStartWithBuffer && slotStartMs < busyEndWithBuffer) || // Slot starts during busy period
-        (slotEndMs > busyStartWithBuffer && slotEndMs <= busyEndWithBuffer) ||     // Slot ends during busy period
-        (slotStartMs <= busyStartWithBuffer && slotEndMs >= busyEndWithBuffer)     // Slot contains busy period
+        (slotStartMs >= busyStartWithBuffer && slotStartMs < busyEndWithBuffer) ||  // Slot starts during busy
+        (slotEndMs > busyStartWithBuffer && slotEndMs <= busyEndWithBuffer) ||      // Slot ends during busy
+        (slotStartMs <= busyStartWithBuffer && slotEndMs >= busyEndWithBuffer) ||   // Slot contains busy
+        (busyStartWithBuffer <= slotStartMs && busyEndWithBuffer >= slotEndMs)      // Busy contains slot
       );
       
       if (overlaps) {
-        // For debugging, log the exact busy slot we're overlapping with
-        console.log(`[SCHEDULER] Slot ${new Date(slotStartMs).toISOString()} - ${new Date(slotEndMs).toISOString()} ` +
+        // Enhanced debug logging
+        console.log(`[SCHEDULER] ⚠️ CONFLICT DETECTED: Slot ${new Date(slotStartMs).toISOString()} - ${new Date(slotEndMs).toISOString()} ` +
                    `overlaps with busy slot ${new Date(busyStartMs).toISOString()} - ${new Date(busyEndMs).toISOString()}`);
         isOverlapping = true;
         break;
