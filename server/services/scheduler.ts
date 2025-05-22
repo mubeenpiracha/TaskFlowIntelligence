@@ -12,6 +12,7 @@ import {
   format,
   isWithinInterval,
 } from "date-fns";
+import { formatInTimeZone, toZonedTime } from "date-fns-tz";
 import { handleCalendarTokenExpiration } from "./calendarReconnect";
 import { formatDateForGoogleCalendar } from "../utils/dateUtils";
 
@@ -390,17 +391,20 @@ function findAvailableSlots(
       .join(", ")}`,
   );
 
-  // Start from the current date, rounded up to the next 15-minute increment
-  let currentDate = new Date(startDate);
+  // Log that we're finding slots in the user's timezone
+  console.log(`[SCHEDULER] Finding available slots in timezone: ${timezone}`);
+  
+  // Convert startDate to the user's timezone
+  let currentDate = toZonedTime(startDate, timezone);
   const mins = currentDate.getMinutes();
   const rounded = Math.ceil(mins / 15) * 15;
   currentDate.setMinutes(rounded, 0, 0);
 
-  // Ensure we're not scheduling in the past
-  const now = new Date();
+  // Ensure we're not scheduling in the past (also in user's timezone)
+  const now = toZonedTime(new Date(), timezone);
   if (currentDate < now) {
     console.log(
-      `[SCHEDULER] Adjusted start time from past (${currentDate.toISOString()}) to now (${now.toISOString()})`,
+      `[SCHEDULER] Adjusted start time from past (${format(currentDate, "yyyy-MM-dd'T'HH:mm:ssXXX")}) to now (${format(now, "yyyy-MM-dd'T'HH:mm:ssXXX")})`,
     );
     currentDate = new Date(now);
     // Round up to the nearest 15-minute interval
@@ -484,9 +488,9 @@ function findAvailableSlots(
     const slotStartMs = currentDate.getTime();
     const slotEndMs = slotEnd.getTime();
 
-    // Log the slot we're checking
+    // Log the slot we're checking with timezone-specific format
     console.log(
-      `[SCHEDULER] Checking slot: ${new Date(slotStartMs).toISOString()} - ${new Date(slotEndMs).toISOString()}`,
+      `[SCHEDULER] Checking slot in ${timezone}: ${formatInTimeZone(new Date(slotStartMs), timezone, "yyyy-MM-dd'T'HH:mm:ssXXX")} - ${formatInTimeZone(new Date(slotEndMs), timezone, "yyyy-MM-dd'T'HH:mm:ssXXX")}`,
     );
 
     let isOverlapping = false;
@@ -514,10 +518,11 @@ function findAvailableSlots(
         (busyStartWithBuffer <= slotStartMs && busyEndWithBuffer >= slotEndMs); // Busy contains slot
 
       if (overlaps) {
-        // Enhanced debug logging
+        // Enhanced debug logging with timezone-specific formatting
         console.log(
-          `[SCHEDULER] ⚠️ CONFLICT DETECTED: Slot ${new Date(slotStartMs).toISOString()} - ${new Date(slotEndMs).toISOString()} ` +
-            `overlaps with busy slot ${new Date(busyStartMs).toISOString()} - ${new Date(busyEndMs).toISOString()}`,
+          `[SCHEDULER] ⚠️ CONFLICT DETECTED in ${timezone}: ` +
+          `Slot ${formatInTimeZone(new Date(slotStartMs), timezone, "yyyy-MM-dd'T'HH:mm:ssXXX")} - ${formatInTimeZone(new Date(slotEndMs), timezone, "yyyy-MM-dd'T'HH:mm:ssXXX")} ` +
+          `overlaps with busy slot ${formatInTimeZone(new Date(busyStartMs), timezone, "yyyy-MM-dd'T'HH:mm:ssXXX")} - ${formatInTimeZone(new Date(busyEndMs), timezone, "yyyy-MM-dd'T'HH:mm:ssXXX")}`,
         );
         isOverlapping = true;
         break;
@@ -531,7 +536,7 @@ function findAvailableSlots(
         end: new Date(slotEnd),
       });
       console.log(
-        `[SCHEDULER] ✅ Valid slot found: ${currentDate.toISOString()} - ${slotEnd.toISOString()}`,
+        `[SCHEDULER] ✅ Valid slot found in ${timezone}: ${formatInTimeZone(currentDate, timezone, "yyyy-MM-dd'T'HH:mm:ssXXX")} - ${formatInTimeZone(slotEnd, timezone, "yyyy-MM-dd'T'HH:mm:ssXXX")}`,
       );
     }
 
