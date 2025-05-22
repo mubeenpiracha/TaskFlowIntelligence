@@ -190,7 +190,9 @@ async function scheduleTasksForUser(user: User, tasks: Task[]) {
       const lookbackMs = taskDurationMs;
       const queryStart = new Date(now.getTime() - lookbackMs);
       
-      const startDate = new Date(now);
+      // Convert dates to user timezone for better accuracy
+      const startDateUtc = new Date(now);
+      const startDate = toZonedTime(startDateUtc, user.timezone);
       
       // End date for calendar query is the deadline
       const endDate = new Date(deadline);
@@ -475,7 +477,7 @@ function findAvailableSlots(
     // Skip if slot overlaps the user's break
     if (workingHours.breakStartTime && workingHours.breakEndTime) {
       const [bStartH, bStartM] = workingHours.breakStartTime.split(':').map(Number);
-      const [bEndH,   bEndM]   = workingHours.breakEndTime.split(':').map(Number);
+      const [bEndH, bEndM] = workingHours.breakEndTime.split(':').map(Number);
       const breakStart = new Date(currentDate);
       breakStart.setHours(bStartH, bStartM, 0);
       const breakEnd = new Date(currentDate);
