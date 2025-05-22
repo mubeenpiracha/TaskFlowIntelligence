@@ -23,6 +23,10 @@ export function startScheduler() {
   
   // Immediately run once
   scheduleUnscheduledTasks();
+
+
+
+
   
   // Then set interval for future runs
   setInterval(scheduleUnscheduledTasks, SCHEDULE_INTERVAL);
@@ -57,7 +61,16 @@ async function scheduleUnscheduledTasks() {
         console.log(`[SCHEDULER] Found ${unscheduledTasks.length} unscheduled tasks for user ${user.id}`);
         
         if (unscheduledTasks.length > 0) {
-          await scheduleTasksForUser(user, unscheduledTasks);
+          try {
+            await scheduleTasksForUser(user, unscheduledTasks);
+          } catch (err: any) {
+            if (err.message.startsWith('No available slots')) {
+              console.error('[SCHEDULER] Out of slots for:', err.message);
+              // TODO: mark task(s) for manual scheduling or notify downstream
+            } else {
+              throw err;
+            }
+          }
         }
       }
     }
@@ -214,31 +227,7 @@ async function scheduleTasksForUser(user: User, tasks: Task[]) {
       console.log(`[SCHEDULER] Found ${availableSlots.length} available slots`);
       
       if (availableSlots.length === 0) {
-        console.warn(`[SCHEDULER] No available slots found for task ${task.id}, will use fallback scheduling`);
-        // Use simple scheduling as fallback
-        const { startTime, endTime } = calculateTaskTimeSlot(task);
-        
-        // Create event data
-        // Format dates with proper timezone offsets using our imported formatter function
-        const startDateTime = formatDateForGoogleCalendar(startTime, userTimezone);
-        const endDateTime = formatDateForGoogleCalendar(endTime, userTimezone);
-        
-        const eventData = {
-          summary: task.title,
-          description: task.description || undefined,
-          start: {
-            dateTime: startDateTime,
-            timeZone: userTimezone
-          },
-          end: {
-            dateTime: endDateTime,
-            timeZone: userTimezone
-          }
-        };
-        
-        console.log(`[SCHEDULER] Creating fallback Google Calendar event for task ${task.id}`);
-        scheduleTaskWithEventData(user, task, eventData);
-        continue;
+        throw new Error(`No available slots for task ${task.id}`);
       }
       
       // Select the best slot based on task priority and deadline
@@ -251,61 +240,10 @@ async function scheduleTasksForUser(user: User, tasks: Task[]) {
       
       // Check if we have a valid optimal slot with valid date objects
       if (!optimalSlot || !optimalSlot.start || !optimalSlot.end) {
-        console.log(`[SCHEDULER] No valid optimal slot found for task ${task.id}. Creating fallback event.`);
-        
-        // Create a fallback event with default time (30 mins from now)
-        const fallbackStart = new Date(now.getTime() + 3600000); // 1 hour from now
-        const fallbackEnd = new Date(fallbackStart.getTime() + 1800000); // 30 minutes duration
-        
-        const startDateTime = formatDateForGoogleCalendar(fallbackStart, userTimezone);
-        const endDateTime = formatDateForGoogleCalendar(fallbackEnd, userTimezone);
-        
-        const eventData = {
-          summary: task.title,
-          description: task.description || 'Automatically scheduled by TaskFlow',
-          start: {
-            dateTime: startDateTime,
-            timeZone: userTimezone
-          },
-          end: {
-            dateTime: endDateTime,
-            timeZone: userTimezone
-          }
-        };
-        
-        console.log(`[SCHEDULER] Creating fallback Google Calendar event for task ${task.id}`);
-        scheduleTaskWithEventData(user, task, eventData);
-        continue;
+        throw new Error(`No valid optimal slot found for task ${task.id}`);
       }
       
-      try {
-        console.log(`[SCHEDULER] Selected optimal slot: ${optimalSlot.start.toISOString()} - ${optimalSlot.end.toISOString()}`);
-      } catch (error) {
-        console.error(`[SCHEDULER] Error logging optimal slot for task ${task.id}:`, error);
-        // Create a fallback event if dates are invalid
-        const fallbackStart = new Date(now.getTime() + 3600000); // 1 hour from now
-        const fallbackEnd = new Date(fallbackStart.getTime() + 1800000); // 30 minutes duration
-        
-        const startDateTime = formatDateForGoogleCalendar(fallbackStart, userTimezone);
-        const endDateTime = formatDateForGoogleCalendar(fallbackEnd, userTimezone);
-        
-        const eventData = {
-          summary: task.title,
-          description: task.description || 'Automatically scheduled by TaskFlow',
-          start: {
-            dateTime: startDateTime,
-            timeZone: userTimezone
-          },
-          end: {
-            dateTime: endDateTime,
-            timeZone: userTimezone
-          }
-        };
-        
-        console.log(`[SCHEDULER] Creating fallback Google Calendar event for task ${task.id}`);
-        scheduleTaskWithEventData(user, task, eventData);
-        continue;
-      }
+      console.log(`[SCHEDULER] Selected optimal slot: ${optimalSlot.start.toISOString()} - ${optimalSlot.end.toISOString()}`);
       
       // Create event data with the optimal slot
       // Format the dates with proper timezone offsets using our enhanced dateUtils formatter
@@ -513,6 +451,20 @@ function findAvailableSlots(
       continue;
     }
     
+    // Skip if slot overlaps the user's break
+    if (workingHours.breakStartTime && workingHours.breakEndTime) {
+      const [bStartH, bStartM] = workingHours.breakStartTime.split(':').map(Number);
+      const [bEndH,   bEndM]   = workingHours.breakEndTime.split(':').map(Number);
+      const breakStart = new Date(currentDate);
+      breakStart.setHours(bStartH, bStartM, 0);
+      const breakEnd = new Date(currentDate);
+      breakEnd.setHours(bEndH, bEndM, 0);
+      if (currentDate < breakEnd && slotEnd > breakStart) {
+        currentDate = new Date(currentDate.getTime() + 15 * 60 * 1000);
+        continue;
+      }
+    }
+    
     // Check if the slot overlaps with any busy slots
     const isOverlapping = busySlots.some(busySlot => {
       return (currentDate < busySlot.end && slotEnd > busySlot.start);
@@ -526,8 +478,8 @@ function findAvailableSlots(
       });
     }
     
-    // Move to next hour
-    currentDate.setHours(currentDate.getHours() + 1);
+    // Move to next 15-minute increment
+    currentDate = new Date(currentDate.getTime() + 15 * 60 * 1000);
   }
   
   return availableSlots;

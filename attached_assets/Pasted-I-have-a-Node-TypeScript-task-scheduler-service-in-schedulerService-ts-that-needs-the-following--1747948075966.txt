@@ -1,0 +1,67 @@
+I have a Node/TypeScript task-scheduler service (in `schedulerService.ts`) that needs the following refactor and bug-fixes. Please apply each change exactly, preserving existing logic where not called out:
+
+1. **findAvailableSlots() improvements**  
+   - Change the loop increment from 1 hour to 15 minutes.  
+     ```diff
+     - // Move to next hour
+     - currentDate.setHours(currentDate.getHours() + 1);
+     + // Move to next 15-minute increment
+     + currentDate = new Date(currentDate.getTime() + 15 * 60 * 1000);
+     ```
+   - Respect `breakStartTime`/`breakEndTime` in `workingHours`. Inside the loop, before pushing a slot, insert:
+     ```ts
+     // Skip if slot overlaps the user’s break
+     if (workingHours.breakStartTime && workingHours.breakEndTime) {
+       const [bStartH, bStartM] = workingHours.breakStartTime.split(':').map(Number);
+       const [bEndH,   bEndM]   = workingHours.breakEndTime.split(':').map(Number);
+       const breakStart = new Date(currentDate);
+       breakStart.setHours(bStartH, bStartM, 0);
+       const breakEnd = new Date(currentDate);
+       breakEnd.setHours(bEndH, bEndM, 0);
+       if (currentDate < breakEnd && slotEnd > breakStart) {
+         currentDate = new Date(currentDate.getTime() + 15 * 60 * 1000);
+         continue;
+       }
+     }
+     ```
+
+2. **scheduleTasksForUser(): fail fast on no slots**  
+   - Replace the “no available slots → fallback” block with an error throw:
+     ```diff
+     - if (availableSlots.length === 0) {
+     -   console.warn(`[SCHEDULER] No available slots found for task ${task.id}, will use fallback scheduling`);
+     -   scheduleTaskWithEventData(user, task, eventData);
+     -   continue;
+     - }
+     + if (availableSlots.length === 0) {
+     +   throw new Error(`No available slots for task ${task.id}`);
+     + }
+     ```
+   - Ensure **every** call to `scheduleTaskWithEventData(...)` is preceded by `await`.
+
+3. **scheduleUnscheduledTasks(): catch and propagate “no slots”**  
+   - Wrap the call to `scheduleTasksForUser()` in a `try/catch` that identifies our new “No available slots” error and logs or tags the tasks for manual handling. For example:
+     ```diff
+     - if (unscheduledTasks.length > 0) {
+     -   await scheduleTasksForUser(user, unscheduledTasks);
+     - }
+     + if (unscheduledTasks.length > 0) {
++     try {
++       await scheduleTasksForUser(user, unscheduledTasks);
++     } catch (err: any) {
++       if (err.message.startsWith('No available slots')) {
++         console.error('[SCHEDULER] Out of slots for:', err.message);
++         // TODO: mark task(s) for manual scheduling or notify downstream
++       } else {
++         throw err;
++       }
++     }
++   }
+     ```
+
+4. **General cleanup**  
+   - Remove any fallback branches that silently schedule past-due or default slots.  
+   - Confirm that all calls returning Promises in your scheduling loop are properly `await`ed.  
+   - Adjust imports if you move or rename functions.
+
+Please apply these diffs in `schedulerService.ts`, run the TypeScript compiler to verify no errors, and include any new unit tests or error‐handling stubs as comments where you leave “TODO” markers.  
