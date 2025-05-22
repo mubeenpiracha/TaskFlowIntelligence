@@ -466,8 +466,23 @@ function findAvailableSlots(
     }
     
     // Check if the slot overlaps with any busy slots
+    // Convert all times to UTC milliseconds for accurate comparison
+    const slotStartMs = currentDate.getTime();
+    const slotEndMs = slotEnd.getTime();
+    
     const isOverlapping = busySlots.some(busySlot => {
-      return (currentDate < busySlot.end && slotEnd > busySlot.start);
+      const busyStartMs = busySlot.start.getTime();
+      const busyEndMs = busySlot.end.getTime();
+      
+      // Slot overlaps with busy period if:
+      // 1. Slot starts during busy period, or
+      // 2. Slot ends during busy period, or
+      // 3. Slot completely contains busy period
+      return (
+        (slotStartMs >= busyStartMs && slotStartMs < busyEndMs) || // Slot starts during busy period
+        (slotEndMs > busyStartMs && slotEndMs <= busyEndMs) ||     // Slot ends during busy period
+        (slotStartMs <= busyStartMs && slotEndMs >= busyEndMs)     // Slot contains busy period
+      );
     });
     
     if (!isOverlapping) {
