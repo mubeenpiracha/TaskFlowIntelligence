@@ -470,20 +470,37 @@ function findAvailableSlots(
     const slotStartMs = currentDate.getTime();
     const slotEndMs = slotEnd.getTime();
     
-    const isOverlapping = busySlots.some(busySlot => {
+    // Add buffer time (5 minutes) to prevent tight scheduling
+    const bufferMs = 5 * 60 * 1000; // 5 minutes in milliseconds
+    
+    let isOverlapping = false;
+    
+    for (const busySlot of busySlots) {
       const busyStartMs = busySlot.start.getTime();
       const busyEndMs = busySlot.end.getTime();
+      
+      // Apply buffer to both ends
+      const busyStartWithBuffer = busyStartMs - bufferMs;
+      const busyEndWithBuffer = busyEndMs + bufferMs;
       
       // Slot overlaps with busy period if:
       // 1. Slot starts during busy period, or
       // 2. Slot ends during busy period, or
       // 3. Slot completely contains busy period
-      return (
-        (slotStartMs >= busyStartMs && slotStartMs < busyEndMs) || // Slot starts during busy period
-        (slotEndMs > busyStartMs && slotEndMs <= busyEndMs) ||     // Slot ends during busy period
-        (slotStartMs <= busyStartMs && slotEndMs >= busyEndMs)     // Slot contains busy period
+      const overlaps = (
+        (slotStartMs >= busyStartWithBuffer && slotStartMs < busyEndWithBuffer) || // Slot starts during busy period
+        (slotEndMs > busyStartWithBuffer && slotEndMs <= busyEndWithBuffer) ||     // Slot ends during busy period
+        (slotStartMs <= busyStartWithBuffer && slotEndMs >= busyEndWithBuffer)     // Slot contains busy period
       );
-    });
+      
+      if (overlaps) {
+        // For debugging, log the exact busy slot we're overlapping with
+        console.log(`[SCHEDULER] Slot ${new Date(slotStartMs).toISOString()} - ${new Date(slotEndMs).toISOString()} ` +
+                   `overlaps with busy slot ${new Date(busyStartMs).toISOString()} - ${new Date(busyEndMs).toISOString()}`);
+        isOverlapping = true;
+        break;
+      }
+    }
     
     if (!isOverlapping) {
       // This is a valid slot
