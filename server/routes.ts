@@ -790,12 +790,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
         // Otherwise, use the channel preferences service to get the user's preferences
         channelIds = await getChannelPreferences(req.session.userId!);
         
-        // If no channels are selected, we'll return a specific error message
-        // that will prompt the frontend to direct the user to the channel selection UI
+        // If no channels are selected, return empty results instead of an error
+        // This prevents unnecessary 400 errors from showing up in the console
         if (channelIds.length === 0) {
-          return res.status(400).json({ 
-            message: 'No Slack channels selected for monitoring',
-            code: 'NO_CHANNELS_SELECTED'
+          console.log("[SLACK] No channels selected for user", req.session.userId, "- returning empty results");
+          return res.status(200).json({ 
+            tasks: [],
+            webhookMode: true,
+            message: 'No channels configured. Please visit Settings to select Slack channels.',
+            webhookStatus: getWebhookHealthStatus()
           });
         }
       }
