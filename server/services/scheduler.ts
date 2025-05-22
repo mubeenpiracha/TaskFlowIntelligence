@@ -6,6 +6,7 @@ import { storage } from '../storage';
 import { createEvent, getCalendarEvents } from './calendarService';
 import { User, Task } from '@shared/schema';
 import { addHours, addMinutes, parse, format } from 'date-fns';
+import { handleCalendarTokenExpiration } from './calendarReconnect';
 import { formatDateForGoogleCalendar } from '../utils/dateUtils';
 
 // Run interval in milliseconds (check every 30 seconds)
@@ -407,10 +408,7 @@ async function scheduleTaskWithEventData(user: User, task: Task, eventData: any)
          (error.message.includes('expired') || error.message.includes('revoked')))) {
       
       try {
-        // Import calendar reconnect service
-        const { handleCalendarTokenExpiration } = require('./calendarReconnect');
-        
-        // Handle the token expiration with notification
+        // Use the imported function to handle token expiration
         await handleCalendarTokenExpiration(user.id, {
           id: task.id,
           title: task.title

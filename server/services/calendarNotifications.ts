@@ -1,3 +1,7 @@
+/**
+ * This module is responsible for sending calendar-related notifications to users via Slack
+ */
+
 import { slack } from './slack';
 import { BASE_URL } from '../config';
 
@@ -12,25 +16,24 @@ export async function sendCalendarTokenExpiredNotification(
   task: { id: number; title: string }
 ): Promise<string | undefined> {
   try {
-    console.log(`Sending calendar token expired notification to Slack user ${slackUserId} for task ${task.id}`);
+    console.log(`[NOTIFICATIONS] Sending calendar token expired notification to Slack user ${slackUserId}`);
     
-    // Generate reconnect URL for the app
+    // Generate reconnect URL for the settings page
     const reconnectUrl = `${BASE_URL}/settings?reconnectCalendar=true`;
     
-    // Create notification message blocks
     const blocks = [
       {
         type: "section",
         text: {
           type: "mrkdwn",
-          text: `:warning: *Google Calendar Connection Issue*\n\nI couldn't add your task "${task.title}" to your calendar because your Google Calendar authorization has expired.`
+          text: `:warning: *Calendar Connection Issue*\n\nI couldn't add your task "${task.title}" to your calendar because your Google Calendar authorization has expired.`
         }
       },
       {
         type: "section",
         text: {
           type: "mrkdwn",
-          text: `Your task has been saved, but to enable calendar scheduling, please reconnect your Google Calendar.`
+          text: "To make sure your tasks get scheduled properly, please reconnect your Google Calendar."
         }
       },
       {
@@ -40,7 +43,7 @@ export async function sendCalendarTokenExpiredNotification(
             type: "button",
             text: {
               type: "plain_text",
-              text: "Reconnect Google Calendar",
+              text: "Reconnect Calendar",
               emoji: true
             },
             style: "primary",
@@ -50,7 +53,7 @@ export async function sendCalendarTokenExpiredNotification(
       }
     ];
     
-    // Send the message
+    // Send the notification
     const result = await slack.chat.postMessage({
       channel: slackUserId,
       text: "Google Calendar reconnection needed",
@@ -59,7 +62,7 @@ export async function sendCalendarTokenExpiredNotification(
     
     return result.ts;
   } catch (error) {
-    console.error("Error sending calendar token expired notification:", error);
+    console.error('[NOTIFICATIONS] Error sending calendar token expired notification:', error);
     return undefined;
   }
 }
