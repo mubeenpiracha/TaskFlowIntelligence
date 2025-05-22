@@ -1607,33 +1607,10 @@ export async function sendTaskSuggestion(userId: string, taskSuggestion: {
             type: "button",
             text: {
               type: "plain_text",
-              text: "Add to My Tasks",
+              text: "Provide Details and Schedule",
               emoji: true
             },
             style: "primary",
-            value: JSON.stringify({
-              action: "create_task",
-              messageTs: taskSuggestion.ts,
-              channel: taskSuggestion.channel,
-              messageText: taskSuggestion.text,
-              channelName: taskSuggestion.channelName,
-              title: taskSuggestion.title,
-              description: taskSuggestion.description,
-              priority: taskSuggestion.priority,
-              timeRequired: taskSuggestion.timeRequired,
-              dueDate: taskSuggestion.dueDate,
-              useDefaults: true,
-              workspaceId: taskSuggestion.workspaceId
-            }),
-            action_id: "create_task_default"
-          },
-          {
-            type: "button",
-            text: {
-              type: "plain_text",
-              text: "Customize Details",
-              emoji: true
-            },
             value: JSON.stringify({
               action: "customize_task",
               messageTs: taskSuggestion.ts,
