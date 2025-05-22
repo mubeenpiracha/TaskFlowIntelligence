@@ -78,12 +78,26 @@ export function formatDateForGoogleCalendar(
       offset = timezoneOffsets[timezone] || '+00:00';
     }
     
-    // Format the date in ISO format and replace the Z with the proper offset
+    // Format the date in ISO format and handle timezone properly
     const isoString = date.toISOString();
-    const formattedDate = isoString.replace(/\.\d{3}Z$/, offset);
     
-    console.log(`[DATE UTILS] Formatted date with offset: ${formattedDate}`);
-    return formattedDate;
+    // Check if the string already contains timezone info
+    if (isoString.endsWith('Z')) {
+      // Replace Z with the proper offset
+      const formattedDate = isoString.replace(/\.\d{3}Z$/, offset);
+      console.log(`[DATE UTILS] Formatted UTC date with offset: ${formattedDate}`);
+      return formattedDate;
+    } else if (typeof dateStr === 'string' && (dateStr.includes('+') || dateStr.includes('-') && dateStr.indexOf('-', 1) > 8)) {
+      // Already has timezone info, preserve it
+      console.log(`[DATE UTILS] Preserving existing timezone: ${dateStr}`);
+      return dateStr;
+    } else {
+      // No timezone info, add the offset
+      const formattedDate = isoString.replace(/\.\d{3}Z$/, offset);
+      console.log(`[DATE UTILS] Added timezone offset: ${formattedDate}`);
+      return formattedDate;
+    }
+    
   } catch (error) {
     console.error('[DATE UTILS] Error formatting date for Google Calendar:', error);
     
@@ -163,7 +177,39 @@ export function normalizeGoogleCalendarDate(dateString: string, timezone: string
   // If the date has a Z suffix, we need to replace it with an explicit offset
   if (dateString.endsWith('Z')) {
     console.log(`[DATE UTILS] Converting Z suffix to explicit offset for ${dateString}`);
+    
+    // Create a date object in the user's timezone
     const date = new Date(dateString);
+    
+    // Get the timezone offset for this specific date (accounts for DST)
+    try {
+      const formatter = new Intl.DateTimeFormat('en-US', {
+        timeZone: timezone,
+        timeZoneName: 'short'
+      });
+      
+      const formattedParts = formatter.formatToParts(date);
+      const timeZonePart = formattedParts.find(part => part.type === 'timeZoneName');
+      
+      if (timeZonePart?.value) {
+        const match = timeZonePart.value.match(/GMT([+-])(\d+)(?::(\d+))?/);
+        if (match) {
+          const sign = match[1]; // '+' or '-'
+          let hours = match[2].padStart(2, '0'); // Ensure 2 digits
+          const minutes = match[3] ? match[3].padStart(2, '0') : '00';
+          const offset = `${sign}${hours}:${minutes}`;
+          
+          // Replace Z with the explicit offset
+          const result = dateString.replace('Z', offset);
+          console.log(`[DATE UTILS] Replaced Z with ${offset}: ${result}`);
+          return result;
+        }
+      }
+    } catch (error) {
+      console.error('[DATE UTILS] Error getting timezone offset:', error);
+    }
+    
+    // Fallback to the more generic method if the above fails
     return formatDateForGoogleCalendar(date, timezone);
   }
   
