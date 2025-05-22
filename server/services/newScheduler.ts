@@ -5,15 +5,14 @@
 import { storage } from '../storage';
 import { createEvent, getCalendarEvents } from './calendarService';
 import { User, Task } from '@shared/schema';
-import { addHours, addMinutes, parse, format } from 'date-fns';
-// We'll use standard Date operations instead of date-fns-tz to avoid import issues
+import { addHours, addMinutes, parse, format, isWithinInterval } from 'date-fns';
 import { handleCalendarTokenExpiration } from './calendarReconnect';
 import { formatDateForGoogleCalendar } from '../utils/dateUtils';
 
 // Run interval in milliseconds (check every 30 seconds)
 const SCHEDULE_INTERVAL = 30 * 1000;
 
-// Flag to track if scheduler is already running
+// Scheduling is in progress flag to prevent concurrent runs
 let isRunning = false;
 
 /**
@@ -24,10 +23,6 @@ export function startScheduler() {
   
   // Immediately run once
   scheduleUnscheduledTasks();
-
-
-
-
   
   // Then set interval for future runs
   setInterval(scheduleUnscheduledTasks, SCHEDULE_INTERVAL);
@@ -48,8 +43,7 @@ async function scheduleUnscheduledTasks() {
   try {
     console.log('[SCHEDULER] Checking for unscheduled tasks...');
     
-    // TEMPORARY FIX: Use a single user with ID 1 until we complete schema migration
-    // This prevents errors with the new schema fields
+    // Currently using a single user with ID 1 until schema migration is complete
     const user = await storage.getUser(1);
     
     if (user) {
@@ -65,9 +59,9 @@ async function scheduleUnscheduledTasks() {
           try {
             await scheduleTasksForUser(user, unscheduledTasks);
           } catch (err: any) {
-            if (err.message.startsWith('No available slots')) {
-              console.error('[SCHEDULER] Out of slots for:', err.message);
-              // TODO: mark task(s) for manual scheduling or notify downstream
+            if (err.message && err.message.includes('No available slots')) {
+              console.error('[SCHEDULER] Out of slots:', err.message);
+              // TODO: mark task(s) for manual scheduling or notify the user
             } else {
               throw err;
             }
@@ -118,50 +112,46 @@ async function scheduleTasksForUser(user: User, tasks: Task[]) {
           const validHours = isNaN(hours) ? 0 : hours;
           const validMinutes = isNaN(minutes) ? 0 : minutes;
           
-          // Calculate duration with valid numbers
           taskDurationMs = (validHours * 60 * 60 * 1000) + (validMinutes * 60 * 1000);
-          
-          // If we somehow still got 0 or invalid duration, use default
-          if (isNaN(taskDurationMs) || taskDurationMs <= 0) {
-            console.log(`[SCHEDULER] Invalid task duration for task ${task.id}, using default 1 hour`);
-            taskDurationMs = 3600000; // 1 hour default
-          }
-        } catch (error) {
-          console.error(`[SCHEDULER] Error parsing task duration for task ${task.id}:`, error);
-          taskDurationMs = 3600000; // 1 hour default
+        } catch (e) {
+          console.error(`[SCHEDULER] Error parsing task.timeRequired: ${task.timeRequired}`, e);
         }
-      } else {
-        console.log(`[SCHEDULER] No time required specified for task ${task.id}, using default 1 hour`);
       }
       
-      // Ensure we have a valid duration to display
-      const taskDurationMinutes = Math.round(taskDurationMs / 60000);
-      console.log(`[SCHEDULER] Task ${task.id} requires ${taskDurationMinutes} minutes`);
+      if (taskDurationMs <= 0) {
+        taskDurationMs = 3600000; // Fallback to 1 hour
+      }
       
-      // Determine the deadline (due date/time or a reasonable future date)
+      // Get deadline from dueDate and dueTime if available
       let deadline = new Date();
+      deadline.setDate(deadline.getDate() + 7); // Default 7 days from now
+      
       if (task.dueDate) {
+        const dueDateObj = new Date(task.dueDate);
+        
+        // If dueTime is also available, use it for precise time
         if (task.dueTime) {
-          deadline = new Date(`${task.dueDate}T${task.dueTime}`);
+          const [hours, minutes] = task.dueTime.split(':').map(Number);
+          dueDateObj.setHours(hours || 17, minutes || 0, 0, 0); // Default to 5:00 PM if time parsing fails
         } else {
-          deadline = new Date(task.dueDate);
-          deadline.setHours(23, 59, 59); // End of the day
+          // Default end of day if only date is provided
+          dueDateObj.setHours(17, 0, 0, 0);
         }
+        
+        deadline = dueDateObj;
+      } else if (task.priority === 'high') {
+        deadline.setDate(deadline.getDate() + 1); // High priority: 1 day
+      } else if (task.priority === 'medium') {
+        deadline.setDate(deadline.getDate() + 3); // Medium priority: 3 days
       } else {
-        // No due date, use default based on priority
-        const priorityDays = task.priority === 'high' ? 1 : 
-                            task.priority === 'medium' ? 3 : 7;
-        deadline.setDate(deadline.getDate() + priorityDays);
+        deadline.setDate(deadline.getDate() + 7); // Low priority: 7 days
       }
       
-      console.log(`[SCHEDULER] Task ${task.id} deadline: ${deadline.toISOString()}`);
-      
-      // Get working hours for this user
+      // Get user's working hours (if any)
       let workingHours = await storage.getWorkingHours(user.id);
       
-      // Default working hours if none set (9 AM - 5 PM)
+      // Default working hours if none are set
       if (!workingHours) {
-        console.log(`[SCHEDULER] No working hours found for user ${user.id}, using default 9 AM - 5 PM`);
         workingHours = {
           id: 0,
           userId: user.id,
@@ -190,15 +180,12 @@ async function scheduleTasksForUser(user: User, tasks: Task[]) {
       const lookbackMs = taskDurationMs;
       const queryStart = new Date(now.getTime() - lookbackMs);
       
-      // Use standard Date handling
-      const startDate = new Date(now);
-      
       // End date for calendar query is the deadline
       const endDate = new Date(deadline);
       
       console.log(`[SCHEDULER] Fetching calendar events from ${queryStart.toISOString()} to ${endDate.toISOString()}`);
       
-      // Fetch existing calendar events including events that started before now but are still ongoing
+      // Fetch existing calendar events including those that started before now but are still ongoing
       let existingEvents: Array<any> = [];
       try {
         existingEvents = await getCalendarEvents(user, queryStart, endDate);
@@ -226,7 +213,7 @@ async function scheduleTasksForUser(user: User, tasks: Task[]) {
       
       // Find available slots
       const availableSlots = findAvailableSlots(
-        startDate, 
+        now, 
         endDate, 
         busySlots,
         taskDurationMs, 
@@ -239,8 +226,7 @@ async function scheduleTasksForUser(user: User, tasks: Task[]) {
       // If we couldn't find any available slots, throw an error instead of defaulting to a fallback
       // This prevents overlapping appointments that would create schedule conflicts
       if (availableSlots.length === 0) {
-        console.error(`[SCHEDULER] Could not find any available slots for task ${task.id} within working hours until deadline`);
-        throw new Error(`No available slots for task ${task.id}`);
+        throw new Error(`No available slots for task ${task.id} before deadline`);
       }
       
       // Select the best slot based on task priority and deadline
@@ -251,20 +237,13 @@ async function scheduleTasksForUser(user: User, tasks: Task[]) {
         now
       );
       
-      // Check if we have a valid optimal slot with valid date objects
-      if (!optimalSlot || !optimalSlot.start || !optimalSlot.end) {
-        throw new Error(`No valid optimal slot found for task ${task.id}`);
-      }
-      
       console.log(`[SCHEDULER] Selected optimal slot: ${optimalSlot.start.toISOString()} - ${optimalSlot.end.toISOString()}`);
       
-      // Create event data with the optimal slot
-      // Format the dates with proper timezone offsets using our enhanced dateUtils formatter
-      // We already have the import at the top of the file
-      
+      // Format dates with proper timezone for Google Calendar
       const startDateTime = formatDateForGoogleCalendar(optimalSlot.start, userTimezone);
       const endDateTime = formatDateForGoogleCalendar(optimalSlot.end, userTimezone);
       
+      // Create event data with the optimal slot
       const eventData = {
         summary: task.title,
         description: task.description || undefined,
@@ -278,97 +257,32 @@ async function scheduleTasksForUser(user: User, tasks: Task[]) {
         }
       };
       
-      console.log(`[SCHEDULER] Creating Google Calendar event for task ${task.id} with data:`, JSON.stringify(eventData, null, 2));
-      
-      // Schedule the task with the selected event data
+      // Schedule the task with the event data
       await scheduleTaskWithEventData(user, task, eventData);
       
     } catch (error: any) {
-      console.error(`[SCHEDULER] Error scheduling task ${task.id}:`, error);
-    }
-  }
-}
-
-/**
- * Helper function to schedule a task with given event data
- */
-async function scheduleTaskWithEventData(user: User, task: Task, eventData: any) {
-  try {
-    // Validate that the event start time is not in the past
-    const now = new Date();
-    const eventStartTime = new Date(eventData.start.dateTime);
-    
-    if (eventStartTime < now) {
-      console.warn(`[SCHEDULER] Attempted to schedule task ${task.id} in the past. Adjusting start time.`);
+      console.error(`[SCHEDULER] Error scheduling task ${task.id}:`, error.message);
       
-      // Adjust start time to nearest future 15-minute slot
-      const adjustedStartTime = new Date(now);
-      const minutes = adjustedStartTime.getMinutes();
-      const roundedMinutes = Math.ceil(minutes / 15) * 15;
-      adjustedStartTime.setMinutes(roundedMinutes, 0, 0);
-      
-      // If we rounded to the next hour
-      if (roundedMinutes === 60) {
-        adjustedStartTime.setMinutes(0);
-        adjustedStartTime.setHours(adjustedStartTime.getHours() + 1);
-      }
-      
-      // Calculate new end time based on original duration
-      const originalStartTime = new Date(eventData.start.dateTime);
-      const originalEndTime = new Date(eventData.end.dateTime);
-      const durationMs = originalEndTime.getTime() - originalStartTime.getTime();
-      
-      const adjustedEndTime = new Date(adjustedStartTime.getTime() + durationMs);
-      
-      // Get user timezone
-      const userTimezone = user.timezone || 'UTC';
-      
-      // Format with proper timezone offset using our imported formatter function
-      eventData.start.dateTime = formatDateForGoogleCalendar(adjustedStartTime, userTimezone);
-      eventData.end.dateTime = formatDateForGoogleCalendar(adjustedEndTime, userTimezone);
-      
-      console.log(`[SCHEDULER] Adjusted event time to: ${eventData.start.dateTime} - ${eventData.end.dateTime}`);
-    }
-    
-    // Create the calendar event
-    const event = await createEvent(user, eventData);
-    
-    if (event?.id) {
-      // Parse dates from the event data
-      const startTime = eventData.start.dateTime;
-      const endTime = eventData.end.dateTime;
-      
-      // Update task with Google Calendar event ID and mark as scheduled
-      await storage.updateTask(task.id, {
-        googleEventId: event.id,
-        scheduledStart: startTime,
-        scheduledEnd: endTime,
-        status: 'scheduled'
-      });
-      
-      console.log(`[SCHEDULER] Successfully scheduled task ${task.id} (Google Calendar event: ${event.id})`);
-    } else {
-      console.warn(`[SCHEDULER] Event created for task ${task.id} but no ID returned`);
-    }
-  } catch (error: any) {
-    console.error(`[SCHEDULER] Error creating calendar event: ${error}`);
-    
-    // If this is a token expiration error, notify the user
-    if (error.name === 'TokenExpiredError' || 
-        (error.message && error.message.includes('token') && 
-         (error.message.includes('expired') || error.message.includes('revoked')))) {
-      
-      try {
-        // Use the imported function to handle token expiration
-        await handleCalendarTokenExpiration(user.id, {
-          id: task.id,
-          title: task.title
-        });
+      // If this is a token expiration error, notify the user
+      if (error.name === 'TokenExpiredError' || 
+          (error.message && error.message.includes('token') && 
+           (error.message.includes('expired') || error.message.includes('revoked')))) {
         
-        console.log(`[SCHEDULER] Sent calendar reconnection notification to user ${user.id}`);
-      } catch (notifyError) {
-        console.error(`[SCHEDULER] Error sending calendar reconnection notification: ${notifyError}`);
+        try {
+          // Use the imported function to handle token expiration
+          await handleCalendarTokenExpiration(user.id, {
+            id: task.id,
+            title: task.title
+          });
+          
+          console.log(`[SCHEDULER] Sent calendar reconnection notification to user ${user.id}`);
+        } catch (notifyError) {
+          console.error(`[SCHEDULER] Error sending calendar reconnection notification: ${notifyError}`);
+        }
       }
+      
+      // Propagate the error up
+      throw error;
     }
   }
 }
@@ -393,6 +307,8 @@ function findAvailableSlots(
 ): Array<{start: Date, end: Date}> {
   
   const availableSlots: Array<{start: Date, end: Date}> = [];
+  
+  // Define which days of the week are working days
   const workingDays = [
     workingHours.sunday,
     workingHours.monday,
@@ -427,7 +343,10 @@ function findAvailableSlots(
     currentDate.setMinutes(roundedMinutes, 0, 0);
   }
   
-  // Generate potential slots during working hours
+  // Buffer time to prevent back-to-back meetings (10 minutes)
+  const bufferMs = 10 * 60 * 1000;
+  
+  // Generate potential slots during working hours at 15-minute intervals
   while (currentDate < endDate) {
     const dayOfWeek = currentDate.getDay(); // 0 = Sunday, 1 = Monday, etc.
     
@@ -438,12 +357,11 @@ function findAvailableSlots(
       continue;
     }
     
-    // Set current time to start of working hours if before working hours
+    // Get the current time elements
     const currentHour = currentDate.getHours();
     const currentMinute = currentDate.getMinutes();
     
-    // Skip if before working hours, but don't force to start of working hours
-    // This allows the loop to naturally find the next valid working slot
+    // Skip if before working hours (move to next slot, don't force to start of day)
     if (currentHour < startHour || (currentHour === startHour && currentMinute < startMinute)) {
       // Move to next 15-minute increment
       currentDate = new Date(currentDate.getTime() + 15 * 60 * 1000);
@@ -452,6 +370,7 @@ function findAvailableSlots(
     
     // Skip if after working hours
     if (currentHour > endHour || (currentHour === endHour && currentMinute >= endMinute)) {
+      // Move to next day at start of working hours
       currentDate.setDate(currentDate.getDate() + 1);
       currentDate.setHours(startHour, startMinute, 0, 0);
       continue;
@@ -460,7 +379,7 @@ function findAvailableSlots(
     // Calculate slot end time
     const slotEnd = new Date(currentDate.getTime() + taskDurationMs);
     
-    // Check if slot end is after working hours
+    // Skip if slot end is after working hours
     if (slotEnd.getHours() > endHour || 
         (slotEnd.getHours() === endHour && slotEnd.getMinutes() > endMinute)) {
       // Move to next day
@@ -477,36 +396,33 @@ function findAvailableSlots(
       breakStart.setHours(bStartH, bStartM, 0);
       const breakEnd = new Date(currentDate);
       breakEnd.setHours(bEndH, bEndM, 0);
+      
       if (currentDate < breakEnd && slotEnd > breakStart) {
+        // Move to next 15-minute increment
         currentDate = new Date(currentDate.getTime() + 15 * 60 * 1000);
         continue;
       }
     }
     
-    // IMPROVED OVERLAP DETECTION:
     // Check if the slot overlaps with any busy slots
-    // Convert all times to UTC milliseconds for accurate comparison
     const slotStartMs = currentDate.getTime();
     const slotEndMs = slotEnd.getTime();
     
-    // Add buffer time (10 minutes) to prevent tight scheduling
-    const bufferMs = 10 * 60 * 1000; // 10 minutes in milliseconds
+    // Log the slot we're checking
+    console.log(`[SCHEDULER] Checking slot: ${new Date(slotStartMs).toISOString()} - ${new Date(slotEndMs).toISOString()}`);
     
     let isOverlapping = false;
     
-    // IMPORTANT: Always log the slot we're checking - this helps with debugging
-    console.log(`[SCHEDULER] Checking slot: ${new Date(slotStartMs).toISOString()} - ${new Date(slotEndMs).toISOString()}`);
-    
-    // Check against all busy slots including meetings that started before "now"
+    // Check against all busy slots
     for (const busySlot of busySlots) {
       const busyStartMs = busySlot.start.getTime();
       const busyEndMs = busySlot.end.getTime();
       
-      // Apply buffer to both ends of busy slots to prevent back-to-back meetings
+      // Apply buffer to both ends of busy slots
       const busyStartWithBuffer = busyStartMs - bufferMs;
       const busyEndWithBuffer = busyEndMs + bufferMs;
       
-      // COMPREHENSIVE OVERLAP CHECK:
+      // Comprehensive overlap check:
       // 1. Slot starts during busy period (including buffer), or
       // 2. Slot ends during busy period (including buffer), or
       // 3. Slot completely contains busy period (including buffer), or
@@ -527,35 +443,13 @@ function findAvailableSlots(
       }
     }
     
+    // If no overlaps, this is a valid slot
     if (!isOverlapping) {
-      
-      // TRIPLE-CHECK OVERLAP CONDITIONS:
-      // 1. Slot starts during busy period (including buffer), or
-      // 2. Slot ends during busy period (including buffer), or
-      // 3. Slot completely contains busy period (including buffer), or
-      // 4. Busy period completely contains slot
-      const overlaps = (
-        (slotStartMs >= busyStartWithBuffer && slotStartMs < busyEndWithBuffer) ||  // Slot starts during busy
-        (slotEndMs > busyStartWithBuffer && slotEndMs <= busyEndWithBuffer) ||      // Slot ends during busy
-        (slotStartMs <= busyStartWithBuffer && slotEndMs >= busyEndWithBuffer) ||   // Slot contains busy
-        (busyStartWithBuffer <= slotStartMs && busyEndWithBuffer >= slotEndMs)      // Busy contains slot
-      );
-      
-      if (overlaps) {
-        // Enhanced debug logging
-        console.log(`[SCHEDULER] ⚠️ CONFLICT DETECTED: Slot ${new Date(slotStartMs).toISOString()} - ${new Date(slotEndMs).toISOString()} ` +
-                   `overlaps with busy slot ${new Date(busyStartMs).toISOString()} - ${new Date(busyEndMs).toISOString()}`);
-        isOverlapping = true;
-        break;
-      }
-    }
-    
-    if (!isOverlapping) {
-      // This is a valid slot
       availableSlots.push({
         start: new Date(currentDate),
         end: new Date(slotEnd)
       });
+      console.log(`[SCHEDULER] ✅ Valid slot found: ${currentDate.toISOString()} - ${slotEnd.toISOString()}`);
     }
     
     // Move to next 15-minute increment
@@ -598,10 +492,10 @@ function selectOptimalSlot(
     const daysUntilDeadline = (deadline.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
     
     if (daysUntilDeadline > 5) {
-      // Plenty of time, schedule closer to deadline
-      const middleIndex = Math.floor(sortedSlots.length / 2);
-      console.log('[SCHEDULER] Low priority task with time to spare, selecting middle slot');
-      return sortedSlots[middleIndex];
+      // If more than 5 days until deadline, push it back
+      const laterIndex = Math.min(sortedSlots.length - 1, Math.floor(sortedSlots.length * 0.7));
+      console.log(`[SCHEDULER] Low priority task with ${daysUntilDeadline.toFixed(1)} days until deadline, selecting later slot`);
+      return sortedSlots[laterIndex];
     }
   }
   
@@ -628,88 +522,32 @@ function selectOptimalSlot(
 }
 
 /**
- * Calculate an appropriate time slot for a task
- * @param task - Task to schedule
- * @returns Object with start and end times
+ * Helper function to schedule a task with given event data
  */
-function calculateTaskTimeSlot(task: Task): { startTime: Date, endTime: Date } {
-  // Start with current time as a base
-  const now = new Date();
-  
-  // Add 15 minutes to current time to ensure we're always scheduling in the future
-  // This gives a buffer for API calls and processing time
-  const nowPlus15Min = new Date(now.getTime() + 15 * 60 * 1000);
-  let startTime = new Date(nowPlus15Min);
-  
-  // If task has a due date/time, use that to calculate backward
-  if (task.dueDate) {
-    if (task.dueTime) {
-      // Create date from due date and time
-      const dueDateTime = parse(
-        `${task.dueDate} ${task.dueTime}`, 
-        'yyyy-MM-dd HH:mm', 
-        new Date()
-      );
-      
-      // Schedule 1 day before due date for medium priority
-      // Adjust based on priority
-      if (task.priority === 'high') {
-        startTime = new Date(dueDateTime);
-        startTime.setHours(startTime.getHours() - 4); // 4 hours before for high priority
-      } else if (task.priority === 'medium') {
-        startTime = new Date(dueDateTime);
-        startTime.setHours(startTime.getHours() - 24); // 1 day before for medium priority
-      } else {
-        startTime = new Date(dueDateTime);
-        startTime.setHours(startTime.getHours() - 48); // 2 days before for low priority
-      }
-      
-      // If the calculated start time is in the past, move it to now + buffer time
-      if (startTime < nowPlus15Min) {
-        console.log(`[SCHEDULER] Task ${task.id}: Adjusted start time from past (${startTime.toISOString()}) to future`);
-        startTime = new Date(nowPlus15Min);
-        startTime.setHours(startTime.getHours() + 1); // Add another hour for good measure
-      }
-    } else {
-      // Just due date without time, schedule for morning of due date
-      startTime = parse(task.dueDate, 'yyyy-MM-dd', new Date());
-      startTime.setHours(9, 0, 0, 0); // 9:00 AM
-      
-      // If the due date is today and it's already past 9 AM, schedule for now + buffer time
-      if (startTime < nowPlus15Min) {
-        console.log(`[SCHEDULER] Task ${task.id}: Adjusted date-only due time from past (${startTime.toISOString()}) to future`);
-        startTime = new Date(nowPlus15Min);
-        startTime.setHours(startTime.getHours() + 1); // Add another hour for good measure
-      }
-    }
-  } else {
-    // No due date, schedule based on priority
-    startTime = new Date(nowPlus15Min); // Start from safe future time
+async function scheduleTaskWithEventData(user: User, task: Task, eventData: any) {
+  try {
+    console.log(`[SCHEDULER] Creating Google Calendar event for task ${task.id} with data:`, JSON.stringify(eventData, null, 2));
     
-    if (task.priority === 'high') {
-      startTime.setHours(startTime.getHours() + 1); // Schedule in 1 hour for high priority
-    } else if (task.priority === 'medium') {
-      startTime.setHours(startTime.getHours() + 3); // Schedule in 3 hours for medium priority
-    } else {
-      startTime.setHours(startTime.getHours() + 24); // Schedule tomorrow for low priority
+    // Create event in Google Calendar
+    const calendarEvent = await createEvent(user, eventData);
+    
+    if (!calendarEvent || !calendarEvent.id) {
+      throw new Error('Failed to create calendar event: no event ID returned');
     }
     
-    console.log(`[SCHEDULER] Task ${task.id}: Scheduled without due date at ${startTime.toISOString()} based on priority ${task.priority || 'medium'}`);
-  }
-  
-  // Calculate end time based on time required
-  let endTime: Date;
-  
-  if (task.timeRequired) {
-    const [hours, minutes] = task.timeRequired.split(':').map(Number);
-    endTime = new Date(startTime);
+    // Update task in storage with Google Calendar event ID and status
+    const updatedTask = await storage.updateTask(task.id, {
+      googleEventId: calendarEvent.id,
+      status: 'scheduled',
+      scheduledStart: eventData.start.dateTime,
+      scheduledEnd: eventData.end.dateTime
+    });
     
-    if (!isNaN(hours)) endTime = addHours(endTime, hours);
-    if (!isNaN(minutes)) endTime = addMinutes(endTime, minutes);
-  } else {
-    // Default to 1 hour if no time required specified
-    endTime = addHours(startTime, 1);
+    console.log(`[SCHEDULER] Task ${task.id} scheduled successfully with event ID ${calendarEvent.id}`);
+    
+    return updatedTask;
+  } catch (error: any) {
+    console.error(`[SCHEDULER] Error creating calendar event for task ${task.id}:`, error);
+    throw error;
   }
-  
-  return { startTime, endTime };
 }
