@@ -6,7 +6,7 @@ import { storage } from '../storage';
 import { createEvent, getCalendarEvents } from './calendarService';
 import { User, Task } from '@shared/schema';
 import { addHours, addMinutes, parse, format } from 'date-fns';
-// Using the standard library for dates instead of date-fns-tz to avoid import issues
+import { toZonedTime } from 'date-fns-tz';
 import { handleCalendarTokenExpiration } from './calendarReconnect';
 import { formatDateForGoogleCalendar } from '../utils/dateUtils';
 
@@ -211,13 +211,17 @@ async function scheduleTasksForUser(user: User, tasks: Task[]) {
       const busySlots: Array<{start: Date, end: Date}> = [];
       
       for (const event of existingEvents) {
-        // Convert event times to the user's timezone by using the timezone info in the event itself
-        const start = event.start?.dateTime ? new Date(event.start.dateTime) : null;
-        const end = event.end?.dateTime ? new Date(event.end.dateTime) : null;
+        // Convert event times to the user's timezone using date-fns-tz
+        const zonedStart = event.start?.dateTime 
+          ? toZonedTime(new Date(event.start.dateTime), user.timezone) 
+          : null;
+        const zonedEnd = event.end?.dateTime 
+          ? toZonedTime(new Date(event.end.dateTime), user.timezone) 
+          : null;
         
-        if (start && end) {
-          busySlots.push({ start, end });
-          console.log(`[SCHEDULER] Added busy slot: ${start.toISOString()} - ${end.toISOString()}`);
+        if (zonedStart && zonedEnd) {
+          busySlots.push({ start: zonedStart, end: zonedEnd });
+          console.log(`[SCHEDULER] Added busy slot: ${zonedStart.toISOString()} - ${zonedEnd.toISOString()}`);
         }
       }
       
