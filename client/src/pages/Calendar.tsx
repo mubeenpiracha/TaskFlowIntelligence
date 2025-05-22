@@ -1,64 +1,55 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { format, isToday } from "date-fns";
+import { format, addDays, startOfWeek, endOfWeek, parseISO, isToday } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, AlertCircle } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { 
+  ChevronLeft, 
+  ChevronRight, 
+  Calendar as CalendarIcon, 
+  AlertCircle, 
+  Clock, 
+  Tag,
+  CalendarDays
+} from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
-import CalendarView from "@/components/CalendarView";
-import TaskDetailModal from "@/components/modals/TaskDetailModal";
 import { cn } from "@/lib/utils";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { Link } from "wouter";
+import { Badge } from "@/components/ui/badge";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-// Import our new calendar utilities
-import { 
-  CalendarError, 
-  formatDateForDisplay,
-  formatDateRangeForDisplay, 
-  getDateRangeForView, 
-  fetchCalendarEvents 
-} from "@/lib/calendarUtils";
-
+// Simple Calendar component that shows a list of events/tasks by date
+// instead of a complex calendar grid that might cause rendering issues
 export default function Calendar() {
   const [currentDate, setCurrentDate] = useState(new Date());
-  const [viewType, setViewType] = useState<'day' | 'week' | 'month'>('week');
-  const [isTaskModalOpen, setIsTaskModalOpen] = useState(false);
-  const [calendarError, setCalendarError] = useState<CalendarError | null>(null);
+  const [viewType, setViewType] = useState("week");
   const { toast } = useToast();
   
-  // Calculate date range based on view type using our utility
-  const { start, end } = getDateRangeForView(currentDate, viewType);
+  // Calculate date range for the week view
+  const startDate = startOfWeek(currentDate, { weekStartsOn: 1 }); // Start on Monday
+  const endDate = endOfWeek(currentDate, { weekStartsOn: 1 }); // End on Sunday
   
   // Navigation functions
   const goToPrev = () => {
     const newDate = new Date(currentDate);
-    
-    if (viewType === 'day') {
+    if (viewType === "day") {
       newDate.setDate(newDate.getDate() - 1);
-    } else if (viewType === 'week') {
+    } else if (viewType === "week") {
       newDate.setDate(newDate.getDate() - 7);
-    } else {
-      // Month view
-      newDate.setMonth(newDate.getMonth() - 1);
-    }
-    
+    } 
     setCurrentDate(newDate);
   };
   
   const goToNext = () => {
     const newDate = new Date(currentDate);
-    
-    if (viewType === 'day') {
+    if (viewType === "day") {
       newDate.setDate(newDate.getDate() + 1);
-    } else if (viewType === 'week') {
+    } else if (viewType === "week") {
       newDate.setDate(newDate.getDate() + 7);
-    } else {
-      // Month view
-      newDate.setMonth(newDate.getMonth() + 1);
     }
-    
     setCurrentDate(newDate);
   };
   
@@ -66,184 +57,327 @@ export default function Calendar() {
     setCurrentDate(new Date());
   };
   
-  // Fetch calendar events for the selected date range using our utility
-  const { data: calendarEvents, isLoading: isLoadingCalendar } = useQuery({
-    queryKey: [`/api/calendar/events/${format(start, 'yyyy-MM-dd')}_${format(end, 'yyyy-MM-dd')}`],
-    queryFn: async () => {
-      // Use our centralized calendar events fetcher
-      return await fetchCalendarEvents(start, end, setCalendarError);
-    }
-  });
+  // Format the current view for display
+  const dateRangeText = viewType === "day" 
+    ? format(currentDate, "MMMM d, yyyy")
+    : `${format(startDate, "MMM d")} - ${format(endDate, "MMM d, yyyy")}`;
   
-  // Fetch tasks for the selected date range
-  const { data: tasks, isLoading: isLoadingTasks } = useQuery({
-    queryKey: [`/api/tasks/${format(start, 'yyyy-MM-dd')}_${format(end, 'yyyy-MM-dd')}`],
+  // Fetch tasks
+  const { data: tasks, isLoading: isLoadingTasks, error: taskError } = useQuery({
+    queryKey: ["/api/tasks"],
     queryFn: async () => {
       try {
-        // In a real app, we'd have an API endpoint that accepts a date range
-        // For now, let's fetch all tasks
-        const res = await apiRequest('GET', '/api/tasks');
-        return res.json();
+        const res = await apiRequest("GET", "/api/tasks");
+        const data = await res.json();
+        return data || [];
       } catch (error) {
         console.error("Error fetching tasks:", error);
+        toast({
+          title: "Could not load tasks",
+          description: "There was an error loading your tasks. Please try again.",
+          variant: "destructive"
+        });
         return [];
       }
     }
   });
   
-  // Combine loading states
-  const isLoading = isLoadingCalendar || isLoadingTasks;
+  // Generate days for the current view
+  const daysToShow = viewType === "day" 
+    ? [currentDate] 
+    : Array.from({ length: 7 }, (_, i) => addDays(startDate, i));
+  
+  // Filter tasks for the current view
+  const getTasksForDate = (date: Date) => {
+    if (!tasks) return [];
+    
+    const dateStr = format(date, "yyyy-MM-dd");
+    
+    return tasks.filter(task => {
+      // If task has a scheduled date, check if it matches
+      if (task.scheduledDate) {
+        const taskDate = format(parseISO(task.scheduledDate), "yyyy-MM-dd");
+        return taskDate === dateStr;
+      }
+      
+      // If task has a due date, check if it matches
+      if (task.dueDate) {
+        const dueDate = format(parseISO(task.dueDate), "yyyy-MM-dd");
+        return dueDate === dateStr;
+      }
+      
+      // If task has a Google Calendar event, check if it matches
+      if (task.googleEventId && task.googleEventStartTime) {
+        const eventDate = format(parseISO(task.googleEventStartTime), "yyyy-MM-dd");
+        return eventDate === dateStr;
+      }
+      
+      return false;
+    });
+  };
+  
+  // Format time for display
+  const formatEventTime = (dateTimeStr: string) => {
+    if (!dateTimeStr) return "";
+    try {
+      return format(parseISO(dateTimeStr), "h:mm a");
+    } catch (e) {
+      return "";
+    }
+  };
+  
+  // Handle connection errors and provide helpful guidance
+  const showConnectionError = !!taskError;
   
   return (
-    <>
-      <div className="flex flex-col space-y-4">
-        {/* Calendar Header */}
-        <div className="flex justify-between items-center">
-          <div className="flex items-center space-x-4">
-            <h1 className="text-2xl font-semibold text-[#1D1C1D]">Calendar</h1>
-            <div className="flex space-x-2">
-              <Button 
-                variant="outline" 
-                size="sm"
-                onClick={goToPrev}
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <Button 
-                variant="outline" 
-                size="sm"
-                onClick={goToNext}
-              >
-                <ChevronRight className="h-4 w-4" />
-              </Button>
-              <Button 
-                variant="outline" 
-                size="sm"
-                onClick={goToToday}
-                className={cn(
-                  isToday(currentDate) && "bg-[#36C5F0] text-white hover:bg-[#36C5F0]/90 hover:text-white"
-                )}
-              >
-                Today
-              </Button>
-            </div>
-          </div>
-          
-          <div className="flex items-center space-x-2">
-            <span className="text-lg font-medium">{formatDateRangeForDisplay(currentDate, viewType)}</span>
-            <Button 
-              variant="ghost" 
-              size="icon"
-              onClick={() => setIsTaskModalOpen(true)}
-            >
-              <CalendarIcon className="h-5 w-5" />
-            </Button>
-          </div>
-          
+    <div className="flex flex-col space-y-4">
+      {/* Calendar Header */}
+      <div className="flex justify-between items-center">
+        <div className="flex items-center space-x-4">
+          <h1 className="text-2xl font-semibold text-[#1D1C1D]">Calendar</h1>
           <div className="flex space-x-2">
             <Button 
-              className={cn(
-                viewType === 'day' ? "bg-[#36C5F0] text-white" : "bg-white text-gray-500 border-gray-300"
-              )}
-              variant={viewType === 'day' ? "default" : "outline"}
-              onClick={() => setViewType('day')}
+              variant="outline" 
               size="sm"
+              onClick={goToPrev}
             >
-              Day
+              <ChevronLeft className="h-4 w-4" />
             </Button>
             <Button 
-              className={cn(
-                viewType === 'week' ? "bg-[#36C5F0] text-white" : "bg-white text-gray-500 border-gray-300"
-              )}
-              variant={viewType === 'week' ? "default" : "outline"}
-              onClick={() => setViewType('week')}
+              variant="outline" 
               size="sm"
+              onClick={goToNext}
             >
-              Week
+              <ChevronRight className="h-4 w-4" />
             </Button>
             <Button 
-              className={cn(
-                viewType === 'month' ? "bg-[#36C5F0] text-white" : "bg-white text-gray-500 border-gray-300"
-              )}
-              variant={viewType === 'month' ? "default" : "outline"}
-              onClick={() => setViewType('month')}
+              variant="outline" 
               size="sm"
+              onClick={goToToday}
+              className={cn(
+                isToday(currentDate) && "bg-[#36C5F0] text-white hover:bg-[#36C5F0]/90 hover:text-white"
+              )}
             >
-              Month
+              Today
             </Button>
           </div>
         </div>
         
-        {/* Calendar error alert */}
-        {calendarError && (
-          <Alert 
-            variant={
-              calendarError.code === 'CALENDAR_AUTH_EXPIRED' || calendarError.code === 'CALENDAR_REQUEST_ERROR' 
-                ? "destructive" 
-                : "warning"
-            } 
-            className="mb-4"
-          >
-            <AlertCircle className="h-4 w-4" />
-            <AlertTitle>
-              {calendarError.code === 'CALENDAR_AUTH_EXPIRED' 
-                ? 'Calendar Authorization Expired' 
-                : calendarError.code === 'CALENDAR_NOT_CONNECTED' 
-                  ? 'Calendar Not Connected'
-                  : calendarError.code === 'CALENDAR_REQUEST_ERROR'
-                    ? 'Calendar Request Error'
-                    : 'Calendar Error'}
-            </AlertTitle>
-            <AlertDescription className="flex flex-col">
-              <span>{calendarError.message}</span>
-              {calendarError.details && (
-                <span className="text-xs mt-1 opacity-80">{calendarError.details}</span>
-              )}
-              
-              {calendarError.code === 'CALENDAR_AUTH_EXPIRED' && (
-                <div className="mt-2 flex flex-col gap-2">
-                  <p className="text-sm">Your Google Calendar access has expired. You need to reconnect to view and manage events.</p>
-                  <Button asChild variant="outline" size="sm" className="w-fit">
-                    <Link to="/settings#google-calendar">Reconnect Calendar</Link>
-                  </Button>
-                </div>
-              )}
-              
-              {calendarError.code === 'CALENDAR_NOT_CONNECTED' && (
-                <div className="mt-2 flex flex-col gap-2">
-                  <p className="text-sm">Connect your Google Calendar to see all your events alongside your tasks.</p>
-                  <Button asChild variant="outline" size="sm" className="w-fit">
-                    <Link to="/settings#google-calendar">Connect Calendar</Link>
-                  </Button>
-                </div>
-              )}
-              
-              {calendarError.code === 'CALENDAR_REQUEST_ERROR' && (
-                <div className="mt-2 flex flex-col gap-2">
-                  <p className="text-sm">There was an issue with the calendar request format. We've logged this error for our team to investigate.</p>
-                  <Button asChild variant="outline" size="sm" className="w-fit">
-                    <Link to="/settings#google-calendar">Check Calendar Connection</Link>
-                  </Button>
-                </div>
-              )}
-            </AlertDescription>
-          </Alert>
-        )}
+        <div className="flex items-center space-x-2">
+          <span className="text-lg font-medium">{dateRangeText}</span>
+          <CalendarIcon className="h-5 w-5 text-gray-500" />
+        </div>
         
-        {/* Calendar Content */}
-        {isLoading ? (
-          <Skeleton className="h-[600px] w-full" />
-        ) : (
-          <CalendarView tasks={tasks} events={calendarEvents || []} />
-        )}
+        <div className="flex space-x-2">
+          <Button 
+            className={cn(
+              viewType === "day" ? "bg-[#36C5F0] text-white" : "bg-white text-gray-500 border-gray-300"
+            )}
+            variant={viewType === "day" ? "default" : "outline"}
+            onClick={() => setViewType("day")}
+            size="sm"
+          >
+            Day
+          </Button>
+          <Button 
+            className={cn(
+              viewType === "week" ? "bg-[#36C5F0] text-white" : "bg-white text-gray-500 border-gray-300"
+            )}
+            variant={viewType === "week" ? "default" : "outline"}
+            onClick={() => setViewType("week")}
+            size="sm"
+          >
+            Week
+          </Button>
+        </div>
       </div>
       
-      {isTaskModalOpen && (
-        <TaskDetailModal 
-          isOpen={isTaskModalOpen} 
-          onClose={() => setIsTaskModalOpen(false)}
-        />
+      {/* Connection Error Alert */}
+      {showConnectionError && (
+        <Alert variant="destructive" className="mb-2">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>Connection Error</AlertTitle>
+          <AlertDescription>
+            Unable to load your calendar data. Check your internet connection or try again later.
+            <div className="mt-2">
+              <Button asChild variant="outline" size="sm" className="w-fit">
+                <Link to="/settings">Check Settings</Link>
+              </Button>
+            </div>
+          </AlertDescription>
+        </Alert>
       )}
-    </>
+      
+      {/* Calendar Content */}
+      {isLoadingTasks ? (
+        <div className="space-y-4">
+          <Skeleton className="h-32 w-full" />
+          <Skeleton className="h-32 w-full" />
+          <Skeleton className="h-32 w-full" />
+        </div>
+      ) : (
+        <Tabs defaultValue={viewType} value={viewType} onValueChange={setViewType} className="w-full">
+          <TabsContent value="day" className="mt-0">
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="flex items-center gap-2">
+                  <CalendarDays className="h-5 w-5" />
+                  {format(currentDate, "EEEE, MMMM d, yyyy")}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {getTasksForDate(currentDate).length === 0 ? (
+                  <div className="text-center py-8 text-gray-500">
+                    <CalendarIcon className="h-12 w-12 mx-auto mb-2 opacity-30" />
+                    <p>No scheduled tasks for this day</p>
+                    <Button variant="outline" className="mt-4">
+                      <Link to="/tasks">Manage Tasks</Link>
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {getTasksForDate(currentDate).map((task) => (
+                      <div 
+                        key={task.id} 
+                        className="p-3 border rounded-md hover:shadow-sm transition-shadow"
+                      >
+                        <div className="flex justify-between items-start">
+                          <div className="flex-1">
+                            <h3 className="font-medium">{task.title}</h3>
+                            <p className="text-sm text-gray-500 line-clamp-2">
+                              {task.description || "No description"}
+                            </p>
+                            <div className="flex gap-2 mt-2">
+                              {task.googleEventStartTime && (
+                                <div className="flex items-center text-xs text-gray-500">
+                                  <Clock className="h-3 w-3 mr-1" />
+                                  {formatEventTime(task.googleEventStartTime)}
+                                  {task.googleEventEndTime && ` - ${formatEventTime(task.googleEventEndTime)}`}
+                                </div>
+                              )}
+                              {task.priority && (
+                                <Badge 
+                                  variant="outline" 
+                                  className={cn(
+                                    "text-xs",
+                                    task.priority === "high" && "bg-red-50 text-red-700 border-red-200",
+                                    task.priority === "medium" && "bg-yellow-50 text-yellow-700 border-yellow-200",
+                                    task.priority === "low" && "bg-green-50 text-green-700 border-green-200"
+                                  )}
+                                >
+                                  {task.priority}
+                                </Badge>
+                              )}
+                            </div>
+                          </div>
+                          <div className="flex gap-2">
+                            {task.status && (
+                              <Badge 
+                                variant="outline" 
+                                className={cn(
+                                  "text-xs",
+                                  task.status === "completed" && "bg-blue-50 text-blue-700 border-blue-200",
+                                  task.status === "pending" && "bg-gray-50 text-gray-700 border-gray-200",
+                                  task.status === "accepted" && "bg-green-50 text-green-700 border-green-200"
+                                )}
+                              >
+                                {task.status}
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+          
+          <TabsContent value="week" className="mt-0">
+            <div className="grid grid-cols-1 gap-4">
+              {daysToShow.map((day, index) => {
+                const dayTasks = getTasksForDate(day);
+                const isToday = new Date().toDateString() === day.toDateString();
+                
+                return (
+                  <Card key={index} className={cn(isToday && "border-blue-300 shadow-sm")}>
+                    <CardHeader className={cn(
+                      "pb-2",
+                      isToday && "bg-blue-50"
+                    )}>
+                      <CardTitle className="flex items-center gap-2 text-base">
+                        <CalendarDays className="h-4 w-4" />
+                        {format(day, "EEEE, MMMM d")}
+                        {isToday && <Badge className="ml-2 bg-blue-500">Today</Badge>}
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className={dayTasks.length === 0 ? "py-2 px-4" : "py-3"}>
+                      {dayTasks.length === 0 ? (
+                        <p className="text-sm text-center text-gray-500 py-2">No scheduled tasks</p>
+                      ) : (
+                        <div className="space-y-3">
+                          {dayTasks.map((task) => (
+                            <div 
+                              key={task.id} 
+                              className="p-3 border rounded-md hover:shadow-sm transition-shadow"
+                            >
+                              <div className="flex justify-between items-start">
+                                <div className="flex-1">
+                                  <h3 className="font-medium">{task.title}</h3>
+                                  <p className="text-sm text-gray-500 line-clamp-1">
+                                    {task.description || "No description"}
+                                  </p>
+                                  <div className="flex gap-2 mt-2">
+                                    {task.googleEventStartTime && (
+                                      <div className="flex items-center text-xs text-gray-500">
+                                        <Clock className="h-3 w-3 mr-1" />
+                                        {formatEventTime(task.googleEventStartTime)}
+                                      </div>
+                                    )}
+                                    {task.priority && (
+                                      <Badge 
+                                        variant="outline" 
+                                        className={cn(
+                                          "text-xs",
+                                          task.priority === "high" && "bg-red-50 text-red-700 border-red-200",
+                                          task.priority === "medium" && "bg-yellow-50 text-yellow-700 border-yellow-200",
+                                          task.priority === "low" && "bg-green-50 text-green-700 border-green-200"
+                                        )}
+                                      >
+                                        {task.priority}
+                                      </Badge>
+                                    )}
+                                  </div>
+                                </div>
+                                <div className="flex gap-2">
+                                  {task.status && (
+                                    <Badge 
+                                      variant="outline" 
+                                      className={cn(
+                                        "text-xs",
+                                        task.status === "completed" && "bg-blue-50 text-blue-700 border-blue-200",
+                                        task.status === "pending" && "bg-gray-50 text-gray-700 border-gray-200",
+                                        task.status === "accepted" && "bg-green-50 text-green-700 border-green-200"
+                                      )}
+                                    >
+                                      {task.status}
+                                    </Badge>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          </TabsContent>
+        </Tabs>
+      )}
+    </div>
   );
 }
