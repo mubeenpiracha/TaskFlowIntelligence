@@ -67,13 +67,25 @@ export async function createEvent(
   
   // Format the dateTime with timezone offset if present
   if (event.start && event.start.dateTime) {
-    // Apply our timezone-aware formatting that embeds the offset
-    event.start.dateTime = formatDateForGoogleCalendar(event.start.dateTime, userTimezone);
+    // Check if the date string already has a timezone offset
+    if (!event.start.dateTime.includes('+') && !event.start.dateTime.includes('-', 11)) {
+      // Only apply timezone formatting for dates without timezone info
+      event.start.dateTime = formatDateForGoogleCalendar(event.start.dateTime, userTimezone);
+      console.log(`[CALENDAR_SERVICE] Formatted start time without timezone: ${event.start.dateTime}`);
+    } else {
+      console.log(`[CALENDAR_SERVICE] Start time already has timezone, keeping as is: ${event.start.dateTime}`);
+    }
   }
   
   if (event.end && event.end.dateTime) {
-    // Apply our timezone-aware formatting that embeds the offset
-    event.end.dateTime = formatDateForGoogleCalendar(event.end.dateTime, userTimezone);
+    // Check if the date string already has a timezone offset
+    if (!event.end.dateTime.includes('+') && !event.end.dateTime.includes('-', 11)) {
+      // Only apply timezone formatting for dates without timezone info
+      event.end.dateTime = formatDateForGoogleCalendar(event.end.dateTime, userTimezone);
+      console.log(`[CALENDAR_SERVICE] Formatted end time without timezone: ${event.end.dateTime}`);
+    } else {
+      console.log(`[CALENDAR_SERVICE] End time already has timezone, keeping as is: ${event.end.dateTime}`);
+    }
   }
   
   return await createCalendarEvent(user.googleRefreshToken, event);

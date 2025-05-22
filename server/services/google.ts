@@ -217,21 +217,27 @@ export async function createCalendarEvent(
     // We've already imported formatDateForGoogleCalendar at the top of the file
     
     if (event.start.dateTime) {
-      // Convert to Date object to normalize the format
-      const startDateTime = new Date(event.start.dateTime);
-      // Apply our timezone-aware formatting that embeds the offset correctly
-      event.start.dateTime = formatDateForGoogleCalendar(startDateTime, event.start.timeZone);
-      
-      console.log(`[CALENDAR DEBUG] Formatted start datetime for create: ${event.start.dateTime}`);
+      // Check if the date string already has a timezone offset
+      if (!event.start.dateTime.includes('+') && !event.start.dateTime.includes('-', 11)) {
+        // Only format dates without timezone information
+        const startDateTime = new Date(event.start.dateTime);
+        event.start.dateTime = formatDateForGoogleCalendar(startDateTime, event.start.timeZone);
+        console.log(`[CALENDAR DEBUG] Formatted start datetime without timezone: ${event.start.dateTime}`);
+      } else {
+        console.log(`[CALENDAR DEBUG] Start datetime already has timezone, keeping as is: ${event.start.dateTime}`);
+      }
     }
     
     if (event.end.dateTime) {
-      // Convert to Date object to normalize the format
-      const endDateTime = new Date(event.end.dateTime);
-      // Apply our timezone-aware formatting that embeds the offset correctly
-      event.end.dateTime = formatDateForGoogleCalendar(endDateTime, event.end.timeZone);
-      
-      console.log(`[CALENDAR DEBUG] Formatted end datetime for create: ${event.end.dateTime}`);
+      // Check if the date string already has a timezone offset
+      if (!event.end.dateTime.includes('+') && !event.end.dateTime.includes('-', 11)) {
+        // Only format dates without timezone information
+        const endDateTime = new Date(event.end.dateTime);
+        event.end.dateTime = formatDateForGoogleCalendar(endDateTime, event.end.timeZone);
+        console.log(`[CALENDAR DEBUG] Formatted end datetime without timezone: ${event.end.dateTime}`);
+      } else {
+        console.log(`[CALENDAR DEBUG] End datetime already has timezone, keeping as is: ${event.end.dateTime}`);
+      }
     }
     
     // Ensure we have timezone information

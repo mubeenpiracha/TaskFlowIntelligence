@@ -1,0 +1,59 @@
+Selected optimal slot based on priority and deadline
+[SCHEDULER] Selected optimal slot: 2025-05-23T09:00:00.000Z - 2025-05-23T10:00:00.000Z
+[DATE UTILS] Formatting date: Fri May 23 2025 09:00:00 GMT+0000 (Coordinated Universal Time) for timezone: Asia/Dubai
+[DATE UTILS] Detected offset for Asia/Dubai: +04:00
+[DATE UTILS] Formatted date with offset: 2025-05-23T09:00:00+04:00
+[DATE UTILS] Formatting date: Fri May 23 2025 10:00:00 GMT+0000 (Coordinated Universal Time) for timezone: Asia/Dubai
+[DATE UTILS] Detected offset for Asia/Dubai: +04:00
+[DATE UTILS] Formatted date with offset: 2025-05-23T10:00:00+04:00
+[SCHEDULER] Creating Google Calendar event for task 155 with data: {
+  "summary": "Task from Slack",
+  "description": "<@U08JZ3VLYS3> make sure you talk to rohma",
+  "start": {
+    "dateTime": "2025-05-23T09:00:00+04:00",
+    "timeZone": "Asia/Dubai"
+  },
+  "end": {
+    "dateTime": "2025-05-23T10:00:00+04:00",
+    "timeZone": "Asia/Dubai"
+  }
+}
+[DATE UTILS] Formatting date: 2025-05-23T09:00:00+04:00 for timezone: Asia/Dubai
+[DATE UTILS] Detected offset for Asia/Dubai: +04:00
+[DATE UTILS] Formatted date with offset: 2025-05-23T05:00:00+04:00
+[DATE UTILS] Formatting date: 2025-05-23T10:00:00+04:00 for timezone: Asia/Dubai
+[DATE UTILS] Detected offset for Asia/Dubai: +04:00
+[DATE UTILS] Formatted date with offset: 2025-05-23T06:00:00+04:00
+[CALENDAR DEBUG] Creating calendar event with the following payload:
+{
+  "summary": "Task from Slack",
+  "description": "<@U08JZ3VLYS3> make sure you talk to rohma",
+  "start": {
+    "dateTime": "2025-05-23T05:00:00+04:00",
+    "timeZone": "Asia/Dubai"
+  },
+  "end": {
+    "dateTime": "2025-05-23T06:00:00+04:00",
+    "timeZone": "Asia/Dubai"
+  }
+}
+[DATE UTILS] Formatting date: Fri May 23 2025 01:00:00 GMT+0000 (Coordinated Universal Time) for timezone: Asia/Dubai
+[DATE UTILS] Detected offset for Asia/Dubai: +04:00
+[DATE UTILS] Formatted date with offset: 2025-05-23T01:00:00+04:00
+[CALENDAR DEBUG] Formatted start datetime for create: 2025-05-23T01:00:00+04:00
+[DATE UTILS] Formatting date: Fri May 23 2025 02:00:00 GMT+0000 (Coordinated Universal Time) for timezone: Asia/Dubai
+[DATE UTILS] Detected offset for Asia/Dubai: +04:00
+[DATE UTILS] Formatted date with offset: 2025-05-23T02:00:00+04:00
+[CALENDAR DEBUG] Formatted end datetime for create: 2025-05-23T02:00:00+04:00
+[CALENDAR DEBUG] Formatted event data:
+{
+  "summary": "Task from Slack",
+  "description": "<@U08JZ3VLYS3> make sure you talk to rohma",
+  "start": {
+    "dateTime": "2025-05-23T01:00:00+04:00",
+    "timeZone": "Asia/Dubai"
+  },
+  "end": {
+    "dateTime": "2025-05-23T02:00:00+04:00",
+    "timeZone": "Asia/Dubai"
+  }
