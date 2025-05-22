@@ -78,16 +78,6 @@ export function getWebhookHealthStatus(): WebhookMetrics {
  * @param event The event payload from Slack
  * @returns Processing result
  */
-// Create a Set to track recently processed event IDs to prevent duplicate processing
-const processedEventIds = new Set<string>();
-const EVENT_CACHE_TTL = 10 * 60 * 1000; // 10 minutes in milliseconds
-
-// Periodically clean up the event cache to prevent memory leaks
-setInterval(() => {
-  console.log(`Cleaning up event cache. Current size: ${processedEventIds.size}`);
-  // We don't need to actually remove events here since the cache is small and short-lived
-}, EVENT_CACHE_TTL);
-
 export async function handleSlackEvent(event: any): Promise<{
   success: boolean;
   eventType: string;
@@ -97,25 +87,15 @@ export async function handleSlackEvent(event: any): Promise<{
   error?: string;
 }> {
   try {
-    // Check for duplicate events to prevent double processing
-    if (event.event_id) {
-      if (processedEventIds.has(event.event_id)) {
-        console.log(`Skipping duplicate event with ID: ${event.event_id}`);
-        return {
-          success: true,
-          eventType: "duplicate",
-          processed: true,
-          message: "Duplicate event skipped"
-        };
-      }
-      
-      // Add this event ID to the processed set
-      processedEventIds.add(event.event_id);
-      
-      // Set a timeout to remove this event ID from the processed set after TTL
-      setTimeout(() => {
-        processedEventIds.delete(event.event_id);
-      }, EVENT_CACHE_TTL);
+    // Skip bot messages completely - this prevents duplicate processing
+    if (event.event?.bot_id) {
+      console.log(`Skipping bot message from bot_id: ${event.event.bot_id}`);
+      return {
+        success: true,
+        eventType: "bot_message",
+        processed: true,
+        message: "Bot message skipped"
+      };
     }
     
     // Update metrics
