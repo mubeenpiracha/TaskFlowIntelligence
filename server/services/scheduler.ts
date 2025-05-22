@@ -278,7 +278,7 @@ async function scheduleTasksForUser(user: User, tasks: Task[]) {
       );
 
       console.log(
-        `[SCHEDULER] Selected optimal slot: ${optimalSlot.start.toISOString()} - ${optimalSlot.end.toISOString()}`,
+        `[SCHEDULER] Selected optimal slot in ${userTimezone}: ${formatInTimeZone(optimalSlot.start, userTimezone, "yyyy-MM-dd'T'HH:mm:ssXXX")} - ${formatInTimeZone(optimalSlot.end, userTimezone, "yyyy-MM-dd'T'HH:mm:ssXXX")}`,
       );
 
       // Format dates with proper timezone for Google Calendar
@@ -363,6 +363,16 @@ function findAvailableSlots(
   timezone: string,
 ): Array<{ start: Date; end: Date }> {
   const availableSlots: Array<{ start: Date; end: Date }> = [];
+  
+  // Log that we're finding slots in the user's timezone
+  console.log(`[SCHEDULER] Finding available slots in timezone: ${timezone}`);
+  
+  // Convert busy slots to user's timezone for proper comparison
+  const timezonedBusySlots = busySlots.map(slot => ({
+    start: toZonedTime(slot.start, timezone),
+    end: toZonedTime(slot.end, timezone)
+  }));
+  console.log(`[SCHEDULER] Converted ${timezonedBusySlots.length} busy slots to timezone: ${timezone}`);
 
   // Define which days of the week are working days
   const workingDays = [
@@ -495,8 +505,8 @@ function findAvailableSlots(
 
     let isOverlapping = false;
 
-    // Check against all busy slots
-    for (const busySlot of busySlots) {
+    // Check against all busy slots (using timezone-converted slots for proper comparison)
+    for (const busySlot of timezonedBusySlots) {
       const busyStartMs = busySlot.start.getTime();
       const busyEndMs = busySlot.end.getTime();
 
