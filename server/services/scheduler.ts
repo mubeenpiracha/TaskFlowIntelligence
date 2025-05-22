@@ -6,7 +6,7 @@ import { storage } from '../storage';
 import { createEvent, getCalendarEvents } from './calendarService';
 import { User, Task } from '@shared/schema';
 import { addHours, addMinutes, parse, format } from 'date-fns';
-import { toZonedTime } from 'date-fns-tz';
+// We'll use standard Date operations instead of date-fns-tz to avoid import issues
 import { handleCalendarTokenExpiration } from './calendarReconnect';
 import { formatDateForGoogleCalendar } from '../utils/dateUtils';
 
@@ -190,9 +190,8 @@ async function scheduleTasksForUser(user: User, tasks: Task[]) {
       const lookbackMs = taskDurationMs;
       const queryStart = new Date(now.getTime() - lookbackMs);
       
-      // Convert dates to user timezone for better accuracy
-      const startDateUtc = new Date(now);
-      const startDate = toZonedTime(startDateUtc, user.timezone);
+      // Use standard Date handling
+      const startDate = new Date(now);
       
       // End date for calendar query is the deadline
       const endDate = new Date(deadline);
@@ -213,17 +212,13 @@ async function scheduleTasksForUser(user: User, tasks: Task[]) {
       const busySlots: Array<{start: Date, end: Date}> = [];
       
       for (const event of existingEvents) {
-        // Convert event times to the user's timezone using date-fns-tz
-        const zonedStart = event.start?.dateTime 
-          ? toZonedTime(new Date(event.start.dateTime), user.timezone) 
-          : null;
-        const zonedEnd = event.end?.dateTime 
-          ? toZonedTime(new Date(event.end.dateTime), user.timezone) 
-          : null;
+        // Use native Date handling for events
+        const start = event.start?.dateTime ? new Date(event.start.dateTime) : null;
+        const end = event.end?.dateTime ? new Date(event.end.dateTime) : null;
         
-        if (zonedStart && zonedEnd) {
-          busySlots.push({ start: zonedStart, end: zonedEnd });
-          console.log(`[SCHEDULER] Added busy slot: ${zonedStart.toISOString()} - ${zonedEnd.toISOString()}`);
+        if (start && end) {
+          busySlots.push({ start, end });
+          console.log(`[SCHEDULER] Added busy slot: ${start.toISOString()} - ${end.toISOString()}`);
         }
       }
       
