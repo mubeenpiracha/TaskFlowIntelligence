@@ -3067,6 +3067,42 @@ app.post('/api/system/slack/clear-cache', requireAuth, async (req, res) => {
   });
   
   // TEST ENDPOINT: Force task detection test
+  // Add test route for timezone handling
+  app.get('/api/test-timezone-fix', requireAuth, async (req, res) => {
+    try {
+      if (!req.session.userId) {
+        return res.status(401).json({ message: 'Not logged in' });
+      }
+      
+      const user = await storage.getUser(req.session.userId);
+      if (!user) {
+        return res.status(404).json({ message: 'User not found' });
+      }
+      
+      // Import the test service
+      const { testUserTimezoneHandling } = await import('./services/test-timezone');
+      
+      // Run the timezone test and return the results
+      const results = testUserTimezoneHandling(user);
+      
+      res.json({
+        message: 'Timezone test completed successfully',
+        user: {
+          id: user.id,
+          username: user.username,
+          timezone: user.timezone || 'UTC'
+        },
+        results
+      });
+    } catch (error) {
+      console.error('Error testing timezone handling:', error);
+      res.status(500).json({
+        message: 'Failed to run timezone test',
+        error: String(error)
+      });
+    }
+  });
+  
   app.post('/api/slack/test-task-detection', requireAuth, async (req, res) => {
     try {
       const user = await storage.getUser(req.session.userId!);
