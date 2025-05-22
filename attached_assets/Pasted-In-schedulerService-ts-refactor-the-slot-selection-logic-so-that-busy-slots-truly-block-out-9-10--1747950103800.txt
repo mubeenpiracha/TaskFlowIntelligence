@@ -1,0 +1,61 @@
+In `schedulerService.ts`, refactor the slot‐selection logic so that busy slots truly block out 9–10 AM and you never force a fallback at start‐of‐day before filtering. Apply these changes:
+
+1. **Normalize everything into the user’s timezone**  
+   - Install and import from `date-fns-tz`:  
+     ```ts
+     import { utcToZonedTime } from 'date-fns-tz';
+     ```  
+   - When loading existing events, convert before pushing to `busySlots`:
+     ```diff
+     - const start = event.start?.dateTime ? new Date(event.start.dateTime) : null;
+     - const end   = event.end?.dateTime   ? new Date(event.end.dateTime)   : null;
+     + const zonedStart = event.start?.dateTime
+     +   ? utcToZonedTime(event.start.dateTime, user.timezone)
+     +   : null;
+     + const zonedEnd   = event.end?.dateTime
+     +   ? utcToZonedTime(event.end.dateTime,   user.timezone)
+     +   : null;
+     if (zonedStart && zonedEnd) busySlots.push({ start: zonedStart, end: zonedEnd });
+     ```
+   - Before calling `findAvailableSlots`, convert `startDate` to the user’s timezone:
+     ```diff
+     - const startDate = new Date(now);
+     + const startDateUtc = new Date(now);
+     + const startDate    = utcToZonedTime(startDateUtc, user.timezone);
+     ```
+
+2. **Widen the busy‐slot query window**  
+   - Instead of querying events from `now`, fetch from `(now - max task duration)`:
+     ```diff
+     - const existingEvents = await getCalendarEvents(user, startDate, endDate);
+     + const lookbackMs     = taskDurationMs;
+     + const queryStart    = new Date(now.getTime() - lookbackMs);
+     + const existingEvents = await getCalendarEvents(user, queryStart, endDate);
+     ```
+
+3. **Don’t force to 09:00 AM before filtering**  
+   - In `findAvailableSlots()`, replace the “round up to next hour then force to startTime” logic with a simple 15-minute rounding, and move the working‐hours check *after* you’ve generated your first candidate:
+     ```diff
+     - // Start from the current date, rounded up to the next hour for simplicity
+     - let currentDate = new Date(startDate);
+     - currentDate.setMinutes(0, 0, 0);
+     - currentDate.setHours(currentDate.getHours() + 1);
+     + // Start from the current date, rounded up to the next 15-minute increment
+     + let currentDate = new Date(startDate);
+     + const mins      = currentDate.getMinutes();
+     + const rounded   = Math.ceil(mins / 15) * 15;
+     + currentDate.setMinutes(rounded, 0, 0);
+     ```
+   - **Remove** the block that immediately does:
+     ```ts
+     if (currentHour < startHour || …) {
+       currentDate.setHours(startHour, startMinute, 0, 0);
+     }
+     ```
+     instead, allow the loop to skip non‐working‐hours slots naturally.
+
+4. **Verify behavior**  
+   - Ensure that when you rerun `getCalendarEvents(...)`, any meeting that overlaps 9–10 AM (even if it started before “now”) is in `busySlots` and filtered out.  
+   - Run unit tests or manual tests to confirm that a booked 9–10 AM meeting no longer allows a new event there.
+
+Please apply these changes in place, run `tsc` to validate, and add comments or TODOs if any imports need adjusting. ```

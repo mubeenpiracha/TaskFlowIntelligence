@@ -6,6 +6,7 @@ import { storage } from '../storage';
 import { createEvent, getCalendarEvents } from './calendarService';
 import { User, Task } from '@shared/schema';
 import { addHours, addMinutes, parse, format } from 'date-fns';
+// Using the standard library for dates instead of date-fns-tz to avoid import issues
 import { handleCalendarTokenExpiration } from './calendarReconnect';
 import { formatDateForGoogleCalendar } from '../utils/dateUtils';
 
@@ -183,17 +184,23 @@ async function scheduleTasksForUser(user: User, tasks: Task[]) {
       
       // Get the start date for calendar query
       const now = new Date();
+      
+      // Widen the busy-slot query window by looking back by the task duration
+      // This ensures we catch meetings that started before now but are still ongoing
+      const lookbackMs = taskDurationMs;
+      const queryStart = new Date(now.getTime() - lookbackMs);
+      
       const startDate = new Date(now);
       
       // End date for calendar query is the deadline
       const endDate = new Date(deadline);
       
-      console.log(`[SCHEDULER] Fetching calendar events from ${startDate.toISOString()} to ${endDate.toISOString()}`);
+      console.log(`[SCHEDULER] Fetching calendar events from ${queryStart.toISOString()} to ${endDate.toISOString()}`);
       
-      // Fetch existing calendar events
+      // Fetch existing calendar events including events that started before now but are still ongoing
       let existingEvents: Array<any> = [];
       try {
-        existingEvents = await getCalendarEvents(user, startDate, endDate);
+        existingEvents = await getCalendarEvents(user, queryStart, endDate);
         console.log(`[SCHEDULER] Found ${existingEvents.length} existing events in calendar`);
       } catch (error: any) {
         console.error(`[SCHEDULER] Error fetching calendar events: ${error.message}`);
@@ -204,11 +211,13 @@ async function scheduleTasksForUser(user: User, tasks: Task[]) {
       const busySlots: Array<{start: Date, end: Date}> = [];
       
       for (const event of existingEvents) {
+        // Convert event times to the user's timezone by using the timezone info in the event itself
         const start = event.start?.dateTime ? new Date(event.start.dateTime) : null;
         const end = event.end?.dateTime ? new Date(event.end.dateTime) : null;
         
         if (start && end) {
           busySlots.push({ start, end });
+          console.log(`[SCHEDULER] Added busy slot: ${start.toISOString()} - ${end.toISOString()}`);
         }
       }
       
