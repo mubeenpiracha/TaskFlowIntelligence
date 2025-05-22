@@ -5,6 +5,7 @@ import { storage } from '../storage';
 import * as fs from 'fs';
 import * as path from 'path';
 import { fileURLToPath } from 'url';
+import { BASE_URL } from '../config';
 
 if (!process.env.SLACK_BOT_TOKEN) {
   console.warn("SLACK_BOT_TOKEN environment variable is not set - Slack bot operations will not work");
