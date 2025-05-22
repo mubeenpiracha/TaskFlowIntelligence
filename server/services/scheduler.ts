@@ -528,34 +528,12 @@ function findAvailableSlots(
     }
     
     if (!isOverlapping) {
-      
-      // TRIPLE-CHECK OVERLAP CONDITIONS:
-      // 1. Slot starts during busy period (including buffer), or
-      // 2. Slot ends during busy period (including buffer), or
-      // 3. Slot completely contains busy period (including buffer), or
-      // 4. Busy period completely contains slot
-      const overlaps = (
-        (slotStartMs >= busyStartWithBuffer && slotStartMs < busyEndWithBuffer) ||  // Slot starts during busy
-        (slotEndMs > busyStartWithBuffer && slotEndMs <= busyEndWithBuffer) ||      // Slot ends during busy
-        (slotStartMs <= busyStartWithBuffer && slotEndMs >= busyEndWithBuffer) ||   // Slot contains busy
-        (busyStartWithBuffer <= slotStartMs && busyEndWithBuffer >= slotEndMs)      // Busy contains slot
-      );
-      
-      if (overlaps) {
-        // Enhanced debug logging
-        console.log(`[SCHEDULER] ⚠️ CONFLICT DETECTED: Slot ${new Date(slotStartMs).toISOString()} - ${new Date(slotEndMs).toISOString()} ` +
-                   `overlaps with busy slot ${new Date(busyStartMs).toISOString()} - ${new Date(busyEndMs).toISOString()}`);
-        isOverlapping = true;
-        break;
-      }
-    }
-    
-    if (!isOverlapping) {
-      // This is a valid slot
+      // This is a valid slot with no overlaps
       availableSlots.push({
         start: new Date(currentDate),
         end: new Date(slotEnd)
       });
+      console.log(`[SCHEDULER] ✅ Valid slot found: ${currentDate.toISOString()} - ${slotEnd.toISOString()}`);
     }
     
     // Move to next 15-minute increment
