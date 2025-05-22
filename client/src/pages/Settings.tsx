@@ -36,6 +36,12 @@ export default function Settings() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
+  // Check if user was redirected here to reconnect calendar
+  const [searchParams] = useState(() => {
+    return new URLSearchParams(window.location.search);
+  });
+  const reconnectCalendar = searchParams.get('reconnectCalendar') === 'true';
+
   // States for channel selection
   const [selectedChannels, setSelectedChannels] = useState<string[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -403,6 +409,17 @@ export default function Settings() {
                     <AlertTitle>Google Calendar Access Required</AlertTitle>
                     <AlertDescription>
                       Connect your Google Calendar using the button below to continue viewing and managing events.
+                    </AlertDescription>
+                  </Alert>
+                )}
+                
+                {/* Show reconnection message when coming from Slack notification */}
+                {reconnectCalendar && (
+                  <Alert className="mb-4" variant="destructive">
+                    <AlertCircle className="h-4 w-4" />
+                    <AlertTitle>Calendar Token Expired</AlertTitle>
+                    <AlertDescription>
+                      Your Google Calendar connection has expired. Please reconnect your calendar to continue scheduling tasks.
                     </AlertDescription>
                   </Alert>
                 )}
