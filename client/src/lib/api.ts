@@ -554,13 +554,30 @@ export async function updateWorkingHours(workingHours: {
  */
 export async function getMe() {
   try {
-    return await fetchApi('/api/auth/me', {}, true);
-  } catch (error) {
-    // If unauthorized, return null instead of throwing
-    if (error instanceof Error && error.message.includes('Unauthorized')) {
+    // Directly use fetch instead of fetchApi to avoid error handling/logging
+    const response = await fetch('/api/auth/me', {
+      credentials: 'include'
+    });
+    
+    // If not logged in, just return null without any errors
+    if (response.status === 401) {
       return null;
     }
-    throw error;
+    
+    // If response is not ok for other reasons, let the caller handle it
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Error fetching user data: ${response.status} ${errorText}`);
+    }
+    
+    // Return the parsed user data
+    return await response.json();
+  } catch (error) {
+    // Only log non-401 errors
+    if (!(error instanceof Error && error.message.includes('401'))) {
+      console.error('Error fetching user data:', error);
+    }
+    return null;
   }
 }
 
