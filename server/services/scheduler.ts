@@ -400,6 +400,27 @@ async function scheduleTaskWithEventData(user: User, task: Task, eventData: any)
     }
   } catch (error: any) {
     console.error(`[SCHEDULER] Error creating calendar event: ${error}`);
+    
+    // If this is a token expiration error, notify the user
+    if (error.name === 'TokenExpiredError' || 
+        (error.message && error.message.includes('token') && 
+         (error.message.includes('expired') || error.message.includes('revoked')))) {
+      
+      try {
+        // Import calendar reconnect service
+        const { handleCalendarTokenExpiration } = require('./calendarReconnect');
+        
+        // Handle the token expiration with notification
+        await handleCalendarTokenExpiration(user.id, {
+          id: task.id,
+          title: task.title
+        });
+        
+        console.log(`[SCHEDULER] Sent calendar reconnection notification to user ${user.id}`);
+      } catch (notifyError) {
+        console.error(`[SCHEDULER] Error sending calendar reconnection notification: ${notifyError}`);
+      }
+    }
   }
 }
 
