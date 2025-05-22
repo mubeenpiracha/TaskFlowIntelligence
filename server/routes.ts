@@ -554,20 +554,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       return res.status(200).json({ challenge: body.challenge });
     }
     
+    // First, immediately acknowledge receipt to prevent Slack retries
+    // This is important - we need to respond quickly before Slack times out
+    res.status(200).send('Event received');
+    
+    // Now process the event asynchronously (after responding)
     try {
-      // Process the event with our handler
+      // Check for Slack retry (we've already responded, so we can safely ignore retries)
+      if (req.headers['x-slack-retry-num']) {
+        console.log(`Ignoring Slack retry #${req.headers['x-slack-retry-num']} with reason: ${req.headers['x-slack-retry-reason']}`);
+        return; // Skip processing retries
+      }
+      
+      // Process the event after we've already responded
       const result = await handleSlackEvent(body);
       console.log('Event processing result:', JSON.stringify(result));
-      
-      // Always return 200 OK to Slack to acknowledge receipt
-      res.status(200).send('Event received');
     } catch (error) {
       console.error('Error handling Slack event:', error);
-      
-      // Only send response if not already sent
-      if (!res.headersSent) {
-        res.status(200).send('Event received');  // Always return 200 to Slack
-      }
     }
   });
   
