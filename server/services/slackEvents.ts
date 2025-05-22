@@ -186,6 +186,19 @@ async function processMessageEvent(message: any, teamId: string): Promise<{
       };
     }
     
+    // Skip bot messages - this prevents the app from responding to its own messages
+    // which was causing the duplicate message issue
+    if (message.bot_id || message.bot_profile || (message.user && message.user.startsWith('B'))) {
+      console.log(`Skipping bot message from ${message.user || 'unknown'} with ts ${message.ts}`);
+      return {
+        success: true,
+        eventType: "message",
+        processed: true,
+        taskDetected: false,
+        message: "Skipped bot message"
+      };
+    }
+    
     // Check if this message has already been processed into a task
     // This prevents duplicate task suggestions for the same message
     try {
