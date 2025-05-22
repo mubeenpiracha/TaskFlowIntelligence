@@ -495,7 +495,7 @@ export async function getWorkingHours(): Promise<{
   endTime: string;
   workDays: string;
 }> {
-  return fetchApi('/api/user/working-hours');
+  return fetchApi('/api/working-hours');
 }
 
 /**
@@ -522,7 +522,7 @@ export async function saveWorkingHours(workingHours: {
       : workingHours.workDays
   };
   
-  return submitApi('/api/user/working-hours', payload, 'POST');
+  return submitApi('/api/working-hours', payload, 'POST');
 }
 
 /**
