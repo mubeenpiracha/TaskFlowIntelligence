@@ -68,6 +68,9 @@ async function scheduleTasksForUser(user: User, tasks: Task[]) {
     `[SCHEDULER] Processing ${tasks.length} tasks for user ${user.id}`,
   );
 
+  // Get user's timezone offset for proper date handling (moved outside loop)
+  const userOffset = user.timezoneOffset || '+00:00';
+
   for (const task of tasks) {
     if (task.googleEventId) continue;
 
@@ -84,16 +87,20 @@ async function scheduleTasksForUser(user: User, tasks: Task[]) {
       console.log(
         `[SCHEDULER DEBUG] Parsed duration: ${durationMs}ms (${durationMs / 60000} minutes)`,
       );
-
+      
       const now = new Date();
       console.log(`[SCHEDULER DEBUG] Current time: ${now}`);
 
-      const deadline = computeDeadline(task, now);
+      const deadline = computeDeadline(task, now, userOffset);
       console.log(`[SCHEDULER DEBUG] Computed deadline: ${deadline}`);
 
-      // Extend busy query window to catch events that started before now
-      const queryStart = new Date(now.getTime() - durationMs);
-      const queryEnd = deadline;
+      // Convert dates to user's timezone for calendar queries
+      const userNow = convertToUserTimezone(now, userOffset);
+      const userDeadline = convertToUserTimezone(deadline, userOffset);
+
+      // Extend busy query window to catch events that started before now  
+      const queryStart = new Date(userNow.getTime() - durationMs);
+      const queryEnd = userDeadline;
 
       console.log(
         `[SCHEDULER DEBUG] Query start (now - duration): ${queryStart}`,
@@ -119,8 +126,8 @@ async function scheduleTasksForUser(user: User, tasks: Task[]) {
       console.log(`[SCHEDULER DEBUG] - userId: ${user.id}`);
 
       const available = await findAvailableSlots(
-        now,
-        deadline,
+        userNow,
+        userDeadline,
         busySlots,
         durationMs,
         user.id,
@@ -147,13 +154,12 @@ async function scheduleTasksForUser(user: User, tasks: Task[]) {
       const slot = selectOptimalSlot(
         available,
         task.priority ?? "medium",
-        deadline,
-        now,
+        userDeadline,
+        userNow,
       );
       console.log(`[SCHEDULER] Chosen slot: ${slot.start} - ${slot.end}`);
 
       // Use the much simpler offset-based formatting instead of complex IANA timezone handling
-      const userOffset = user.timezoneOffset || '+00:00';
       const startIso = formatDateWithOffset(slot.start, userOffset);
       const endIso = formatDateWithOffset(slot.end, userOffset);
       const eventData = {
@@ -195,7 +201,7 @@ function parseDuration(str?: string): number | null {
 /**
  * Compute a deadline Date based on task fields and priority
  */
-function computeDeadline(task: Task, now: Date): Date {
+function computeDeadline(task: Task, now: Date, userOffset?: string): Date {
   console.log(`[DEADLINE DEBUG] Computing deadline for task ${task.id}`);
   console.log(`[DEADLINE DEBUG] Current time: ${now}`);
   console.log(`[DEADLINE DEBUG] Task dueDate: ${task.dueDate}`);
