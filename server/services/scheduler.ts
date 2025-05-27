@@ -77,12 +77,9 @@ async function scheduleTasksForUser(user: User, tasks: Task[]) {
       const deadline = computeDeadline(task, now);
 
       // Extend busy query window to catch events that started before now
-      const queryStart = normalizeEventSlot(
-        new Date(now.getTime() - durationMs),
-      );
-      const queryEnd = normalizeEventSlot(deadline);
+      const queryStart = new Date(now.getTime() - durationMs);
+      const queryEnd = deadline;
 
-      console.log(queryStart, queryEnd);
       console.log(
         `[SCHEDULER] Fetching events from ${queryStart.toISOString()} to ${queryEnd.toISOString()}`,
       );
