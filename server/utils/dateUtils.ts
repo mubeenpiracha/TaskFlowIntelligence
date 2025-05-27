@@ -3,6 +3,8 @@
  * for Google Calendar API and other date-related operations
  */
 
+import { zonedTimeToUtc, utcToZonedTime, format as formatTz } from 'date-fns-tz';
+
 /**
  * Formats a date for the Google Calendar API with timezone consideration
  *
@@ -14,100 +16,21 @@ export function formatDateForGoogleCalendar(
   dateStr: string | Date,
   timezone: string = 'UTC',
 ): string {
-  // Simpler, more direct approach for RFC 3339 format with timezone offset
   try {
-    console.log(`[DATE UTILS] Formatting date: ${dateStr} for timezone: ${timezone}`);
-    
-    // Create a date object from the input
-    const date = typeof dateStr === "string" ? new Date(dateStr) : new Date(dateStr);
-    
-    // Use Intl.DateTimeFormat to get the actual timezone offset for any IANA timezone
-    // This is much more accurate than using a static dictionary, as it handles all IANA timezones
-    // and accounts for daylight saving time changes
-    let offset = '+00:00'; // Default to UTC
-    
-    try {
-      // Format current date with target timezone
-      const formatter = new Intl.DateTimeFormat('en-US', {
-        timeZone: timezone,
-        timeZoneName: 'short'
-      });
-      
-      // Get the timezone name from the formatter to extract the offset
-      const formattedParts = formatter.formatToParts(date);
-      const timeZonePart = formattedParts.find(part => part.type === 'timeZoneName');
-      
-      // Extract the offset from the timezone name (e.g., "GMT-5" -> "-05:00")
-      if (timeZonePart?.value) {
-        // Extract offset from string like "GMT-5" or "GMT+5:30"
-        const match = timeZonePart.value.match(/GMT([+-])(\d+)(?::(\d+))?/);
-        if (match) {
-          const sign = match[1]; // '+' or '-'
-          let hours = match[2].padStart(2, '0'); // Ensure 2 digits
-          const minutes = match[3] ? match[3].padStart(2, '0') : '00';
-          offset = `${sign}${hours}:${minutes}`;
-        }
-      }
-      
-      console.log(`[DATE UTILS] Detected offset for ${timezone}: ${offset}`);
-    } catch (err) {
-      console.warn(`[DATE UTILS] Error getting timezone offset for ${timezone}, using default: ${offset}`);
-      
-      // Fallback to static dictionary if Intl approach fails
-      const timezoneOffsets: Record<string, string> = {
-        'UTC': '+00:00',
-        'Europe/London': '+00:00',
-        'Europe/Paris': '+01:00',
-        'Europe/Berlin': '+01:00',
-        'Europe/Athens': '+02:00',
-        'Europe/Moscow': '+03:00',
-        'Asia/Dubai': '+04:00',
-        'Asia/Kolkata': '+05:30',
-        'Asia/Shanghai': '+08:00',
-        'Asia/Tokyo': '+09:00',
-        'Australia/Sydney': '+10:00',
-        'Pacific/Auckland': '+12:00',
-        'America/New_York': '-05:00',
-        'America/Chicago': '-06:00',
-        'America/Denver': '-07:00',
-        'America/Los_Angeles': '-08:00',
-        'America/Anchorage': '-09:00',
-        'Pacific/Honolulu': '-10:00',
-      };
-      
-      offset = timezoneOffsets[timezone] || '+00:00';
-    }
-    
-    // Format the date in ISO format and handle timezone properly
-    const isoString = date.toISOString();
-    
-    // Check if the string already contains timezone info
-    if (isoString.endsWith('Z')) {
-      // Replace Z with the proper offset
-      const formattedDate = isoString.replace(/\.\d{3}Z$/, offset);
-      console.log(`[DATE UTILS] Formatted UTC date with offset: ${formattedDate}`);
-      return formattedDate;
-    } else if (typeof dateStr === 'string' && (dateStr.includes('+') || dateStr.includes('-') && dateStr.indexOf('-', 1) > 8)) {
-      // Already has timezone info, preserve it
-      console.log(`[DATE UTILS] Preserving existing timezone: ${dateStr}`);
-      return dateStr;
-    } else {
-      // No timezone info, add the offset
-      const formattedDate = isoString.replace(/\.\d{3}Z$/, offset);
-      console.log(`[DATE UTILS] Added timezone offset: ${formattedDate}`);
-      return formattedDate;
-    }
-    
+    // Convert input to Date
+    const date = typeof dateStr === 'string' ? new Date(dateStr) : dateStr;
+    // Convert to the user's timezone
+    const zoned = utcToZonedTime(date, timezone);
+    // Format as RFC 3339 with offset
+    return formatTz(zoned, "yyyy-MM-dd'T'HH:mm:ssXXX", { timeZone: timezone });
   } catch (error) {
     console.error('[DATE UTILS] Error formatting date for Google Calendar:', error);
-    
-    // Fallback to ISO format but still with proper timezone offset instead of Z
+    // Fallback to ISO format with +00:00
     try {
-      const date = typeof dateStr === "string" ? new Date(dateStr) : dateStr;
-      return date.toISOString().replace(/\.\d{3}Z$/, '+00:00');
+      const date = typeof dateStr === 'string' ? new Date(dateStr) : dateStr;
+      return formatTz(date, "yyyy-MM-dd'T'HH:mm:ssXXX", { timeZone: 'UTC' });
     } catch (fallbackError) {
       console.error('[DATE UTILS] Fallback formatting also failed:', fallbackError);
-      // Ultimate fallback: just return the current time in ISO format with +00:00
       return new Date().toISOString().replace(/\.\d{3}Z$/, '+00:00');
     }
   }
@@ -128,96 +51,44 @@ export function getDateRangeForView(
   const end = new Date(date);
 
   if (viewType === "day") {
-    // For a day view, just use the same date for start and end
-    // Set time to beginning of day
     start.setHours(0, 0, 0, 0);
-    // Set time to end of day
     end.setHours(23, 59, 59, 999);
   } else if (viewType === "week") {
-    // For a week view, get the start of the week (Sunday) and end of week (Saturday)
-    const dayOfWeek = start.getDay(); // 0 is Sunday, 6 is Saturday
-    start.setDate(start.getDate() - dayOfWeek); // Go back to Sunday
+    const dayOfWeek = start.getDay();
+    start.setDate(start.getDate() - dayOfWeek);
     start.setHours(0, 0, 0, 0);
-
-    end.setDate(end.getDate() + (6 - dayOfWeek)); // Go forward to Saturday
+    end.setDate(end.getDate() + (6 - dayOfWeek));
     end.setHours(23, 59, 59, 999);
   } else if (viewType === "month") {
-    // For a month view, get the first and last day of the month
-    start.setDate(1); // First day of month
+    start.setDate(1);
     start.setHours(0, 0, 0, 0);
-
-    end.setMonth(end.getMonth() + 1); // Go to next month
-    end.setDate(0); // Last day of current month
+    end.setMonth(end.getMonth() + 1);
+    end.setDate(0);
     end.setHours(23, 59, 59, 999);
   }
-
   return { start, end };
 }
 
 /**
- * Process date strings returned from Google Calendar API to ensure consistent format
- * 
- * Google Calendar API often returns dates with 'Z' suffix even when a timezone was specified
- * This function normalizes the format to use explicit timezone offsets instead of 'Z'
- * 
- * @param dateString Date string from Google Calendar API (potentially with Z suffix)
+ * Normalize Google Calendar date string to explicit offset using date-fns-tz
+ * @param dateString Date string from Google Calendar API
  * @param timezone User's timezone (IANA format)
  * @returns Properly formatted date string with explicit timezone offset
  */
 export function normalizeGoogleCalendarDate(dateString: string, timezone: string = 'UTC'): string {
   if (!dateString) return dateString;
-  console.log(`[DATE UTILS] Normalizing Google Calendar date: ${dateString}`);
-  
-  // If the date already has an explicit offset like +00:00, it's already formatted correctly
-  if (/[+-]\d{2}:\d{2}$/.test(dateString)) {
-    console.log(`[DATE UTILS] Date already has offset, returning as is: ${dateString}`);
-    return dateString;
-  }
-  
-  // If the date has a Z suffix, we need to replace it with an explicit offset
+  // If already has offset, return as is
+  if (/[+-]\d{2}:\d{2}$/.test(dateString)) return dateString;
+  // If ends with Z, convert to user's timezone
   if (dateString.endsWith('Z')) {
-    console.log(`[DATE UTILS] Converting Z suffix to explicit offset for ${dateString}`);
-    
-    // Create a date object in the user's timezone
     const date = new Date(dateString);
-    
-    // Get the timezone offset for this specific date (accounts for DST)
-    try {
-      const formatter = new Intl.DateTimeFormat('en-US', {
-        timeZone: timezone,
-        timeZoneName: 'short'
-      });
-      
-      const formattedParts = formatter.formatToParts(date);
-      const timeZonePart = formattedParts.find(part => part.type === 'timeZoneName');
-      
-      if (timeZonePart?.value) {
-        const match = timeZonePart.value.match(/GMT([+-])(\d+)(?::(\d+))?/);
-        if (match) {
-          const sign = match[1]; // '+' or '-'
-          let hours = match[2].padStart(2, '0'); // Ensure 2 digits
-          const minutes = match[3] ? match[3].padStart(2, '0') : '00';
-          const offset = `${sign}${hours}:${minutes}`;
-          
-          // Replace Z with the explicit offset
-          const result = dateString.replace('Z', offset);
-          console.log(`[DATE UTILS] Replaced Z with ${offset}: ${result}`);
-          return result;
-        }
-      }
-    } catch (error) {
-      console.error('[DATE UTILS] Error getting timezone offset:', error);
-    }
-    
-    // Fallback to the more generic method if the above fails
-    return formatDateForGoogleCalendar(date, timezone);
+    const zoned = utcToZonedTime(date, timezone);
+    return formatTz(zoned, "yyyy-MM-dd'T'HH:mm:ssXXX", { timeZone: timezone });
   }
-  
-  // If the date has no timezone information, assume it's in the user's timezone
-  // and format it with an explicit offset
-  console.log(`[DATE UTILS] Adding timezone offset to date without timezone info: ${dateString}`);
+  // If no timezone info, assume user's timezone
   const date = new Date(dateString);
-  return formatDateForGoogleCalendar(date, timezone);
+  const zoned = utcToZonedTime(date, timezone);
+  return formatTz(zoned, "yyyy-MM-dd'T'HH:mm:ssXXX", { timeZone: timezone });
 }
 
 /**
@@ -228,8 +99,6 @@ export function normalizeGoogleCalendarDate(dateString: string, timezone: string
  */
 export function validateTimezone(timezone: string): string {
   try {
-    // Basic validation - check if Intl.DateTimeFormat accepts it
-    // This is a simple way to check if a timezone is valid according to IANA database
     Intl.DateTimeFormat(undefined, { timeZone: timezone });
     return timezone;
   } catch (e) {
