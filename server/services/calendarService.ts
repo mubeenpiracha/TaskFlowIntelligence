@@ -53,8 +53,8 @@ export async function createEvent(
     throw new Error('Google Calendar not connected');
   }
   
-  // Validate and use the user's timezone
-  const userTimezone = validateTimezone(user.timezone || 'UTC');
+  // Use user's timezone (no validation needed with offset approach)
+  const userTimezone = user.timezone || 'UTC';
   
   // Set the timezone in the event if not already set
   if (event.start && !event.start.timeZone) {
@@ -70,7 +70,7 @@ export async function createEvent(
     // Check if the date string already has a timezone offset
     if (!event.start.dateTime.includes('+') && !event.start.dateTime.includes('-', 11)) {
       // Only apply timezone formatting for dates without timezone info
-      event.start.dateTime = formatDateForGoogleCalendar(event.start.dateTime, userTimezone);
+      event.start.dateTime = event.start.dateTime;
       console.log(`[CALENDAR_SERVICE] Formatted start time without timezone: ${event.start.dateTime}`);
     } else {
       console.log(`[CALENDAR_SERVICE] Start time already has timezone, keeping as is: ${event.start.dateTime}`);
@@ -81,7 +81,7 @@ export async function createEvent(
     // Check if the date string already has a timezone offset
     if (!event.end.dateTime.includes('+') && !event.end.dateTime.includes('-', 11)) {
       // Only apply timezone formatting for dates without timezone info
-      event.end.dateTime = formatDateForGoogleCalendar(event.end.dateTime, userTimezone);
+      event.end.dateTime = event.end.dateTime;
       console.log(`[CALENDAR_SERVICE] Formatted end time without timezone: ${event.end.dateTime}`);
     } else {
       console.log(`[CALENDAR_SERVICE] End time already has timezone, keeping as is: ${event.end.dateTime}`);
