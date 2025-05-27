@@ -2,7 +2,7 @@
  * Consolidated calendar service for all Google Calendar operations
  */
 import { calendar_v3 } from 'googleapis';
-import { formatDateForGoogleCalendar, validateTimezone } from '../utils/dateUtils';
+import { formatDateWithOffset } from '../utils/offsetUtils';
 import { createCalendarClient, listCalendarEvents as googleListEvents, createCalendarEvent, updateCalendarEvent, deleteCalendarEvent, CalendarEvent } from './google';
 import { User } from '@shared/schema';
 
@@ -23,19 +23,19 @@ export async function getCalendarEvents(
     throw new Error('Google Calendar not connected');
   }
   
-  // Validate and use the user's timezone
-  const userTimezone = validateTimezone(user.timezone || 'UTC');
+  // Use the user's timezone offset for simple date formatting
+  const userOffset = user.timezoneOffset || '+00:00';
   
-  // Format dates properly for the API
-  const timeMin = formatDateForGoogleCalendar(startDate, userTimezone);
-  const timeMax = formatDateForGoogleCalendar(endDate, userTimezone);
+  // Format dates with offset (much simpler than complex timezone handling)
+  const timeMin = formatDateWithOffset(new Date(startDate), userOffset);
+  const timeMax = formatDateWithOffset(new Date(endDate), userOffset);
   
   // Log the request parameters for debugging
   console.log(`[CALENDAR_SERVICE] Fetching events from ${timeMin} to ${timeMax} for user ${user.id}`);
-  console.log(`[CALENDAR_SERVICE] User timezone: ${userTimezone}`);
+  console.log(`[CALENDAR_SERVICE] User offset: ${userOffset}`);
   
-  // Call the Google Calendar API
-  return await googleListEvents(user.googleRefreshToken, timeMin, timeMax, userTimezone);
+  // Call the Google Calendar API (no timezone needed with offset approach)
+  return await googleListEvents(user.googleRefreshToken, timeMin, timeMax);
 }
 
 /**

@@ -218,20 +218,24 @@ function computeDeadline(task: Task, now: Date, userOffset?: string): Date {
 
   if (task.dueDate) {
     console.log(`[DEADLINE DEBUG] Task has dueDate: ${task.dueDate}`);
-    const d = new Date(task.dueDate);
-    console.log(`[DEADLINE DEBUG] Parsed dueDate: ${d}`);
-
+    
+    // Slack sends dates without timezone info, so we need to apply user's offset
+    let dateTimeString = task.dueDate;
     if (task.dueTime) {
       console.log(`[DEADLINE DEBUG] Task has dueTime: ${task.dueTime}`);
-      const [h, m] = task.dueTime.split(":").map(Number);
-      console.log(`[DEADLINE DEBUG] Parsed time: ${h}:${m}`);
-      d.setHours(h, m, 0, 0);
-      console.log(`[DEADLINE DEBUG] Final deadline with time: ${d}`);
+      dateTimeString += `T${task.dueTime}:00`;
     } else {
-      d.setHours(17, 0, 0, 0);
-      console.log(`[DEADLINE DEBUG] Final deadline (default 5pm): ${d}`);
+      dateTimeString += `T17:00:00`; // Default 5pm
     }
-    console.log(`[DEADLINE DEBUG] Returning dueDate-based deadline: ${d}`);
+    
+    // Apply user's timezone offset to the Slack input
+    if (userOffset) {
+      dateTimeString += userOffset;
+      console.log(`[DEADLINE DEBUG] Applied user offset ${userOffset}: ${dateTimeString}`);
+    }
+    
+    const d = new Date(dateTimeString);
+    console.log(`[DEADLINE DEBUG] Final deadline with offset: ${d}`);
     return d;
   }
   console.log(`[DEADLINE DEBUG] Returning priority-based deadline: ${dl}`);
