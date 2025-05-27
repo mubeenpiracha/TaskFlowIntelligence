@@ -36,7 +36,7 @@ async function scheduleUnscheduledTasks() {
     const user = await storage.getUser(1);
     if (!user?.googleRefreshToken) return;
 
-    const tasks = await storage.getTasksByStatus(user.id, "pending");
+    const tasks = await storage.getTasksByStatus(user.id, "accepted");
     console.log(
       `[SCHEDULER] Found ${tasks.length} unscheduled tasks for user ${user.id}`,
     );
