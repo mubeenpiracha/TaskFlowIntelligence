@@ -7,7 +7,7 @@ import { createEvent, getCalendarEvents } from "./calendarService";
 import { User, Task } from "@shared/schema";
 import { addMinutes } from "date-fns";
 import { handleCalendarTokenExpiration } from "./calendarReconnect";
-import { formatDateForGoogleCalendar } from "../utils/dateUtils";
+import { formatDateWithOffset, convertToUserTimezone } from "../utils/offsetUtils";
 
 // Run interval in milliseconds (check every 30 seconds)
 const SCHEDULE_INTERVAL = 30 * 1000;
@@ -152,13 +152,15 @@ async function scheduleTasksForUser(user: User, tasks: Task[]) {
       );
       console.log(`[SCHEDULER] Chosen slot: ${slot.start} - ${slot.end}`);
 
-      const startIso = formatDateForGoogleCalendar(slot.start, user.timezone);
-      const endIso = formatDateForGoogleCalendar(slot.end, user.timezone);
+      // Use the much simpler offset-based formatting instead of complex IANA timezone handling
+      const userOffset = user.timezoneOffset || '+00:00';
+      const startIso = formatDateWithOffset(slot.start, userOffset);
+      const endIso = formatDateWithOffset(slot.end, userOffset);
       const eventData = {
         summary: task.title,
         description: task.description,
-        start: { dateTime: startIso, timeZone: user.timezone },
-        end: { dateTime: endIso, timeZone: user.timezone },
+        start: { dateTime: startIso },
+        end: { dateTime: endIso },
       };
 
       await scheduleTaskWithEventData(user, task, eventData);
