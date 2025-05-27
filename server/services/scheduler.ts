@@ -72,13 +72,28 @@ async function scheduleTasksForUser(user: User, tasks: Task[]) {
     if (task.googleEventId) continue;
 
     try {
+      console.log(`[SCHEDULER DEBUG] Processing task ${task.id}: "${task.title}"`);
+      console.log(`[SCHEDULER DEBUG] Task timeRequired: ${task.timeRequired}`);
+      console.log(`[SCHEDULER DEBUG] Task dueDate: ${task.dueDate}`);
+      console.log(`[SCHEDULER DEBUG] Task dueTime: ${task.dueTime}`);
+      console.log(`[SCHEDULER DEBUG] Task priority: ${task.priority}`);
+      
       const durationMs = parseDuration(task.timeRequired) ?? 3600000;
+      console.log(`[SCHEDULER DEBUG] Parsed duration: ${durationMs}ms (${durationMs/60000} minutes)`);
+      
       const now = new Date();
+      console.log(`[SCHEDULER DEBUG] Current time: ${now.toISOString()}`);
+      
       const deadline = computeDeadline(task, now);
+      console.log(`[SCHEDULER DEBUG] Computed deadline: ${deadline.toISOString()}`);
 
       // Extend busy query window to catch events that started before now
       const queryStart = new Date(now.getTime() - durationMs);
       const queryEnd = deadline;
+      
+      console.log(`[SCHEDULER DEBUG] Query start (now - duration): ${queryStart.toISOString()}`);
+      console.log(`[SCHEDULER DEBUG] Query end (deadline): ${queryEnd.toISOString()}`);
+      console.log(`[SCHEDULER DEBUG] Query range is ${(queryEnd.getTime() - queryStart.getTime()) / (1000 * 60 * 60 * 24)} days`);
 
       console.log(
         `[SCHEDULER] Fetching events from ${queryStart.toISOString()} to ${queryEnd.toISOString()}`,
@@ -88,6 +103,13 @@ async function scheduleTasksForUser(user: User, tasks: Task[]) {
       const busySlots = events.flatMap((ev) => normalizeEventSlot(ev));
       console.log(`[SCHEDULER] ${busySlots.length} busy slots loaded`);
 
+      console.log(`[SCHEDULER DEBUG] Calling findAvailableSlots with:`);
+      console.log(`[SCHEDULER DEBUG] - now: ${now.toISOString()}`);
+      console.log(`[SCHEDULER DEBUG] - deadline: ${deadline.toISOString()}`);
+      console.log(`[SCHEDULER DEBUG] - busySlots count: ${busySlots.length}`);
+      console.log(`[SCHEDULER DEBUG] - durationMs: ${durationMs}`);
+      console.log(`[SCHEDULER DEBUG] - userId: ${user.id}`);
+      
       const available = await findAvailableSlots(
         now,
         deadline,
@@ -96,6 +118,15 @@ async function scheduleTasksForUser(user: User, tasks: Task[]) {
         user.id,
       );
       console.log(`[SCHEDULER] Found ${available.length} available slots`);
+      
+      if (available.length === 0) {
+        console.log(`[SCHEDULER DEBUG] No available slots found! Checking date range...`);
+        console.log(`[SCHEDULER DEBUG] Time range: ${now.toISOString()} to ${deadline.toISOString()}`);
+        console.log(`[SCHEDULER DEBUG] Range duration: ${(deadline.getTime() - now.getTime()) / (1000 * 60 * 60)} hours`);
+        if (deadline <= now) {
+          console.log(`[SCHEDULER DEBUG] ⚠️ PROBLEM: Deadline is in the past or equal to now!`);
+        }
+      }
 
       if (!available.length)
         throw new Error(`No available slots for task ${task.id}`);
@@ -151,20 +182,37 @@ function parseDuration(str?: string): number | null {
  * Compute a deadline Date based on task fields and priority
  */
 function computeDeadline(task: Task, now: Date): Date {
+  console.log(`[DEADLINE DEBUG] Computing deadline for task ${task.id}`);
+  console.log(`[DEADLINE DEBUG] Current time: ${now.toISOString()}`);
+  console.log(`[DEADLINE DEBUG] Task dueDate: ${task.dueDate}`);
+  console.log(`[DEADLINE DEBUG] Task dueTime: ${task.dueTime}`);
+  console.log(`[DEADLINE DEBUG] Task priority: ${task.priority}`);
+  
   const dl = new Date(now);
   const addDays =
     task.priority === "high" ? 1 : task.priority === "medium" ? 3 : 7;
   dl.setDate(dl.getDate() + addDays);
+  console.log(`[DEADLINE DEBUG] Default deadline (now + ${addDays} days): ${dl.toISOString()}`);
+  
   if (task.dueDate) {
+    console.log(`[DEADLINE DEBUG] Task has dueDate: ${task.dueDate}`);
     const d = new Date(task.dueDate);
+    console.log(`[DEADLINE DEBUG] Parsed dueDate: ${d.toISOString()}`);
+    
     if (task.dueTime) {
+      console.log(`[DEADLINE DEBUG] Task has dueTime: ${task.dueTime}`);
       const [h, m] = task.dueTime.split(":").map(Number);
+      console.log(`[DEADLINE DEBUG] Parsed time: ${h}:${m}`);
       d.setHours(h, m, 0, 0);
+      console.log(`[DEADLINE DEBUG] Final deadline with time: ${d.toISOString()}`);
     } else {
       d.setHours(17, 0, 0, 0);
+      console.log(`[DEADLINE DEBUG] Final deadline (default 5pm): ${d.toISOString()}`);
     }
+    console.log(`[DEADLINE DEBUG] Returning dueDate-based deadline: ${d.toISOString()}`);
     return d;
   }
+  console.log(`[DEADLINE DEBUG] Returning priority-based deadline: ${dl.toISOString()}`);
   return dl;
 }
 
