@@ -2,8 +2,7 @@
  * Date utility functions for handling timezone conversions and formatting
  * for Google Calendar API and other date-related operations
  */
-
-import { zonedTimeToUtc, utcToZonedTime, format as formatTz } from 'date-fns-tz';
+import { fromZonedTime, toZonedTime, format as formatTz } from "date-fns-tz";
 
 /**
  * Formats a date for the Google Calendar API with timezone consideration
@@ -14,24 +13,30 @@ import { zonedTimeToUtc, utcToZonedTime, format as formatTz } from 'date-fns-tz'
  */
 export function formatDateForGoogleCalendar(
   dateStr: string | Date,
-  timezone: string = 'UTC',
+  timezone: string = "UTC",
 ): string {
   try {
     // Convert input to Date
-    const date = typeof dateStr === 'string' ? new Date(dateStr) : dateStr;
+    const date = typeof dateStr === "string" ? new Date(dateStr) : dateStr;
     // Convert to the user's timezone
-    const zoned = utcToZonedTime(date, timezone);
+    const zoned = toZonedTime(date, timezone);
     // Format as RFC 3339 with offset
     return formatTz(zoned, "yyyy-MM-dd'T'HH:mm:ssXXX", { timeZone: timezone });
   } catch (error) {
-    console.error('[DATE UTILS] Error formatting date for Google Calendar:', error);
+    console.error(
+      "[DATE UTILS] Error formatting date for Google Calendar:",
+      error,
+    );
     // Fallback to ISO format with +00:00
     try {
-      const date = typeof dateStr === 'string' ? new Date(dateStr) : dateStr;
-      return formatTz(date, "yyyy-MM-dd'T'HH:mm:ssXXX", { timeZone: 'UTC' });
+      const date = typeof dateStr === "string" ? new Date(dateStr) : dateStr;
+      return formatTz(date, "yyyy-MM-dd'T'HH:mm:ssXXX", { timeZone: "UTC" });
     } catch (fallbackError) {
-      console.error('[DATE UTILS] Fallback formatting also failed:', fallbackError);
-      return new Date().toISOString().replace(/\.\d{3}Z$/, '+00:00');
+      console.error(
+        "[DATE UTILS] Fallback formatting also failed:",
+        fallbackError,
+      );
+      return new Date().toISOString().replace(/\.\d{3}Z$/, "+00:00");
     }
   }
 }
@@ -75,12 +80,15 @@ export function getDateRangeForView(
  * @param timezone User's timezone (IANA format)
  * @returns Properly formatted date string with explicit timezone offset
  */
-export function normalizeGoogleCalendarDate(dateString: string, timezone: string = 'UTC'): string {
+export function normalizeGoogleCalendarDate(
+  dateString: string,
+  timezone: string = "UTC",
+): string {
   if (!dateString) return dateString;
   // If already has offset, return as is
   if (/[+-]\d{2}:\d{2}$/.test(dateString)) return dateString;
   // If ends with Z, convert to user's timezone
-  if (dateString.endsWith('Z')) {
+  if (dateString.endsWith("Z")) {
     const date = new Date(dateString);
     const zoned = utcToZonedTime(date, timezone);
     return formatTz(zoned, "yyyy-MM-dd'T'HH:mm:ssXXX", { timeZone: timezone });
