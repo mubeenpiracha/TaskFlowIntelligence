@@ -175,11 +175,12 @@ function computeDeadline(task: Task, now: Date): Date {
  * Convert calendar event into busy slot(s)
  */
 function normalizeEventSlot(ev: any): Array<{ start: Date; end: Date }> {
-  if (ev.start.date) {
+  // Add null checking to prevent "Cannot read properties of undefined" errors
+  if (ev && ev.start && ev.start.date) {
     const dayStart = new Date(ev.start.date);
     return [{ start: dayStart, end: addMinutes(dayStart, 1439) }];
   }
-  if (ev.start.dateTime && ev.end.dateTime) {
+  if (ev && ev.start && ev.start.dateTime && ev.end && ev.end.dateTime) {
     return [
       { start: new Date(ev.start.dateTime), end: new Date(ev.end.dateTime) },
     ];
