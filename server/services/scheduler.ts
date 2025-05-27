@@ -324,10 +324,21 @@ async function findAvailableSlots(
     }
     const startMs = cur.getTime(),
       endMs = slotEnd.getTime();
+    // Check for any overlap with busy slots (no buffer for exact blocking)
     const conflict = busy.some(
-      (b) =>
-        startMs < b.end.getTime() + bufferMs &&
-        endMs > b.start.getTime() - bufferMs,
+      (b) => {
+        const busyStart = b.start.getTime();
+        const busyEnd = b.end.getTime();
+        
+        // True overlap detection: any overlap at all means conflict
+        const hasOverlap = (startMs < busyEnd && endMs > busyStart);
+        
+        if (hasOverlap) {
+          console.log(`[SCHEDULER DEBUG] Conflict detected: proposed ${new Date(startMs).toISOString()} - ${new Date(endMs).toISOString()} overlaps with busy ${b.start.toISOString()} - ${b.end.toISOString()}`);
+        }
+        
+        return hasOverlap;
+      }
     );
     if (!conflict) slots.push({ start: new Date(cur), end: new Date(slotEnd) });
     cur = addMinutes(cur, 15);
