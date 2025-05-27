@@ -77,12 +77,9 @@ async function scheduleTasksForUser(user: User, tasks: Task[]) {
       const deadline = computeDeadline(task, now);
 
       // Extend busy query window to catch events that started before now
-      const queryStart = normalizeEventSlot(
-        new Date(now.getTime() - durationMs),
-      );
-      const queryEnd = normalizeEventSlot(deadline);
+      const queryStart = new Date(now.getTime() - durationMs);
+      const queryEnd = deadline;
 
-      console.log(queryStart, queryEnd);
       console.log(
         `[SCHEDULER] Fetching events from ${queryStart.toISOString()} to ${queryEnd.toISOString()}`,
       );
@@ -175,11 +172,12 @@ function computeDeadline(task: Task, now: Date): Date {
  * Convert calendar event into busy slot(s)
  */
 function normalizeEventSlot(ev: any): Array<{ start: Date; end: Date }> {
-  if (ev.start.date) {
+  // Add null checking to prevent "Cannot read properties of undefined" errors
+  if (ev && ev.start && ev.start.date) {
     const dayStart = new Date(ev.start.date);
     return [{ start: dayStart, end: addMinutes(dayStart, 1439) }];
   }
-  if (ev.start.dateTime && ev.end.dateTime) {
+  if (ev && ev.start && ev.start.dateTime && ev.end && ev.end.dateTime) {
     return [
       { start: new Date(ev.start.dateTime), end: new Date(ev.end.dateTime) },
     ];
