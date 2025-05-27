@@ -7,7 +7,10 @@ import { createEvent, getCalendarEvents } from "./calendarService";
 import { User, Task } from "@shared/schema";
 import { addMinutes } from "date-fns";
 import { handleCalendarTokenExpiration } from "./calendarReconnect";
-import { formatDateWithOffset, convertToUserTimezone } from "../utils/offsetUtils";
+import {
+  formatDateWithOffset,
+  convertToUserTimezone,
+} from "../utils/offsetUtils";
 
 // Run interval in milliseconds (check every 30 seconds)
 const SCHEDULE_INTERVAL = 30 * 1000;
@@ -69,7 +72,7 @@ async function scheduleTasksForUser(user: User, tasks: Task[]) {
   );
 
   // Get user's timezone offset for proper date handling (moved outside loop)
-  const userOffset = user.timezoneOffset || '+00:00';
+  const userOffset = user.timezoneOffset || "+00:00";
 
   for (const task of tasks) {
     if (task.googleEventId) continue;
@@ -87,7 +90,7 @@ async function scheduleTasksForUser(user: User, tasks: Task[]) {
       console.log(
         `[SCHEDULER DEBUG] Parsed duration: ${durationMs}ms (${durationMs / 60000} minutes)`,
       );
-      
+
       const now = new Date();
       console.log(`[SCHEDULER DEBUG] Current time: ${now}`);
 
@@ -98,7 +101,7 @@ async function scheduleTasksForUser(user: User, tasks: Task[]) {
       const userNow = convertToUserTimezone(now, userOffset);
       const userDeadline = convertToUserTimezone(deadline, userOffset);
 
-      // Extend busy query window to catch events that started before now  
+      // Extend busy query window to catch events that started before now
       const queryStart = new Date(userNow.getTime() - durationMs);
       const queryEnd = userDeadline;
 
@@ -115,24 +118,28 @@ async function scheduleTasksForUser(user: User, tasks: Task[]) {
       );
 
       const events = await getCalendarEvents(user, queryStart, queryEnd);
-      const busySlots = events.flatMap((ev) => normalizeEventSlot(ev));
+      console.log(events);
+      const busySlots = events.flatMap((ev) => parseBusySlots(ev));
       console.log(`[SCHEDULER] ${busySlots.length} busy slots loaded`);
 
       console.log(`[SCHEDULER DEBUG] Calling findAvailableSlots with:`);
       console.log(`[SCHEDULER DEBUG] - now: ${now}`);
       console.log(`[SCHEDULER DEBUG] - deadline: ${deadline}`);
       console.log(`[SCHEDULER DEBUG] - busySlots count: ${busySlots.length}`);
+      console.log(busySlots);
       console.log(`[SCHEDULER DEBUG] - durationMs: ${durationMs}`);
       console.log(`[SCHEDULER DEBUG] - userId: ${user.id}`);
 
       const available = await findAvailableSlots(
-        userNow,
-        userDeadline,
+        now,
+        deadline,
         busySlots,
         durationMs,
         user.id,
+        userOffset,
       );
       console.log(`[SCHEDULER] Found ${available.length} available slots`);
+      console.log(available);
 
       if (available.length === 0) {
         console.log(
@@ -218,7 +225,7 @@ function computeDeadline(task: Task, now: Date, userOffset?: string): Date {
 
   if (task.dueDate) {
     console.log(`[DEADLINE DEBUG] Task has dueDate: ${task.dueDate}`);
-    
+
     // Slack sends dates without timezone info, so we need to apply user's offset
     let dateTimeString = task.dueDate;
     if (task.dueTime) {
@@ -227,13 +234,15 @@ function computeDeadline(task: Task, now: Date, userOffset?: string): Date {
     } else {
       dateTimeString += `T17:00:00`; // Default 5pm
     }
-    
+
     // Apply user's timezone offset to the Slack input
     if (userOffset) {
       dateTimeString += userOffset;
-      console.log(`[DEADLINE DEBUG] Applied user offset ${userOffset}: ${dateTimeString}`);
+      console.log(
+        `[DEADLINE DEBUG] Applied user offset ${userOffset}: ${dateTimeString}`,
+      );
     }
-    
+
     const d = new Date(dateTimeString);
     console.log(`[DEADLINE DEBUG] Final deadline with offset: ${d}`);
     return d;
@@ -242,22 +251,22 @@ function computeDeadline(task: Task, now: Date, userOffset?: string): Date {
   return dl;
 }
 
+function parseBusySlots(ev: any): Array<{ start: Date; end: Date }> {
+  // prefer the dateTime field if present, else date
+  const startStr = ev.start?.dateTime ?? ev.start?.date;
+  const endStr = ev.end?.dateTime ?? ev.end?.date;
+  if (!startStr || !endStr) return [];
+
+  return [
+    {
+      start: new Date(startStr),
+      end: new Date(endStr),
+    },
+  ];
+}
 /**
  * Convert calendar event into busy slot(s)
  */
-function normalizeEventSlot(ev: any): Array<{ start: Date; end: Date }> {
-  // Add null checking to prevent "Cannot read properties of undefined" errors
-  if (ev && ev.start && ev.start.date) {
-    const dayStart = new Date(ev.start.date);
-    return [{ start: dayStart, end: addMinutes(dayStart, 1439) }];
-  }
-  if (ev && ev.start && ev.start.dateTime && ev.end && ev.end.dateTime) {
-    return [
-      { start: new Date(ev.start.dateTime), end: new Date(ev.end.dateTime) },
-    ];
-  }
-  return [];
-}
 
 /**
  * Find free slots between now and end, avoiding busy slots and respecting working hours
@@ -268,6 +277,7 @@ async function findAvailableSlots(
   busy: Array<{ start: Date; end: Date }>,
   dur: number,
   userId: number,
+  offset: string = "+00:00",
 ): Promise<Array<{ start: Date; end: Date }>> {
   const wk = (await storage.getWorkingHours(userId)) ?? defaultHours(userId);
   const days = [
@@ -279,8 +289,19 @@ async function findAvailableSlots(
     wk.friday,
     wk.saturday,
   ];
-  const [sh, sm] = wk.startTime.split(":").map(Number);
-  const [eh, em] = wk.endTime.split(":").map(Number);
+  const sign = offset.startsWith("-") ? +1 : -1;
+  const [h, m] = offset.slice(1).split(":").map(Number);
+  const hourAdjustment = sign * h;
+  const minuteAdjustment = sign * m;
+
+  const [sh, sm] = [
+    Number(wk.startTime.split(":")[0]) + hourAdjustment,
+    Number(wk.startTime.split(":")[1]) + minuteAdjustment,
+  ];
+  const [eh, em] = [
+    Number(wk.endTime.split(":")[0]) + hourAdjustment,
+    Number(wk.endTime.split(":")[1]) + minuteAdjustment,
+  ];
   const bufferMs = 5 * 60 * 1000;
 
   const slots: Array<{ start: Date; end: Date }> = [];
@@ -325,21 +346,21 @@ async function findAvailableSlots(
     const startMs = cur.getTime(),
       endMs = slotEnd.getTime();
     // Check for any overlap with busy slots (no buffer for exact blocking)
-    const conflict = busy.some(
-      (b) => {
-        const busyStart = b.start.getTime();
-        const busyEnd = b.end.getTime();
-        
-        // True overlap detection: any overlap at all means conflict
-        const hasOverlap = (startMs < busyEnd && endMs > busyStart);
-        
-        if (hasOverlap) {
-          console.log(`[SCHEDULER DEBUG] Conflict detected: proposed ${new Date(startMs).toISOString()} - ${new Date(endMs).toISOString()} overlaps with busy ${b.start.toISOString()} - ${b.end.toISOString()}`);
-        }
-        
-        return hasOverlap;
+    const conflict = busy.some((b) => {
+      const busyStart = b.start.getTime();
+      const busyEnd = b.end.getTime();
+
+      // True overlap detection: any overlap at all means conflict
+      const hasOverlap = startMs < busyEnd && endMs > busyStart;
+
+      if (hasOverlap) {
+        console.log(
+          `[SCHEDULER DEBUG] Conflict detected: proposed ${new Date(startMs).toISOString()} - ${new Date(endMs).toISOString()} overlaps with busy ${b.start.toISOString()} - ${b.end.toISOString()}`,
+        );
       }
-    );
+
+      return hasOverlap;
+    });
     if (!conflict) slots.push({ start: new Date(cur), end: new Date(slotEnd) });
     cur = addMinutes(cur, 15);
   }
@@ -404,6 +425,19 @@ function selectOptimalSlot(
     }
   }
   return best;
+}
+
+function toDateWithOffset(date: Date, offset: string): Date {
+  // 1️⃣ parse the offset string into a signed minute count
+  const sign = offset[0] === "-" ? -1 : 1;
+  const [hStr, mStr] = offset.slice(1).split(":");
+  const offsetMinutes = sign * (Number(hStr) * 60 + Number(mStr));
+
+  // 2️⃣ shift the timestamp by offsetMinutes
+  const shiftedTs = date.getTime() + offsetMinutes * 60_000;
+
+  // 3️⃣ return a Date for that new timestamp
+  return new Date(shiftedTs);
 }
 
 async function scheduleTaskWithEventData(user: User, task: Task, data: any) {
