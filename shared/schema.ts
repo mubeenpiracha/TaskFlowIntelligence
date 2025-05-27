@@ -34,6 +34,7 @@ export const users = pgTable("users", {
   slackWorkspace: text("slack_workspace"),
   slackChannelPreferences: text("slack_channel_preferences"),
   timezone: text("timezone").default("UTC").notNull(),
+  timezoneOffset: text("timezone_offset").default("+00:00").notNull(), // Store offset like "+04:00", "-05:00"
 }, (table) => {
   return {
     usernameIdx: uniqueIndex("username_idx").on(table.username),

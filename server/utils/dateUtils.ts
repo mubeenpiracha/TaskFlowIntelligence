@@ -90,7 +90,7 @@ export function normalizeGoogleCalendarDate(
   // If ends with Z, convert to user's timezone
   if (dateString.endsWith("Z")) {
     const date = new Date(dateString);
-    const zoned = utcToZonedTime(date, timezone);
+    const zoned = toZonedTime(date, timezone);
     return formatTz(zoned, "yyyy-MM-dd'T'HH:mm:ssXXX", { timeZone: timezone });
   }
   // If no timezone info, assume user's timezone
