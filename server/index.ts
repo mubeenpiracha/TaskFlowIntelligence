@@ -1,7 +1,7 @@
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
-import { startScheduler } from './services/newScheduler';
+import { startScheduler } from "./services/scheduler";
 
 const app = express();
 app.use(express.json());
@@ -15,10 +15,18 @@ app.use((req, res, next) => {
 
   // Log the request immediately
   console.log(`[REQUEST] ${req.method} ${path}`);
-  
-  if (req.method === 'POST' && (path.includes('/slack/interactions') || path.includes('/api/slack/interactions'))) {
-    console.log(`[SLACK INTERACTION] Body keys: ${Object.keys(req.body).join(', ')}`);
-    console.log(`[SLACK INTERACTION] Content-Type: ${req.headers['content-type']}`);
+
+  if (
+    req.method === "POST" &&
+    (path.includes("/slack/interactions") ||
+      path.includes("/api/slack/interactions"))
+  ) {
+    console.log(
+      `[SLACK INTERACTION] Body keys: ${Object.keys(req.body).join(", ")}`,
+    );
+    console.log(
+      `[SLACK INTERACTION] Content-Type: ${req.headers["content-type"]}`,
+    );
   }
 
   const originalResJson = res.json;
@@ -31,9 +39,11 @@ app.use((req, res, next) => {
     const duration = Date.now() - start;
     // Log all responses with status code 400 or higher
     if (res.statusCode >= 400) {
-      console.error(`[ERROR] ${req.method} ${path} responded with ${res.statusCode} in ${duration}ms`);
+      console.error(
+        `[ERROR] ${req.method} ${path} responded with ${res.statusCode} in ${duration}ms`,
+      );
     }
-    
+
     if (path.startsWith("/api") || path.startsWith("/slack")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
       if (capturedJsonResponse) {
@@ -75,14 +85,17 @@ app.use((req, res, next) => {
   // this serves both the API and the client.
   // It is the only port that is not firewalled.
   const port = 5000;
-  server.listen({
-    port,
-    host: "0.0.0.0",
-    reusePort: true,
-  }, () => {
-    log(`serving on port ${port}`);
-    
-    // Start the automatic task scheduler
-    startScheduler();
-  });
+  server.listen(
+    {
+      port,
+      host: "0.0.0.0",
+      reusePort: true,
+    },
+    () => {
+      log(`serving on port ${port}`);
+
+      // Start the automatic task scheduler
+      startScheduler();
+    },
+  );
 })();
