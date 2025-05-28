@@ -1194,6 +1194,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const action = actions[0];
       console.log('Processing action:', action.action_id);
       
+      // Handle conflict resolution actions
+      if (['schedule_anyway', 'find_alternative', 'skip_task'].includes(action.action_id)) {
+        try {
+          const actionData = JSON.parse(action.value);
+          const { taskId, action: conflictAction } = actionData;
+          
+          console.log(`[CONFLICT_RESOLUTION] Handling ${conflictAction} for task ${taskId}`);
+          
+          // Import conflict resolution handler
+          const { handleConflictResolution } = await import('./services/conflictHandler');
+          await handleConflictResolution(user.id, taskId, conflictAction, payload);
+          
+          return res.status(200).send('OK');
+        } catch (error) {
+          console.error('[CONFLICT_RESOLUTION] Error handling conflict action:', error);
+          return res.status(500).send('Error processing conflict resolution');
+        }
+      }
+      
       // Additional sanity checks
       if (!action || !action.action_id) {
         console.error('Invalid action data:', action);
