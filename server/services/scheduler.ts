@@ -482,12 +482,12 @@ async function handleSchedulingConflicts(
   );
   
   if (!overlappingSlots.length) {
-    console.log(`[CONFLICT_RESOLUTION] No overlapping slots found, this shouldn't happen`);
-    return false;
+    console.log(`[CONFLICT_RESOLUTION] No overlapping slots found, proceed with normal scheduling`);
+    return true; // No conflicts - schedule normally
   }
   
   // Partition slots into system tasks vs external events
-  const { systemTasks, externalEvents } = await partitionBusySlots(overlappingSlots);
+  const { systemTasks, externalEvents } = await partitionBusySlots(overlappingSlots, user);
   
   console.log(`[CONFLICT_RESOLUTION] Found ${systemTasks.length} system tasks and ${externalEvents.length} external events in conflict`);
   
@@ -541,12 +541,12 @@ function getPriorityValue(priority: string): number {
 /**
  * Partition busy slots into system tasks (have taskId) vs external events
  */
-async function partitionBusySlots(busySlots: Array<{ start: Date; end: Date; eventId?: string }>) {
+async function partitionBusySlots(busySlots: Array<{ start: Date; end: Date; eventId?: string }>, user: User) {
   const systemTasks: Task[] = [];
   const externalEvents: Array<{ start: Date; end: Date; title?: string; eventId?: string }> = [];
   
   // Get all scheduled tasks for the user to match against Google event IDs
-  const allTasks = await storage.getTasksByUser(1);
+  const allTasks = await storage.getTasksByUser(user.id);
   const tasksByEventId = new Map<string, Task>();
   
   allTasks.forEach(task => {
