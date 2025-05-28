@@ -664,9 +664,16 @@ async function offerOverlapScheduling(
 ) {
   console.log(`[CONFLICT_RESOLUTION] Offering overlap scheduling for task ${incomingTask.id} with ${externalEvents.length} external events`);
   
+  // Log user's complete Slack connection status for debugging
+  console.log(`[CONFLICT_RESOLUTION] User ${user.id} Slack status:`);
+  console.log(`  - slackUserId: ${user.slackUserId || 'NOT SET'}`);
+  console.log(`  - slackWorkspace: ${user.slackWorkspace || 'NOT SET'}`);
+  console.log(`  - slackAccessToken: ${user.slackAccessToken ? 'SET' : 'NOT SET'}`);
+  console.log(`  - workspaceId: ${user.workspaceId || 'NOT SET'}`);
+  
   if (!user.slackUserId) {
-    console.log(`[CONFLICT_RESOLUTION] No Slack user ID found for user ${user.id}, cannot send interactive message`);
-    console.log(`[CONFLICT_RESOLUTION] User slack info - slackUserId: ${user.slackUserId}, slackWorkspace: ${user.slackWorkspace}`);
+    console.log(`[CONFLICT_RESOLUTION] ❌ No Slack user ID found for user ${user.id}, cannot send interactive message`);
+    console.log(`[CONFLICT_RESOLUTION] User needs to connect their Slack account first`);
     return;
   }
   
