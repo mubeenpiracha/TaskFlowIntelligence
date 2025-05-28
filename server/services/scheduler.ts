@@ -257,7 +257,7 @@ function computeDeadline(task: Task, now: Date, userOffset?: string): Date {
   return dl;
 }
 
-function parseBusySlots(ev: any): Array<{ start: Date; end: Date; eventId?: string }> {
+function parseBusySlots(ev: any): Array<{ start: Date; end: Date; eventId?: string; title?: string }> {
   // prefer the dateTime field if present, else date
   const startStr = ev.start?.dateTime ?? ev.start?.date;
   const endStr = ev.end?.dateTime ?? ev.end?.date;
@@ -268,6 +268,7 @@ function parseBusySlots(ev: any): Array<{ start: Date; end: Date; eventId?: stri
       start: new Date(startStr),
       end: new Date(endStr),
       eventId: ev.id, // Store Google Calendar event ID for proper conflict resolution
+      title: ev.summary || ev.title || 'Untitled Event', // Include event title for conflict summaries
     },
   ];
 }
@@ -467,7 +468,7 @@ async function handleSchedulingConflicts(
   incomingTask: Task, 
   now: Date, 
   deadline: Date, 
-  busySlots: Array<{ start: Date; end: Date; eventId?: string }>, 
+  busySlots: Array<{ start: Date; end: Date; eventId?: string; title?: string }>, 
   durationMs: number,
   userOffset: string
 ): Promise<boolean> {
@@ -541,7 +542,7 @@ function getPriorityValue(priority: string): number {
 /**
  * Partition busy slots into system tasks (have taskId) vs external events
  */
-async function partitionBusySlots(busySlots: Array<{ start: Date; end: Date; eventId?: string }>, user: User) {
+async function partitionBusySlots(busySlots: Array<{ start: Date; end: Date; eventId?: string; title?: string }>, user: User) {
   const systemTasks: Task[] = [];
   const externalEvents: Array<{ start: Date; end: Date; title?: string; eventId?: string }> = [];
   
@@ -560,7 +561,12 @@ async function partitionBusySlots(busySlots: Array<{ start: Date; end: Date; eve
     if (slot.eventId && tasksByEventId.has(slot.eventId)) {
       systemTasks.push(tasksByEventId.get(slot.eventId)!);
     } else {
-      externalEvents.push(slot);
+      externalEvents.push({
+        start: slot.start,
+        end: slot.end,
+        title: slot.title || 'Untitled Event',
+        eventId: slot.eventId
+      });
     }
   }
   
@@ -592,7 +598,7 @@ async function proposeBumpLowerPriorityTask(
       // Reschedule the bumped task
       await rescheduleTask(existingTask.id, newSlot, userOffset);
       
-      // Schedule incoming task in the freed slot
+      // Schedule incoming task in the original slot that was freed by bumping
       const freedSlot = {
         start: new Date(existingTask.scheduledStart!),
         end: new Date(existingTask.scheduledEnd!)
