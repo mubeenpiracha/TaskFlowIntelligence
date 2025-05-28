@@ -674,6 +674,15 @@ async function offerOverlapScheduling(
   if (!user.slackUserId) {
     console.log(`[CONFLICT_RESOLUTION] ❌ No Slack user ID found for user ${user.id}, cannot send interactive message`);
     console.log(`[CONFLICT_RESOLUTION] User needs to connect their Slack account first`);
+    
+    // Fallback: Try to send a simple text message instead
+    try {
+      const { sendSlackMessage } = await import('./slack');
+      await sendSlackMessage(user.id, `⚠️ Scheduling conflict detected for task "${incomingTask.title}" with ${externalEvents.length} calendar events. Please check your calendar.`);
+      console.log(`[CONFLICT_RESOLUTION] Sent fallback text message instead`);
+    } catch (error) {
+      console.error(`[CONFLICT_RESOLUTION] Failed to send fallback message:`, error);
+    }
     return;
   }
   
@@ -742,11 +751,24 @@ async function offerOverlapScheduling(
   } catch (error) {
     console.error(`[CONFLICT_RESOLUTION] Failed to send external event conflict message:`, error);
     
-    // Fallback: Log conflict summary for manual review
-    console.log(`[CONFLICT_RESOLUTION] External event conflicts for task ${incomingTask.id}:`);
-    externalEvents.forEach(event => {
-      console.log(`External event: ${event.start.toISOString()} - ${event.end.toISOString()}`);
-    });
+    // Fallback: Send a simple text message about the conflict 
+    console.log(`[CONFLICT_RESOLUTION] Interactive message failed, trying simple message instead`);
+    try {
+      const { sendSlackMessage } = await import('./slack');
+      const eventSummary = externalEvents.map(event => 
+        `• ${event.title || 'Untitled Event'} (${event.start.toLocaleTimeString()} - ${event.end.toLocaleTimeString()})`
+      ).join('\n');
+      
+      await sendSlackMessage(user.id, `⚠️ **Scheduling Conflict Detected**\n\nTask "${incomingTask.title}" conflicts with:\n${eventSummary}\n\nPlease check your calendar and reschedule manually if needed.`);
+      console.log(`[CONFLICT_RESOLUTION] Sent simple conflict notification instead of interactive message`);
+    } catch (fallbackError) {
+      console.error(`[CONFLICT_RESOLUTION] Fallback message also failed:`, fallbackError);
+      // Log conflict summary for manual review
+      console.log(`[CONFLICT_RESOLUTION] External event conflicts for task ${incomingTask.id}:`);
+      externalEvents.forEach(event => {
+        console.log(`External event: ${event.start.toISOString()} - ${event.end.toISOString()}`);
+      });
+    }
   }
 }
 
