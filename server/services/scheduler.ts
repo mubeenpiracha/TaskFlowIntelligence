@@ -40,13 +40,19 @@ async function scheduleUnscheduledTasks() {
     if (!user?.googleRefreshToken) return;
 
     const tasks = await storage.getTasksByStatus(user.id, "accepted");
+    // Filter out tasks that are waiting for conflict resolution to prevent duplicate messages
+    const tasksToProcess = tasks.filter(task => task.status !== 'pending_conflict_resolution');
+    
     console.log(
       `[SCHEDULER] Found ${tasks.length} unscheduled tasks for user ${user.id}`,
     );
+    console.log(
+      `[SCHEDULER] Processing ${tasksToProcess.length} tasks (${tasks.length - tasksToProcess.length} waiting for conflict resolution)`,
+    );
 
-    if (tasks.length) {
+    if (tasksToProcess.length) {
       try {
-        await scheduleTasksForUser(user, tasks);
+        await scheduleTasksForUser(user, tasksToProcess);
       } catch (err: any) {
         if (err.message.includes("No available slots")) {
           console.error("[SCHEDULER] Out of slots:", err.message);
@@ -688,6 +694,10 @@ async function offerOverlapScheduling(
   
   console.log(`[CONFLICT_RESOLUTION] Attempting to send interactive message to Slack user: ${user.slackUserId}`);
   console.log(`[CONFLICT_RESOLUTION] Conflict details - Task: "${incomingTask.title}", Events: ${externalEvents.length}`);
+
+  // First, update task status to prevent sending duplicate messages
+  await storage.updateTaskStatus(incomingTask.id, "pending_conflict_resolution");
+  console.log(`[CONFLICT_RESOLUTION] Updated task ${incomingTask.id} status to pending_conflict_resolution`);
 
   try {
     // Import slack service for interactive messaging
