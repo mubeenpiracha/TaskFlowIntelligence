@@ -257,7 +257,7 @@ function computeDeadline(task: Task, now: Date, userOffset?: string): Date {
   return dl;
 }
 
-function parseBusySlots(ev: any): Array<{ start: Date; end: Date }> {
+function parseBusySlots(ev: any): Array<{ start: Date; end: Date; eventId?: string }> {
   // prefer the dateTime field if present, else date
   const startStr = ev.start?.dateTime ?? ev.start?.date;
   const endStr = ev.end?.dateTime ?? ev.end?.date;
@@ -267,6 +267,7 @@ function parseBusySlots(ev: any): Array<{ start: Date; end: Date }> {
     {
       start: new Date(startStr),
       end: new Date(endStr),
+      eventId: ev.id, // Store Google Calendar event ID for proper conflict resolution
     },
   ];
 }
@@ -466,7 +467,7 @@ async function handleSchedulingConflicts(
   incomingTask: Task, 
   now: Date, 
   deadline: Date, 
-  busySlots: Array<{ start: Date; end: Date }>, 
+  busySlots: Array<{ start: Date; end: Date; eventId?: string }>, 
   durationMs: number,
   userOffset: string
 ): Promise<boolean> {
@@ -540,16 +541,24 @@ function getPriorityValue(priority: string): number {
 /**
  * Partition busy slots into system tasks (have taskId) vs external events
  */
-async function partitionBusySlots(busySlots: Array<{ start: Date; end: Date }>) {
+async function partitionBusySlots(busySlots: Array<{ start: Date; end: Date; eventId?: string }>) {
   const systemTasks: Task[] = [];
-  const externalEvents: Array<{ start: Date; end: Date; title?: string }> = [];
+  const externalEvents: Array<{ start: Date; end: Date; title?: string; eventId?: string }> = [];
   
-  // For now, we'll need to match busy slots with tasks by time
-  // This is a simplified implementation - in production you'd want to store googleEventId references
+  // Get all scheduled tasks for the user to match against Google event IDs
+  const allTasks = await storage.getTasksByUser(1);
+  const tasksByEventId = new Map<string, Task>();
+  
+  allTasks.forEach(task => {
+    if (task.googleEventId) {
+      tasksByEventId.set(task.googleEventId, task);
+    }
+  });
+  
+  // Partition based on whether we have a matching task with this event ID
   for (const slot of busySlots) {
-    const matchingTask = await findTaskByTimeSlot(slot.start, slot.end);
-    if (matchingTask) {
-      systemTasks.push(matchingTask);
+    if (slot.eventId && tasksByEventId.has(slot.eventId)) {
+      systemTasks.push(tasksByEventId.get(slot.eventId)!);
     } else {
       externalEvents.push(slot);
     }
@@ -558,31 +567,7 @@ async function partitionBusySlots(busySlots: Array<{ start: Date; end: Date }>) 
   return { systemTasks, externalEvents };
 }
 
-/**
- * Find task that matches a specific time slot
- */
-async function findTaskByTimeSlot(start: Date, end: Date): Promise<Task | null> {
-  try {
-    // Get all scheduled tasks for user 1 (simplified for now)
-    const allTasks = await storage.getTasksByUser(1);
-    
-    return allTasks.find(task => {
-      if (!task.scheduledStart || !task.scheduledEnd) return false;
-      
-      const taskStart = new Date(task.scheduledStart);
-      const taskEnd = new Date(task.scheduledEnd);
-      
-      // Check if times match (within 1 minute tolerance)
-      const startDiff = Math.abs(taskStart.getTime() - start.getTime());
-      const endDiff = Math.abs(taskEnd.getTime() - end.getTime());
-      
-      return startDiff < 60000 && endDiff < 60000; // 1 minute tolerance
-    }) || null;
-  } catch (error) {
-    console.error(`[CONFLICT_RESOLUTION] Error finding task by time slot:`, error);
-    return null;
-  }
-}
+
 
 /**
  * Propose bumping a lower priority task via Slack
