@@ -55,9 +55,20 @@ export async function sendInteractiveMessage(userId: string, messagePayload: any
     }
     
     console.log(`[SLACK] Successfully sent interactive message to user ${userId}`);
+    console.log(`[SLACK] Message details: channel=${dmResult.channel.id}, result=${result.ok}`);
     
   } catch (error) {
     console.error(`[SLACK] Failed to send interactive message to user ${userId}:`, error);
+    
+    // Enhanced error details for debugging
+    if (error.data) {
+      console.error(`[SLACK] Error details:`, error.data);
+    }
+    
+    // Log bot token status (without revealing the token)
+    const hasToken = !!process.env.SLACK_BOT_TOKEN;
+    console.log(`[SLACK] Bot token available: ${hasToken}`);
+    
     throw error;
   }
 }

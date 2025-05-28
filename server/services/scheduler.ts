@@ -665,9 +665,13 @@ async function offerOverlapScheduling(
   console.log(`[CONFLICT_RESOLUTION] Offering overlap scheduling for task ${incomingTask.id} with ${externalEvents.length} external events`);
   
   if (!user.slackUserId) {
-    console.log(`[CONFLICT_RESOLUTION] No Slack user ID found, cannot send interactive message`);
+    console.log(`[CONFLICT_RESOLUTION] No Slack user ID found for user ${user.id}, cannot send interactive message`);
+    console.log(`[CONFLICT_RESOLUTION] User slack info - slackUserId: ${user.slackUserId}, slackWorkspace: ${user.slackWorkspace}`);
     return;
   }
+  
+  console.log(`[CONFLICT_RESOLUTION] Attempting to send interactive message to Slack user: ${user.slackUserId}`);
+  console.log(`[CONFLICT_RESOLUTION] Conflict details - Task: "${incomingTask.title}", Events: ${externalEvents.length}`);
 
   try {
     // Import slack service for interactive messaging
