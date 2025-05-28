@@ -158,7 +158,7 @@ async function scheduleTasksForUser(user: User, tasks: Task[]) {
 
       if (!available.length) {
         console.log(`[SCHEDULER] No available slots found, initiating conflict resolution for task ${task.id}`);
-        const resolved = await handleSchedulingConflicts(user, task, userNow, userDeadline, busySlots, durationMs, userOffset);
+        const resolved = await handleSchedulingConflicts(user, task, userNow, userDeadline, busySlots, durationMs, userOffset, busySlots);
         if (!resolved) {
           throw new Error(`No available slots for task ${task.id} after conflict resolution`);
         }
@@ -470,7 +470,8 @@ async function handleSchedulingConflicts(
   deadline: Date, 
   busySlots: Array<{ start: Date; end: Date; eventId?: string; title?: string }>, 
   durationMs: number,
-  userOffset: string
+  userOffset: string,
+  allBusySlots: Array<{ start: Date; end: Date; eventId?: string; title?: string }>
 ): Promise<boolean> {
   console.log(`[CONFLICT_RESOLUTION] Starting conflict resolution for task ${incomingTask.id}`);
   
@@ -592,7 +593,28 @@ async function proposeBumpLowerPriorityTask(
     // Find new slot for the bumped task
     const bumpedDuration = parseDuration(existingTask.timeRequired) ?? 3600000;
     const bumpedDeadline = computeDeadline(existingTask, new Date(), userOffset);
-    const newSlot = await findNextAvailableSlot(bumpedDuration, { start: new Date(), end: bumpedDeadline }, user.id, userOffset);
+    // Use a simplified approach to find next available slot without calendar re-fetch
+    // Look for gaps in the existing busy slots within the deadline window
+    const timeSlots: Array<{ start: Date; end: Date }> = [];
+    const searchStart = new Date();
+    const searchEnd = bumpedDeadline;
+    
+    // Create 30-minute time slots for the search window
+    for (let time = searchStart.getTime(); time < searchEnd.getTime(); time += 30 * 60 * 1000) {
+      const slotStart = new Date(time);
+      const slotEnd = new Date(time + bumpedDuration);
+      
+      if (slotEnd <= searchEnd) {
+        timeSlots.push({ start: slotStart, end: slotEnd });
+      }
+    }
+    
+    // Find first slot that doesn't conflict with existing busy slots
+    const newSlot = timeSlots.find(slot => {
+      return !allBusySlots.some(busy => 
+        (slot.start < busy.end && slot.end > busy.start)
+      );
+    }) || null;
     
     if (newSlot) {
       // Reschedule the bumped task
@@ -738,12 +760,12 @@ async function scheduleTaskInSlot(
 async function findNextAvailableSlot(
   duration: number,
   window: { start: Date; end: Date },
-  userId: number,
+  user: User,
   userOffset: string
 ): Promise<{ start: Date; end: Date } | null> {
   try {
     // Get fresh busy slots
-    const events = await getCalendarEvents({ id: userId } as User, window.start, window.end);
+    const events = await getCalendarEvents(user, window.start, window.end);
     const busySlots = events.flatMap((ev) => parseBusySlots(ev));
     
     // Find available slots
@@ -752,7 +774,7 @@ async function findNextAvailableSlot(
       window.end,
       busySlots,
       duration,
-      userId,
+      user.id,
       userOffset
     );
     
