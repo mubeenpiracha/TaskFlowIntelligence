@@ -507,7 +507,7 @@ async function handleSchedulingConflicts(
       const rescheduleSuccessful = await attemptRescheduleHigherPriorityTask(user, systemTask, now, userOffset);
       if (rescheduleSuccessful) {
         // Now try to schedule incoming task in the freed slot
-        const newSlot = await findNextAvailableSlot(durationMs, desiredWindow, user.id, userOffset);
+        const newSlot = await findNextAvailableSlot(durationMs, desiredWindow, user, userOffset);
         if (newSlot) {
           await scheduleTaskInSlot(user, incomingTask, newSlot, userOffset);
           return true;
@@ -634,7 +634,7 @@ async function attemptRescheduleHigherPriorityTask(
     const timeUntilDeadline = taskDeadline.getTime() - now.getTime();
     if (timeUntilDeadline > taskDuration * 2) { // At least 2x the task duration as slack
       
-      const newSlot = await findNextAvailableSlot(taskDuration, { start: now, end: taskDeadline }, user.id, userOffset);
+      const newSlot = await findNextAvailableSlot(taskDuration, { start: now, end: taskDeadline }, user, userOffset);
       if (newSlot) {
         await rescheduleTask(existingTask.id, newSlot, userOffset);
         console.log(`[CONFLICT_RESOLUTION] Successfully rescheduled higher priority task ${existingTask.id}`);
