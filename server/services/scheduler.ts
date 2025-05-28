@@ -586,8 +586,14 @@ async function proposeBumpLowerPriorityTask(
 ): Promise<boolean> {
   console.log(`[CONFLICT_RESOLUTION] Proposing to bump lower priority task ${existingTask.id} for incoming task ${incomingTask.id}`);
   
-  // This would integrate with your Slack service
-  // For now, we'll simulate user approval and automatically bump
+  // Check if existing task has lower priority
+  const existingPriority = getPriorityValue(existingTask.priority || 'medium');
+  const incomingPriority = getPriorityValue(incomingTask.priority || 'medium');
+  
+  if (existingPriority >= incomingPriority) {
+    console.log(`[CONFLICT_RESOLUTION] Existing task priority (${existingPriority}) not lower than incoming (${incomingPriority})`);
+    return false;
+  }
   try {
     // Find new slot for the bumped task
     const bumpedDuration = parseDuration(existingTask.timeRequired) ?? 3600000;
@@ -658,15 +664,79 @@ async function offerOverlapScheduling(
 ) {
   console.log(`[CONFLICT_RESOLUTION] Offering overlap scheduling for task ${incomingTask.id} with ${externalEvents.length} external events`);
   
-  // This would send an interactive Slack message
-  // For now, we'll log the conflict
-  const eventList = externalEvents.map(event => 
-    `External event: ${event.start.toISOString()} - ${event.end.toISOString()}`
-  ).join('\n');
-  
-  console.log(`[CONFLICT_RESOLUTION] External event conflicts:\n${eventList}`);
-  
-  // TODO: Implement Slack interactive message with "Schedule anyway (overlap)" button
+  if (!user.slackUserId) {
+    console.log(`[CONFLICT_RESOLUTION] No Slack user ID found, cannot send interactive message`);
+    return;
+  }
+
+  try {
+    // Import slack service for interactive messaging
+    const { sendInteractiveMessage } = await import('./slack');
+    
+    // Create conflict summary for external events
+    const eventSummary = externalEvents.map(event => 
+      `• ${event.title || 'Untitled Event'} (${event.start.toLocaleTimeString()} - ${event.end.toLocaleTimeString()})`
+    ).join('\n');
+    
+    // Send interactive Slack message with conflict options
+    await sendInteractiveMessage(user.slackUserId, {
+      text: `⚠️ Scheduling Conflict with External Events`,
+      blocks: [
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `*Task "${incomingTask.title}" conflicts with existing calendar events:*\n\n${eventSummary}\n\nHow would you like to handle this conflict?`
+          }
+        },
+        {
+          type: 'actions',
+          elements: [
+            {
+              type: 'button',
+              text: { type: 'plain_text', text: 'Schedule Anyway' },
+              style: 'primary',
+              action_id: 'schedule_anyway',
+              value: JSON.stringify({
+                taskId: incomingTask.id,
+                action: 'force_schedule'
+              })
+            },
+            {
+              type: 'button',
+              text: { type: 'plain_text', text: 'Find Alternative Time' },
+              action_id: 'find_alternative',
+              value: JSON.stringify({
+                taskId: incomingTask.id,
+                action: 'find_alternative'
+              })
+            },
+            {
+              type: 'button',
+              text: { type: 'plain_text', text: 'Skip for Now' },
+              style: 'danger',
+              action_id: 'skip_task',
+              value: JSON.stringify({
+                taskId: incomingTask.id,
+                action: 'skip'
+              })
+            }
+          ]
+        }
+      ]
+    });
+    
+    console.log(`[CONFLICT_RESOLUTION] Sent external event conflict options to user for task ${incomingTask.id}`);
+    
+  } catch (error) {
+    console.error(`[CONFLICT_RESOLUTION] Failed to send external event conflict message:`, error);
+    
+    // Fallback: Log conflict summary for manual review
+    console.log(`[CONFLICT_RESOLUTION] External event conflicts for task ${incomingTask.id}:`);
+    externalEvents.forEach(event => {
+      console.log(`External event: ${event.start.toISOString()} - ${event.end.toISOString()}`);
+    });
+  }
 }
 
 /**

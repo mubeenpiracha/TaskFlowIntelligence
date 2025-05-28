@@ -27,6 +27,42 @@ export function getSlackClientBot(): WebClient {
 }
 
 /**
+ * Send an interactive message to a user with buttons and blocks
+ * @param userId Slack user ID to send the message to
+ * @param messagePayload Interactive message payload with blocks
+ */
+export async function sendInteractiveMessage(userId: string, messagePayload: any): Promise<void> {
+  try {
+    const botClient = getSlackClientBot();
+    
+    // Open a DM channel with the user
+    const dmResult = await botClient.conversations.open({
+      users: userId
+    });
+    
+    if (!dmResult.ok || !dmResult.channel) {
+      throw new Error(`Failed to open DM with user ${userId}: ${dmResult.error}`);
+    }
+    
+    // Send the interactive message
+    const result = await botClient.chat.postMessage({
+      channel: dmResult.channel.id,
+      ...messagePayload
+    });
+    
+    if (!result.ok) {
+      throw new Error(`Failed to send interactive message: ${result.error}`);
+    }
+    
+    console.log(`[SLACK] Successfully sent interactive message to user ${userId}`);
+    
+  } catch (error) {
+    console.error(`[SLACK] Failed to send interactive message to user ${userId}:`, error);
+    throw error;
+  }
+}
+
+/**
  * Create a Slack client using a user's token
  * This allows access to private channels and DMs the bot might not have access to
  * @param userToken User's Slack access token (xoxp-)
