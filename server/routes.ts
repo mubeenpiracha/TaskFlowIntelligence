@@ -2378,6 +2378,68 @@ export async function registerRoutes(app: Express): Promise<Server> {
         } catch (error) {
           console.error('Error handling edit task action:', error);
         }
+      } else if (action.action_id === 'bump_events') {
+        // User chose to bump existing events and schedule the new task
+        try {
+          console.log('User chose to bump conflicting events:', action.value);
+          const { handleConflictResolution } = await import('./services/conflictResolver');
+          const success = await handleConflictResolution(action.value, 'bump_events');
+          
+          if (success) {
+            await sendMessage(
+              user.id,
+              '✅ I\'ve moved the conflicting events and scheduled your task successfully!',
+              undefined,
+              dbUserQuery.slackAccessToken || undefined
+            );
+          } else {
+            await sendMessage(
+              user.id,
+              '❌ There was an issue resolving the conflict. Please try manual scheduling.',
+              undefined,
+              dbUserQuery.slackAccessToken || undefined
+            );
+          }
+        } catch (error) {
+          console.error('Error handling bump events action:', error);
+          await sendMessage(
+            user.id,
+            '❌ There was an error processing your request. Please try again.',
+            undefined,
+            dbUserQuery.slackAccessToken || undefined
+          );
+        }
+      } else if (action.action_id === 'reschedule_task') {
+        // User chose to reschedule the current task instead of bumping existing events
+        try {
+          console.log('User chose to reschedule the task:', action.value);
+          const { handleConflictResolution } = await import('./services/conflictResolver');
+          const success = await handleConflictResolution(action.value, 'reschedule_task');
+          
+          if (success) {
+            await sendMessage(
+              user.id,
+              '✅ I\'ve found a new time slot and scheduled your task successfully!',
+              undefined,
+              dbUserQuery.slackAccessToken || undefined
+            );
+          } else {
+            await sendMessage(
+              user.id,
+              '❌ I couldn\'t find an available time slot. Please try manual scheduling.',
+              undefined,
+              dbUserQuery.slackAccessToken || undefined
+            );
+          }
+        } catch (error) {
+          console.error('Error handling reschedule task action:', error);
+          await sendMessage(
+            user.id,
+            '❌ There was an error processing your request. Please try again.',
+            undefined,
+            dbUserQuery.slackAccessToken || undefined
+          );
+        }
       }
     } catch (error) {
       console.error('Error processing Slack interaction:', error);
