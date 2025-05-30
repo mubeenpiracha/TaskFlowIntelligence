@@ -1205,15 +1205,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
           // Send response immediately to acknowledge the interaction
           res.status(200).send('OK');
           
-          // Import conflict resolution handler and process asynchronously
-          const { handleConflictResolution } = await import('./services/conflictHandler');
-          await handleConflictResolution(user.id, taskId, conflictAction, payload);
+          // Process conflict resolution asynchronously without awaiting
+          setImmediate(async () => {
+            try {
+              const { handleConflictResolution } = await import('./services/conflictHandler');
+              await handleConflictResolution(user.id, taskId, conflictAction, payload);
+            } catch (asyncError) {
+              console.error('[CONFLICT_RESOLUTION] Async error handling conflict action:', asyncError);
+            }
+          });
           
           return;
         } catch (error) {
           console.error('[CONFLICT_RESOLUTION] Error handling conflict action:', error);
           if (!res.headersSent) {
-            return res.status(500).send('Error processing conflict resolution');
+            res.status(500).send('Error processing conflict resolution');
           }
           return;
         }
