@@ -1195,7 +1195,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       console.log('Processing action:', action.action_id);
       
       // Handle conflict resolution actions
-      if (['schedule_anyway', 'find_alternative', 'skip_task'].includes(action.action_id) || action.action_id.startsWith('schedule_at_time_')) {
+      if (['schedule_anyway', 'find_alternative', 'skip_task', 'bump_existing_tasks', 'schedule_later'].includes(action.action_id) || action.action_id.startsWith('schedule_at_time_')) {
         try {
           const actionData = JSON.parse(action.value);
           const { taskId, action: conflictAction } = actionData;
