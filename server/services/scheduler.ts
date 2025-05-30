@@ -27,60 +27,6 @@ export function startScheduler() {
 }
 
 /**
- * Find optimal slot for a task with a given deadline
- * This is used by the conflict resolver for rescheduling
- */
-export async function findOptimalSlot(
-  user: User, 
-  task: Task, 
-  deadline: Date
-): Promise<{ start: Date; end: Date } | null> {
-  const workingHours = await storage.getWorkingHours(user.id);
-  if (!workingHours) {
-    throw new Error("No working hours defined for user");
-  }
-
-  const taskDuration = (task.estimatedMinutes || 60) * 60 * 1000; // Convert to milliseconds
-  const userDeadline = convertToUserTimezone(deadline, user.timezoneOffset || "+00:00");
-  const userNow = convertToUserTimezone(new Date(), user.timezoneOffset || "+00:00");
-
-  // Calculate required start time (deadline - task duration)
-  const requiredStartTime = new Date(userDeadline.getTime() - taskDuration);
-
-  console.log(`[SCHEDULER] Finding slot for task "${task.title}" with deadline ${userDeadline.toISOString()}`);
-
-  try {
-    // Get calendar events from now until deadline
-    const events = await getCalendarEvents(user, userNow, userDeadline);
-    console.log(`[SCHEDULER] Retrieved ${events.length} calendar events`);
-
-    // Find available slots
-    const available = findAvailableSlots(
-      userNow,
-      userDeadline,
-      events,
-      taskDuration,
-      user.id,
-      user.timezoneOffset || "+00:00"
-    );
-
-    console.log(`[SCHEDULER] Found ${available?.length || 0} available slots`);
-
-    if (!available || available.length === 0) {
-      return null;
-    }
-
-    // Select the optimal slot based on priority and deadline
-    const slot = selectOptimalSlot(available, task.priority ?? "medium", userDeadline, userNow);
-    
-    return slot;
-  } catch (error) {
-    console.error(`[SCHEDULER] Error finding optimal slot:`, error);
-    return null;
-  }
-}
-
-/**
  * Find and schedule tasks that don't have calendar events yet
  */
 async function scheduleUnscheduledTasks() {

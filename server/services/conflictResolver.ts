@@ -336,54 +336,14 @@ async function bumpConflictingEvents(
 
 /**
  * Find next available slot for the task instead of bumping events
- * Uses deadline extension strategy: extends deadline by 1 day at a time until a slot is found
  */
 async function rescheduleTask(
   user: User,
   task: Task,
   conflict: ConflictResolutionRequest
 ): Promise<void> {
-  console.log(`[CONFLICT_RESOLVER] Finding next available slot for task ${task.id} with deadline extension strategy`);
+  console.log(`[CONFLICT_RESOLVER] Finding next available slot for task ${task.id}`);
 
-  const maxAttempts = 7; // Try up to 7 days extension
-  let currentDeadline = new Date(conflict.taskDeadline);
-  
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    console.log(`[CONFLICT_RESOLVER] Attempt ${attempt + 1}: Trying with deadline ${currentDeadline.toISOString()}`);
-    
-    try {
-      // Import the scheduling functions to reuse existing logic
-      const { findOptimalSlot } = await import("./scheduler");
-      
-      // Try to find an optimal slot with the extended deadline
-      const slot = await findOptimalSlot(user, task, currentDeadline);
-      
-      if (slot) {
-        // Successfully found a slot - schedule the task
-        await scheduleTaskInSlot(user, task, slot.start, conflict.taskDuration);
-        
-        // Update task with the new extended deadline
-        await storage.updateTask(task.id, {
-          deadline: currentDeadline.toISOString()
-        });
-        
-        console.log(`[CONFLICT_RESOLVER] Successfully rescheduled task "${task.title}" to ${slot.start.toISOString()} with extended deadline`);
-        
-        // Send success message
-        await sendRescheduleSuccessMessage(user, task, slot.start);
-        return; // Success - exit the function
-      }
-    } catch (error) {
-      console.log(`[CONFLICT_RESOLVER] Attempt ${attempt + 1} failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
-    
-    // Extend deadline by 1 day and try again
-    currentDeadline.setDate(currentDeadline.getDate() + 1);
-  }
-  
-  // If we get here, all attempts failed - fallback to the original logic
-  console.log(`[CONFLICT_RESOLVER] Deadline extension failed, using fallback scheduling`);
-  
   const nextSlot = await findNextAvailableSlot(
     user,
     new Date(conflict.requiredStartTime.getTime() + conflict.taskDuration),
@@ -392,13 +352,11 @@ async function rescheduleTask(
 
   if (nextSlot) {
     await scheduleTaskInSlot(user, task, nextSlot.start, conflict.taskDuration);
-    console.log(`[CONFLICT_RESOLVER] Rescheduled task "${task.title}" to ${nextSlot.start.toISOString()} using fallback`);
-    await sendRescheduleSuccessMessage(user, task, nextSlot.start);
+    console.log(`[CONFLICT_RESOLVER] Rescheduled task "${task.title}" to ${nextSlot.start.toISOString()}`);
   } else {
-    console.error(`[CONFLICT_RESOLVER] Could not find available slot for task "${task.title}" even with deadline extension`);
+    console.error(`[CONFLICT_RESOLVER] Could not find available slot for task "${task.title}"`);
     // Mark task for manual scheduling
     await storage.updateTask(task.id, { status: 'pending_manual_schedule' });
-    await sendRescheduleFailureMessage(user, task, 'Could not find available time slot even with extended deadline');
   }
 }
 
@@ -733,65 +691,4 @@ function formatTimeRangeInUserTimezone(start: Date, end: Date): string {
 
 function formatTimeRange(start: Date, end: Date): string {
   return `${start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
-}
-
-/**
- * Send success message when task is rescheduled
- */
-async function sendRescheduleSuccessMessage(
-  user: User,
-  task: Task,
-  newStartTime: Date
-): Promise<void> {
-  if (!user.slackUserId) return;
-
-  const { WebClient } = await import('@slack/web-api');
-  const slack = new WebClient(process.env.SLACK_BOT_TOKEN);
-
-  // Format time in user's timezone
-  const timeString = newStartTime.toLocaleString("en-US", {
-    timeZone: user.timezone || "UTC",
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false
-  });
-
-  try {
-    await slack.chat.postMessage({
-      channel: user.slackUserId,
-      text: `:white_check_mark: I've found a new time slot and scheduled your task successfully!\n\n*"${task.title}"* is now scheduled for ${timeString}`
-    });
-    
-    console.log(`[CONFLICT_RESOLVER] Sent reschedule success message to user ${user.slackUserId}`);
-  } catch (error) {
-    console.error(`[CONFLICT_RESOLVER] Failed to send reschedule success message:`, error);
-  }
-}
-
-/**
- * Send failure message when task cannot be rescheduled
- */
-async function sendRescheduleFailureMessage(
-  user: User,
-  task: Task,
-  errorMessage: string
-): Promise<void> {
-  if (!user.slackUserId) return;
-
-  const { WebClient } = await import('@slack/web-api');
-  const slack = new WebClient(process.env.SLACK_BOT_TOKEN);
-
-  try {
-    await slack.chat.postMessage({
-      channel: user.slackUserId,
-      text: `:x: Sorry, I couldn't find an available time slot to reschedule your task.\n\n*"${task.title}"* has been marked for manual scheduling.\n\nReason: ${errorMessage}`
-    });
-    
-    console.log(`[CONFLICT_RESOLVER] Sent reschedule failure message to user ${user.slackUserId}`);
-  } catch (error) {
-    console.error(`[CONFLICT_RESOLVER] Failed to send reschedule failure message:`, error);
-  }
 }
