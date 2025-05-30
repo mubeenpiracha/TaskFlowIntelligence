@@ -1196,33 +1196,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Handle conflict resolution actions
       if (['schedule_anyway', 'find_alternative', 'skip_task', 'bump_existing_tasks', 'schedule_later'].includes(action.action_id) || action.action_id.startsWith('schedule_at_time_')) {
-        try {
-          const actionData = JSON.parse(action.value);
-          const { taskId, action: conflictAction } = actionData;
-          
-          console.log(`[CONFLICT_RESOLUTION] Handling ${conflictAction} for task ${taskId}`);
-          
-          // Send response immediately to acknowledge the interaction
-          res.status(200).send('OK');
-          
-          // Process conflict resolution asynchronously without awaiting
-          setImmediate(async () => {
-            try {
-              const { handleConflictResolution } = await import('./services/conflictHandler');
-              await handleConflictResolution(user.id, taskId, conflictAction, payload);
-            } catch (asyncError) {
-              console.error('[CONFLICT_RESOLUTION] Async error handling conflict action:', asyncError);
-            }
-          });
-          
-          return;
-        } catch (error) {
-          console.error('[CONFLICT_RESOLUTION] Error handling conflict action:', error);
-          if (!res.headersSent) {
-            res.status(500).send('Error processing conflict resolution');
+        // Send response immediately to prevent timeout
+        res.status(200).send('OK');
+        
+        // Process asynchronously
+        setImmediate(async () => {
+          try {
+            console.log(`[CONFLICT_RESOLUTION] Processing action: ${action.action_id}`);
+            console.log(`[CONFLICT_RESOLUTION] Action value: ${action.value}`);
+            
+            const actionData = JSON.parse(action.value);
+            const { taskId, action: conflictAction } = actionData;
+            
+            console.log(`[CONFLICT_RESOLUTION] Handling ${conflictAction} for task ${taskId}`);
+            console.log(`[CONFLICT_RESOLUTION] Full action data:`, actionData);
+            
+            const { handleConflictResolution } = await import('./services/conflictHandler');
+            await handleConflictResolution(user.id, taskId, conflictAction, payload);
+          } catch (asyncError) {
+            console.error('[CONFLICT_RESOLUTION] Async error handling conflict action:', asyncError);
           }
-          return;
-        }
+        });
+        
+        return;
       }
       
       // Additional sanity checks
