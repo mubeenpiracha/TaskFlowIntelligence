@@ -40,7 +40,7 @@ async function scheduleUnscheduledTasks() {
     const user = await storage.getUser(1);
     if (!user?.googleRefreshToken) return;
 
-    const tasks = await storage.getTasksByStatus(user.id, "accepted");
+    const tasks = await storage.getTasksByStatus(user.id, "unscheduled");
     // Filter out tasks that are waiting for conflict resolution to prevent duplicate messages
     const tasksToProcess = tasks.filter(task => task.status !== 'pending_conflict_resolution');
     
@@ -137,44 +137,39 @@ async function scheduleTasksForUser(user: User, tasks: Task[]) {
       console.log(`[SCHEDULER DEBUG] - durationMs: ${durationMs}`);
       console.log(`[SCHEDULER DEBUG] - userId: ${user.id}`);
 
-      // Check for priority-based conflicts with existing scheduled tasks
-      console.log(`[SCHEDULER] Checking for priority conflicts with existing tasks for task ${task.id} (priority: ${task.priority})`);
+      // Check for conflicts with existing scheduled tasks using simplified approach
+      console.log(`[SCHEDULER] Checking for conflicts with existing scheduled tasks for task ${task.id}`);
       
-      // Get all scheduled tasks for this user to check for priority conflicts
+      // Get all scheduled tasks for this user
       const existingTasks = await storage.getTasksByStatus(user.id, 'scheduled');
       console.log(`[SCHEDULER] Found ${existingTasks.length} existing scheduled tasks to check for conflicts`);
       
-      // Check if this high priority task conflicts with any lower priority tasks
-      const taskPriority = getPriorityValue(task.priority || 'medium');
-      let priorityConflictResolved = false;
+      const conflictingTasks: Task[] = [];
       
+      // Check each scheduled task for time overlap with the desired scheduling window
       for (const existingTask of existingTasks) {
         if (!existingTask.scheduledStart || !existingTask.scheduledEnd) continue;
         
         const existingStart = new Date(existingTask.scheduledStart);
         const existingEnd = new Date(existingTask.scheduledEnd);
-        const existingPriority = getPriorityValue(existingTask.priority || 'medium');
         
-        // Check for time overlap and priority difference
+        // Check if this would overlap with the desired scheduling window
         const wouldOverlap = (userNow < existingEnd && userDeadline > existingStart);
-        const hasHigherPriority = taskPriority > existingPriority;
         
-        if (wouldOverlap && hasHigherPriority) {
-          console.log(`[SCHEDULER] ⚠️ Priority conflict detected! Task ${task.id} (${task.priority}, priority: ${taskPriority}) conflicts with task ${existingTask.id} (${existingTask.priority}, priority: ${existingPriority})`);
-          console.log(`[SCHEDULER] Attempting to bump lower priority task ${existingTask.id} for higher priority task ${task.id}`);
-          
-          const bumpSuccess = await proposeBumpLowerPriorityTask(user, existingTask, task, userOffset);
-          if (bumpSuccess) {
-            console.log(`[SCHEDULER] ✅ Successfully bumped task ${existingTask.id}, task ${task.id} has been scheduled`);
-            priorityConflictResolved = true;
-            return; // Task has been scheduled, move to next
-          }
+        if (wouldOverlap) {
+          conflictingTasks.push(existingTask);
+          console.log(`[SCHEDULER] ⚠️ Conflict detected with task ${existingTask.id} "${existingTask.title}" (${existingStart.toISOString()} - ${existingEnd.toISOString()})`);
         }
       }
       
-      if (priorityConflictResolved) {
-        return; // Task was handled through priority bumping
+      // If there are conflicting tasks, ask user what to do
+      if (conflictingTasks.length > 0) {
+        console.log(`[SCHEDULER] Found ${conflictingTasks.length} conflicting tasks, asking user for decision`);
+        await askUserAboutConflictingTasks(user, task, conflictingTasks, userOffset);
+        return; // User will decide via Slack interaction
       }
+      
+      console.log(`[SCHEDULER] No conflicting tasks found, proceeding with normal scheduling`);
 
       const available = await findAvailableSlots(
         now,
