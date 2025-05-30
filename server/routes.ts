@@ -1199,28 +1199,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.log(`[CONFLICT_RESOLUTION] Processing action: ${action.action_id}`);
         console.log(`[CONFLICT_RESOLUTION] Action value: ${action.value}`);
         
-        const actionData = JSON.parse(action.value);
-        const { taskId, action: conflictAction } = actionData;
-        
-        console.log(`[CONFLICT_RESOLUTION] Handling ${conflictAction} for task ${taskId}`);
-        console.log(`[CONFLICT_RESOLUTION] Full action data:`, actionData);
-        
-        // Send response immediately if not already sent
-        if (!res.headersSent) {
-          res.status(200).send('OK');
+        try {
+          const actionData = JSON.parse(action.value);
+          const { taskId, action: conflictAction } = actionData;
+          
+          console.log(`[CONFLICT_RESOLUTION] Handling ${conflictAction} for task ${taskId}`);
+          console.log(`[CONFLICT_RESOLUTION] Full action data:`, actionData);
+          
+          // Immediately return response to prevent timeout
+          res.status(200).json({ status: 'processing' });
+          
+          // Process conflict resolution in the background
+          setTimeout(async () => {
+            try {
+              const { handleConflictResolution } = await import('./services/conflictHandler');
+              await handleConflictResolution(user.id, taskId, conflictAction, payload);
+            } catch (asyncError) {
+              console.error('[CONFLICT_RESOLUTION] Background processing error:', asyncError);
+            }
+          }, 0);
+          
+          return;
+        } catch (parseError) {
+          console.error('[CONFLICT_RESOLUTION] Error parsing action data:', parseError);
+          return res.status(400).send('Invalid action data');
         }
-        
-        // Process asynchronously
-        setImmediate(async () => {
-          try {
-            const { handleConflictResolution } = await import('./services/conflictHandler');
-            await handleConflictResolution(user.id, taskId, conflictAction, payload);
-          } catch (asyncError) {
-            console.error('[CONFLICT_RESOLUTION] Async error handling conflict action:', asyncError);
-          }
-        });
-        
-        return;
       }
       
       // Additional sanity checks
