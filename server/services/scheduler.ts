@@ -60,12 +60,13 @@ export async function findOptimalSlot(
       userDeadline,
       events,
       taskDuration,
-      workingHours
+      user.id,
+      user.timezoneOffset || "+00:00"
     );
 
-    console.log(`[SCHEDULER] Found ${available.length} available slots`);
+    console.log(`[SCHEDULER] Found ${available?.length || 0} available slots`);
 
-    if (available.length === 0) {
+    if (!available || available.length === 0) {
       return null;
     }
 
