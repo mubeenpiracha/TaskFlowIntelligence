@@ -49,25 +49,13 @@ export async function handleConflictResolution(
 }
 
 /**
- * Send a response to the original Slack message using response_url
+ * Send a response to the user via DM instead of using response_url
+ * This avoids conflicts with the HTTP response already sent
  */
 async function sendSlackResponse(responseUrl: string, message: string, blocks?: any[]) {
-  try {
-    await axios.post(responseUrl, {
-      text: message,
-      blocks: blocks || [
-        {
-          type: 'section',
-          text: {
-            type: 'mrkdwn',
-            text: message
-          }
-        }
-      ]
-    });
-  } catch (error) {
-    console.error('[CONFLICT_HANDLER] Error sending Slack response:', error);
-  }
+  console.log('[CONFLICT_HANDLER] Sending response via DM instead of response_url to avoid conflicts');
+  // Note: We don't use response_url anymore to avoid HTTP header conflicts
+  // The success/error messages will be sent via DM in the individual handlers
 }
 
 /**
@@ -204,16 +192,19 @@ async function handleBumpExistingTasks(user: any, task: any, payload: any) {
     if (finalAvailableSlots.length > 0) {
       await scheduleTaskInSlot(user, task, finalAvailableSlots[0], userOffset);
       
-      // Send success message using response_url
-      await sendSlackResponse(payload.response_url, `✅ Tasks rescheduled successfully!`, [
-        {
-          type: 'section',
-          text: {
-            type: 'mrkdwn',
-            text: `✅ **Tasks rescheduled successfully!**\n\nI've moved your conflicting tasks to later times and scheduled **"${task.title}"** in the freed slot.\n\nCheck your calendar for the updated schedule.`
+      // Send success message via direct message
+      await sendInteractiveMessage(user.slackUserId, {
+        text: `✅ Tasks rescheduled successfully!`,
+        blocks: [
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: `✅ **Tasks rescheduled successfully!**\n\nI've moved your conflicting tasks to later times and scheduled **"${task.title}"** in the freed slot.\n\nCheck your calendar for the updated schedule.`
+            }
           }
-        }
-      ]);
+        ]
+      });
     } else {
       throw new Error('No available slots found after rescheduling');
     }
@@ -221,15 +212,18 @@ async function handleBumpExistingTasks(user: any, task: any, payload: any) {
   } catch (error) {
     console.error(`[CONFLICT_HANDLER] Error bumping tasks:`, error);
     
-    // Send error message using response_url
-    await sendSlackResponse(payload.response_url, `❌ Failed to reschedule tasks`, [
-      {
-        type: 'section',
-        text: {
-          type: 'mrkdwn',
-          text: `❌ *Rescheduling failed*\n\nSorry, I couldn't reschedule the tasks right now. Please try again later or schedule them manually in your calendar.`
+    // Send error message via direct message
+    await sendInteractiveMessage(user.slackUserId, {
+      text: `❌ Failed to reschedule tasks`,
+      blocks: [
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `❌ *Rescheduling failed*\n\nSorry, I couldn't reschedule the tasks right now. Please try again later or schedule them manually in your calendar.`
+          }
         }
-      }
+      ]
     ]);
   }
 }
