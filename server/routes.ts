@@ -1222,7 +1222,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           return;
         } catch (parseError) {
           console.error('[CONFLICT_RESOLUTION] Error parsing action data:', parseError);
-          return res.status(400).send('Invalid action data');
+          if (!res.headersSent) {
+            return res.status(400).send('Invalid action data');
+          }
+          return;
         }
       }
       

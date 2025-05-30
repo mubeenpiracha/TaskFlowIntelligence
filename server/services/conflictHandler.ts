@@ -224,7 +224,7 @@ async function handleBumpExistingTasks(user: any, task: any, payload: any) {
           }
         }
       ]
-    ]);
+    });
   }
 }
 
