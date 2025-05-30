@@ -11,6 +11,7 @@ import {
   formatDateWithOffset,
   convertToUserTimezone,
 } from "../utils/offsetUtils";
+import { sendMessage } from "./slack";
 
 // Run interval in milliseconds (check every 30 seconds)
 const SCHEDULE_INTERVAL = 30 * 1000;
@@ -135,6 +136,45 @@ async function scheduleTasksForUser(user: User, tasks: Task[]) {
       console.log(busySlots);
       console.log(`[SCHEDULER DEBUG] - durationMs: ${durationMs}`);
       console.log(`[SCHEDULER DEBUG] - userId: ${user.id}`);
+
+      // Check for priority-based conflicts with existing scheduled tasks
+      console.log(`[SCHEDULER] Checking for priority conflicts with existing tasks for task ${task.id} (priority: ${task.priority})`);
+      
+      // Get all scheduled tasks for this user to check for priority conflicts
+      const existingTasks = await storage.getTasksByStatus(user.id, 'scheduled');
+      console.log(`[SCHEDULER] Found ${existingTasks.length} existing scheduled tasks to check for conflicts`);
+      
+      // Check if this high priority task conflicts with any lower priority tasks
+      const taskPriority = getPriorityValue(task.priority || 'medium');
+      let priorityConflictResolved = false;
+      
+      for (const existingTask of existingTasks) {
+        if (!existingTask.scheduledStart || !existingTask.scheduledEnd) continue;
+        
+        const existingStart = new Date(existingTask.scheduledStart);
+        const existingEnd = new Date(existingTask.scheduledEnd);
+        const existingPriority = getPriorityValue(existingTask.priority || 'medium');
+        
+        // Check for time overlap and priority difference
+        const wouldOverlap = (userNow < existingEnd && userDeadline > existingStart);
+        const hasHigherPriority = taskPriority > existingPriority;
+        
+        if (wouldOverlap && hasHigherPriority) {
+          console.log(`[SCHEDULER] ⚠️ Priority conflict detected! Task ${task.id} (${task.priority}, priority: ${taskPriority}) conflicts with task ${existingTask.id} (${existingTask.priority}, priority: ${existingPriority})`);
+          console.log(`[SCHEDULER] Attempting to bump lower priority task ${existingTask.id} for higher priority task ${task.id}`);
+          
+          const bumpSuccess = await proposeBumpLowerPriorityTask(user, existingTask, task, userOffset);
+          if (bumpSuccess) {
+            console.log(`[SCHEDULER] ✅ Successfully bumped task ${existingTask.id}, task ${task.id} has been scheduled`);
+            priorityConflictResolved = true;
+            return; // Task has been scheduled, move to next
+          }
+        }
+      }
+      
+      if (priorityConflictResolved) {
+        return; // Task was handled through priority bumping
+      }
 
       const available = await findAvailableSlots(
         now,
@@ -477,7 +517,7 @@ async function handleSchedulingConflicts(
   busySlots: Array<{ start: Date; end: Date; eventId?: string; title?: string }>, 
   durationMs: number,
   userOffset: string
-): Promise<boolean> {
+): Promise<boolean | 'handled'> {
   console.log(`[CONFLICT_RESOLUTION] Starting conflict resolution for task ${incomingTask.id}`);
   
   const incomingPriority = getPriorityValue(incomingTask.priority ?? "medium");
@@ -496,6 +536,9 @@ async function handleSchedulingConflicts(
   // Partition slots into system tasks vs external events
   const { systemTasks, externalEvents } = await partitionBusySlots(overlappingSlots, user);
   
+  console.log(`[CONFLICT_RESOLUTION] System tasks in conflict:`, systemTasks.map(t => ({ id: t.id, title: t.title, priority: t.priority })));
+  console.log(`[CONFLICT_RESOLUTION] External events in conflict:`, externalEvents.length);
+  
   console.log(`[CONFLICT_RESOLUTION] Found ${systemTasks.length} system tasks and ${externalEvents.length} external events in conflict`);
   
   // Handle system task conflicts
@@ -506,7 +549,7 @@ async function handleSchedulingConflicts(
       // Lower priority - propose bumping it
       const bumpSuccessful = await proposeBumpLowerPriorityTask(user, systemTask, incomingTask, userOffset);
       if (bumpSuccessful) {
-        return true; // Successfully resolved by bumping lower priority task
+        return 'handled'; // Successfully resolved by bumping lower priority task
       }
     } else if (taskPriority >= incomingPriority) {
       // Higher/equal priority - try to reschedule it if there's slack
@@ -600,22 +643,49 @@ async function proposeBumpLowerPriorityTask(
     console.log(`[CONFLICT_RESOLUTION] Existing task priority (${existingPriority}) not lower than incoming (${incomingPriority})`);
     return false;
   }
+  
   try {
+    console.log(`[CONFLICT_RESOLUTION] ✅ Bumping lower priority task ${existingTask.id} (priority: ${existingPriority}) for higher priority task ${incomingTask.id} (priority: ${incomingPriority})`);
+    
     // Find new slot for the bumped task
     const bumpedDuration = parseDuration(existingTask.timeRequired) ?? 3600000;
     const bumpedDeadline = computeDeadline(existingTask, new Date(), userOffset);
     const newSlot = await findNextAvailableSlot(bumpedDuration, { start: new Date(), end: bumpedDeadline }, user, userOffset);
     
     if (newSlot) {
-      // Reschedule the bumped task
-      await rescheduleTask(existingTask.id, newSlot, userOffset);
+      console.log(`[CONFLICT_RESOLUTION] Found new slot for bumped task: ${newSlot.start} - ${newSlot.end}`);
       
-      // Schedule incoming task in the original slot that was freed by bumping
+      // Store the original slot that will be freed
       const freedSlot = {
         start: new Date(existingTask.scheduledStart!),
         end: new Date(existingTask.scheduledEnd!)
       };
+      console.log(`[CONFLICT_RESOLUTION] Original slot to be freed: ${freedSlot.start} - ${freedSlot.end}`);
+      
+      // 1. Reschedule the bumped task to new slot
+      await rescheduleTask(existingTask.id, newSlot, userOffset);
+      console.log(`[CONFLICT_RESOLUTION] ✅ Bumped task ${existingTask.id} moved to new slot`);
+      
+      // 2. Schedule incoming task in the freed slot
       await scheduleTaskInSlot(user, incomingTask, freedSlot, userOffset);
+      console.log(`[CONFLICT_RESOLUTION] ✅ Incoming task ${incomingTask.id} scheduled in freed slot`);
+      
+      // 3. Send Slack notification about the bumping
+      if (user.slackUserId) {
+        try {
+          const bumpedTime = formatDateWithOffset(newSlot.start, userOffset);
+          const originalTime = formatDateWithOffset(freedSlot.start, userOffset);
+          const message = `📅 Task Scheduling Update:\n\n` +
+            `• **"${existingTask.title}"** (${existingTask.priority} priority) has been moved from ${originalTime} to ${bumpedTime}\n` +
+            `• **"${incomingTask.title}"** (${incomingTask.priority} priority) has been scheduled at ${originalTime}\n\n` +
+            `This change was made automatically because the new task has higher priority.`;
+          
+          await sendMessage(user.slackUserId, message);
+          console.log(`[CONFLICT_RESOLUTION] ✅ Sent task bump notification to user ${user.slackUserId}`);
+        } catch (error) {
+          console.error(`[CONFLICT_RESOLUTION] Failed to send bump notification:`, error);
+        }
+      }
       
       console.log(`[CONFLICT_RESOLUTION] Successfully bumped task ${existingTask.id} and scheduled incoming task ${incomingTask.id}`);
       return true;
