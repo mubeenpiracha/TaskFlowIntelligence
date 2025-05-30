@@ -1202,14 +1202,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
           
           console.log(`[CONFLICT_RESOLUTION] Handling ${conflictAction} for task ${taskId}`);
           
-          // Import conflict resolution handler
+          // Send response immediately to acknowledge the interaction
+          res.status(200).send('OK');
+          
+          // Import conflict resolution handler and process asynchronously
           const { handleConflictResolution } = await import('./services/conflictHandler');
           await handleConflictResolution(user.id, taskId, conflictAction, payload);
           
-          return res.status(200).send('OK');
+          return;
         } catch (error) {
           console.error('[CONFLICT_RESOLUTION] Error handling conflict action:', error);
-          return res.status(500).send('Error processing conflict resolution');
+          if (!res.headersSent) {
+            return res.status(500).send('Error processing conflict resolution');
+          }
+          return;
         }
       }
       

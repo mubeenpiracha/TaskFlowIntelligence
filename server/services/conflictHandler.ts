@@ -118,7 +118,10 @@ async function handleBumpExistingTasks(user: any, task: any, payload: any) {
   console.log(`[CONFLICT_HANDLER] Bumping existing tasks for task ${task.id}`);
   
   try {
-    const { conflictingTaskIds } = payload;
+    // Extract conflictingTaskIds from the button's action value
+    const actionData = JSON.parse(payload.actions[0].value);
+    const { conflictingTaskIds } = actionData;
+    console.log(`[CONFLICT_HANDLER] Conflicting task IDs:`, conflictingTaskIds);
     const { findAvailableSlots, scheduleTaskInSlot } = await import('./scheduler');
     const { getCalendarEvents } = await import('./calendarService');
     
