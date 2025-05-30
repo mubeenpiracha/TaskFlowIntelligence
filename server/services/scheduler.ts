@@ -40,7 +40,7 @@ async function scheduleUnscheduledTasks() {
     const user = await storage.getUser(1);
     if (!user?.googleRefreshToken) return;
 
-    const tasks = await storage.getTasksByStatus(user.id, "unscheduled");
+    const tasks = await storage.getTasksByStatus(user.id, "accepted");
     // Filter out tasks that are waiting for conflict resolution to prevent duplicate messages
     const tasksToProcess = tasks.filter(task => task.status !== 'pending_conflict_resolution');
     
@@ -182,31 +182,36 @@ async function scheduleTasksForUser(user: User, tasks: Task[]) {
       console.log(`[SCHEDULER] Found ${available.length} available slots`);
       console.log(available);
 
-      if (available.length === 0) {
-        console.log(
-          `[SCHEDULER DEBUG] No available slots found! Checking date range...`,
-        );
+      // Check if any available slots are actually adequate for the task duration
+      const adequateSlots = available.filter(slot => {
+        const slotDuration = slot.end.getTime() - slot.start.getTime();
+        return slotDuration >= durationMs;
+      });
+      
+      console.log(`[SCHEDULER] Found ${adequateSlots.length} adequate slots (duration needed: ${durationMs/1000/60} minutes)`);
+      
+      if (adequateSlots.length === 0) {
+        console.log(`[SCHEDULER] No adequate contiguous slots found! Available slots too small for task duration.`);
         console.log(`[SCHEDULER DEBUG] Time range: ${now} to ${deadline}`);
-        console.log(
-          `[SCHEDULER DEBUG] Range duration: ${(deadline.getTime() - now.getTime()) / (1000 * 60 * 60)} hours`,
-        );
-        if (deadline <= now) {
-          console.log(
-            `[SCHEDULER DEBUG] ⚠️ PROBLEM: Deadline is in the past or equal to now!`,
-          );
+        console.log(`[SCHEDULER DEBUG] Range duration: ${(deadline.getTime() - now.getTime()) / (1000 * 60 * 60)} hours`);
+        
+        if (available.length > 0) {
+          console.log(`[SCHEDULER DEBUG] Found ${available.length} slots but all are too small:`);
+          available.forEach((slot, i) => {
+            const duration = (slot.end.getTime() - slot.start.getTime()) / (1000 * 60);
+            console.log(`[SCHEDULER DEBUG] Slot ${i+1}: ${duration} minutes (need ${durationMs/1000/60})`);
+          });
         }
-      }
-
-      if (!available.length) {
-        console.log(`[SCHEDULER] No available slots found, initiating conflict resolution for task ${task.id}`);
+        
+        console.log(`[SCHEDULER] Initiating conflict resolution due to insufficient contiguous time for task ${task.id}`);
         const resolved = await handleSchedulingConflicts(user, task, userNow, userDeadline, busySlots, durationMs, userOffset);
         if (!resolved) {
-          throw new Error(`No available slots for task ${task.id} after conflict resolution`);
+          throw new Error(`No adequate slots for task ${task.id} after conflict resolution`);
         }
         continue; // Skip to next task since this one was handled by conflict resolution
       }
       const slot = selectOptimalSlot(
-        available,
+        adequateSlots,
         task.priority ?? "medium",
         userDeadline,
         userNow,
