@@ -1196,21 +1196,23 @@ export async function registerRoutes(app: Express): Promise<Server> {
       
       // Handle conflict resolution actions
       if (['schedule_anyway', 'find_alternative', 'skip_task', 'bump_existing_tasks', 'schedule_later'].includes(action.action_id) || action.action_id.startsWith('schedule_at_time_')) {
-        // Send response immediately to prevent timeout
-        res.status(200).send('OK');
+        console.log(`[CONFLICT_RESOLUTION] Processing action: ${action.action_id}`);
+        console.log(`[CONFLICT_RESOLUTION] Action value: ${action.value}`);
+        
+        const actionData = JSON.parse(action.value);
+        const { taskId, action: conflictAction } = actionData;
+        
+        console.log(`[CONFLICT_RESOLUTION] Handling ${conflictAction} for task ${taskId}`);
+        console.log(`[CONFLICT_RESOLUTION] Full action data:`, actionData);
+        
+        // Send response immediately if not already sent
+        if (!res.headersSent) {
+          res.status(200).send('OK');
+        }
         
         // Process asynchronously
         setImmediate(async () => {
           try {
-            console.log(`[CONFLICT_RESOLUTION] Processing action: ${action.action_id}`);
-            console.log(`[CONFLICT_RESOLUTION] Action value: ${action.value}`);
-            
-            const actionData = JSON.parse(action.value);
-            const { taskId, action: conflictAction } = actionData;
-            
-            console.log(`[CONFLICT_RESOLUTION] Handling ${conflictAction} for task ${taskId}`);
-            console.log(`[CONFLICT_RESOLUTION] Full action data:`, actionData);
-            
             const { handleConflictResolution } = await import('./services/conflictHandler');
             await handleConflictResolution(user.id, taskId, conflictAction, payload);
           } catch (asyncError) {

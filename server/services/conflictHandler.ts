@@ -118,15 +118,23 @@ async function handleBumpExistingTasks(user: any, task: any, payload: any) {
   console.log(`[CONFLICT_HANDLER] Bumping existing tasks for task ${task.id}`);
   
   try {
-    // Extract conflictingTaskIds from the button's action value
-    console.log(`[CONFLICT_HANDLER] Full payload:`, JSON.stringify(payload, null, 2));
-    const actionData = JSON.parse(payload.actions[0].value);
-    console.log(`[CONFLICT_HANDLER] Action data:`, actionData);
-    const { conflictingTaskIds } = actionData;
-    console.log(`[CONFLICT_HANDLER] Conflicting task IDs:`, conflictingTaskIds);
+    // Get conflictingTaskIds from the action data passed from routes.ts
+    console.log(`[CONFLICT_HANDLER] Task object:`, task);
     
-    if (!conflictingTaskIds || !Array.isArray(conflictingTaskIds)) {
-      throw new Error(`Invalid conflictingTaskIds: ${JSON.stringify(conflictingTaskIds)}`);
+    // The conflictingTaskIds should be in the payload from the button value
+    const actionData = JSON.parse(payload.actions[0].value);
+    console.log(`[CONFLICT_HANDLER] Action data from button:`, actionData);
+    
+    const conflictingTaskIds = actionData.conflictingTaskIds;
+    console.log(`[CONFLICT_HANDLER] Conflicting task IDs:`, conflictingTaskIds);
+    console.log(`[CONFLICT_HANDLER] Type check - Array.isArray():`, Array.isArray(conflictingTaskIds));
+    
+    if (!conflictingTaskIds) {
+      throw new Error(`No conflictingTaskIds found in action data`);
+    }
+    
+    if (!Array.isArray(conflictingTaskIds)) {
+      throw new Error(`conflictingTaskIds is not an array: ${typeof conflictingTaskIds}, value: ${JSON.stringify(conflictingTaskIds)}`);
     }
     const { findAvailableSlots, scheduleTaskInSlot } = await import('./scheduler');
     const { getCalendarEvents } = await import('./calendarService');
