@@ -59,7 +59,9 @@ async function handleForceSchedule(user: any, task: any, payload: any) {
     const endTime = new Date(now.getTime() + 24 * 60 * 60 * 1000); // Next 24 hours
     
     // Try to schedule in the first available slot, ignoring conflicts
-    const slots = await findAvailableSlots(now, endTime, [], user);
+    const durationMs = 3600000; // 1 hour default
+    const userOffset = user.timezoneOffset || '+00:00';
+    const slots = await findAvailableSlots(now, endTime, [], durationMs, user.id, userOffset);
     
     if (slots.length > 0) {
       const slot = slots[0];
@@ -122,8 +124,10 @@ async function handleFindAlternative(user: any, task: any, payload: any) {
     const events = await getCalendarEvents(user, now, endTime);
     const busySlots = parseBusySlots(events);
     
-    // Find available slots
-    const availableSlots = await findAvailableSlots(now, endTime, busySlots, user);
+    // Find available slots (using proper parameters)
+    const durationMs = 3600000; // 1 hour default
+    const userOffset = user.timezoneOffset || '+00:00';
+    const availableSlots = await findAvailableSlots(now, endTime, busySlots, durationMs, user.id, userOffset);
     
     if (availableSlots.length === 0) {
       // No alternatives found

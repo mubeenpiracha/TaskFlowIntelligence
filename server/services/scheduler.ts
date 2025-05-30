@@ -303,7 +303,7 @@ function computeDeadline(task: Task, now: Date, userOffset?: string): Date {
   return dl;
 }
 
-function parseBusySlots(ev: any): Array<{ start: Date; end: Date; eventId?: string; title?: string }> {
+export function parseBusySlots(ev: any): Array<{ start: Date; end: Date; eventId?: string; title?: string }> {
   // prefer the dateTime field if present, else date
   const startStr = ev.start?.dateTime ?? ev.start?.date;
   const endStr = ev.end?.dateTime ?? ev.end?.date;
@@ -325,7 +325,7 @@ function parseBusySlots(ev: any): Array<{ start: Date; end: Date; eventId?: stri
 /**
  * Find free slots between now and end, avoiding busy slots and respecting working hours
  */
-async function findAvailableSlots(
+export async function findAvailableSlots(
   now: Date,
   end: Date,
   busy: Array<{ start: Date; end: Date }>,
@@ -894,7 +894,7 @@ async function rescheduleTask(taskId: number, newSlot: { start: Date; end: Date 
 /**
  * Schedule a task in a specific time slot
  */
-async function scheduleTaskInSlot(
+export async function scheduleTaskInSlot(
   user: User,
   task: Task,
   slot: { start: Date; end: Date },
