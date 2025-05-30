@@ -23,6 +23,12 @@ export async function handleConflictResolution(
     }
     
     switch (action) {
+      case 'bump_existing_tasks':
+        await handleBumpExistingTasks(user, task, payload);
+        break;
+      case 'schedule_later':
+        await handleScheduleLater(user, task, payload);
+        break;
       case 'force_schedule':
         await handleForceSchedule(user, task, payload);
         break;
@@ -98,6 +104,185 @@ async function handleForceSchedule(user: any, task: any, payload: any) {
           text: {
             type: 'mrkdwn',
             text: `❌ *Scheduling failed*\n\nSorry, I couldn't schedule "${task.title}" right now. Please try again later or schedule it manually in your calendar.`
+          }
+        }
+      ]
+    });
+  }
+}
+
+/**
+ * Handle bumping existing tasks to make room for new task
+ */
+async function handleBumpExistingTasks(user: any, task: any, payload: any) {
+  console.log(`[CONFLICT_HANDLER] Bumping existing tasks for task ${task.id}`);
+  
+  try {
+    const { conflictingTaskIds } = payload;
+    const { findAvailableSlots, scheduleTaskInSlot } = await import('./scheduler');
+    const { getCalendarEvents } = await import('./calendarService');
+    
+    // Get the next 7 days to find available slots
+    const now = new Date();
+    const endTime = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    
+    // Fetch calendar events to find truly available slots
+    const events = await getCalendarEvents(user, now, endTime);
+    const busySlots = events.flatMap((ev: any) => {
+      const startStr = ev.start?.dateTime ?? ev.start?.date;
+      const endStr = ev.end?.dateTime ?? ev.end?.date;
+      if (!startStr || !endStr) return [];
+      return [{
+        start: new Date(startStr),
+        end: new Date(endStr),
+        eventId: ev.id,
+        title: ev.summary || 'Untitled Event'
+      }];
+    });
+    
+    const durationMs = 3600000; // 1 hour default
+    const userOffset = user.timezoneOffset || '+00:00';
+    
+    // Move each conflicting task to next available slot
+    for (const taskId of conflictingTaskIds) {
+      const conflictingTask = await storage.getTask(taskId);
+      if (!conflictingTask) continue;
+      
+      const availableSlots = await findAvailableSlots(now, endTime, busySlots, durationMs, user.id, userOffset);
+      
+      if (availableSlots.length > 0) {
+        const newSlot = availableSlots[0];
+        await scheduleTaskInSlot(user, conflictingTask, newSlot, userOffset);
+        console.log(`[CONFLICT_HANDLER] Moved task ${taskId} to ${newSlot.start}`);
+        
+        // Update busy slots to prevent double-booking
+        busySlots.push({
+          start: newSlot.start,
+          end: newSlot.end,
+          eventId: `moved-${taskId}`,
+          title: conflictingTask.title
+        });
+      }
+    }
+    
+    // Now schedule the incoming task in the first available slot
+    const finalAvailableSlots = await findAvailableSlots(now, endTime, busySlots, durationMs, user.id, userOffset);
+    if (finalAvailableSlots.length > 0) {
+      await scheduleTaskInSlot(user, task, finalAvailableSlots[0], userOffset);
+      
+      // Send success message
+      await sendInteractiveMessage(user.slackUserId, {
+        text: `✅ Tasks rescheduled successfully!`,
+        blocks: [
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: `✅ **Tasks rescheduled successfully!**\n\nI've moved your conflicting tasks to later times and scheduled **"${task.title}"** in the freed slot.\n\nCheck your calendar for the updated schedule.`
+            }
+          }
+        ]
+      });
+    }
+    
+  } catch (error) {
+    console.error(`[CONFLICT_HANDLER] Error bumping existing tasks:`, error);
+    
+    await sendInteractiveMessage(user.slackUserId, {
+      text: `❌ Error rescheduling tasks`,
+      blocks: [
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `❌ **Error rescheduling tasks**\n\nSorry, I encountered an error while trying to reschedule your tasks. Please try again or schedule manually.`
+          }
+        }
+      ]
+    });
+  }
+}
+
+/**
+ * Handle scheduling the new task for later
+ */
+async function handleScheduleLater(user: any, task: any, payload: any) {
+  console.log(`[CONFLICT_HANDLER] Scheduling task ${task.id} for later`);
+  
+  try {
+    const { findAvailableSlots, scheduleTaskInSlot } = await import('./scheduler');
+    const { getCalendarEvents } = await import('./calendarService');
+    
+    // Get the next 7 days to find available slots
+    const now = new Date();
+    const endTime = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    
+    // Fetch calendar events
+    const events = await getCalendarEvents(user, now, endTime);
+    const busySlots = events.flatMap((ev: any) => {
+      const startStr = ev.start?.dateTime ?? ev.start?.date;
+      const endStr = ev.end?.dateTime ?? ev.end?.date;
+      if (!startStr || !endStr) return [];
+      return [{
+        start: new Date(startStr),
+        end: new Date(endStr),
+        eventId: ev.id,
+        title: ev.summary || 'Untitled Event'
+      }];
+    });
+    
+    const durationMs = 3600000; // 1 hour default
+    const userOffset = user.timezoneOffset || '+00:00';
+    
+    // Find next available slot for this task
+    const availableSlots = await findAvailableSlots(now, endTime, busySlots, durationMs, user.id, userOffset);
+    
+    if (availableSlots.length > 0) {
+      await scheduleTaskInSlot(user, task, availableSlots[0], userOffset);
+      
+      // Send success message
+      await sendInteractiveMessage(user.slackUserId, {
+        text: `✅ Task scheduled for later!`,
+        blocks: [
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: `✅ **Task scheduled for later!**\n\n**"${task.title}"** has been scheduled for ${availableSlots[0].start.toLocaleString()} to avoid conflicts with your existing tasks.`
+            }
+          }
+        ]
+      });
+    } else {
+      // No available slots found
+      await sendInteractiveMessage(user.slackUserId, {
+        text: `📅 No available time slots found`,
+        blocks: [
+          {
+            type: 'section',
+            text: {
+              type: 'mrkdwn',
+              text: `📅 **No available time slots found**\n\nI couldn't find any free time in the next 7 days for **"${task.title}"**. Please provide a specific time slot or manually schedule this task.`
+            }
+          }
+        ]
+      });
+      
+      // Reset task status for manual handling
+      await storage.updateTaskStatus(task.id, 'accepted');
+    }
+    
+  } catch (error) {
+    console.error(`[CONFLICT_HANDLER] Error scheduling task later:`, error);
+    
+    await sendInteractiveMessage(user.slackUserId, {
+      text: `❌ Error scheduling task`,
+      blocks: [
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `❌ **Error scheduling task**\n\nSorry, I encountered an error while trying to schedule **"${task.title}"**. Please try again or schedule manually.`
           }
         }
       ]

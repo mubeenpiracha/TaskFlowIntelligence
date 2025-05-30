@@ -11,7 +11,7 @@ import {
   formatDateWithOffset,
   convertToUserTimezone,
 } from "../utils/offsetUtils";
-import { sendMessage } from "./slack";
+import { sendMessage, sendInteractiveMessage } from "./slack";
 
 // Run interval in milliseconds (check every 30 seconds)
 const SCHEDULE_INTERVAL = 30 * 1000;
@@ -541,28 +541,11 @@ async function handleSchedulingConflicts(
   
   console.log(`[CONFLICT_RESOLUTION] Found ${systemTasks.length} system tasks and ${externalEvents.length} external events in conflict`);
   
-  // Handle system task conflicts
-  for (const systemTask of systemTasks) {
-    const taskPriority = getPriorityValue(systemTask.priority ?? "medium");
-    
-    if (taskPriority < incomingPriority) {
-      // Lower priority - propose bumping it
-      const bumpSuccessful = await proposeBumpLowerPriorityTask(user, systemTask, incomingTask, userOffset);
-      if (bumpSuccessful) {
-        return 'handled'; // Successfully resolved by bumping lower priority task
-      }
-    } else if (taskPriority >= incomingPriority) {
-      // Higher/equal priority - try to reschedule it if there's slack
-      const rescheduleSuccessful = await attemptRescheduleHigherPriorityTask(user, systemTask, now, userOffset);
-      if (rescheduleSuccessful) {
-        // Now try to schedule incoming task in the freed slot
-        const newSlot = await findNextAvailableSlot(durationMs, desiredWindow, user, userOffset);
-        if (newSlot) {
-          await scheduleTaskInSlot(user, incomingTask, newSlot, userOffset);
-          return true;
-        }
-      }
-    }
+  // Handle system task conflicts with simplified approach
+  if (systemTasks.length > 0) {
+    console.log(`[CONFLICT_RESOLUTION] Found ${systemTasks.length} conflicting internal tasks, asking user for decision`);
+    await askUserAboutConflictingTasks(user, incomingTask, systemTasks, userOffset);
+    return 'handled'; // User will decide via Slack interaction
   }
   
   // Handle external event conflicts
@@ -623,6 +606,73 @@ async function partitionBusySlots(busySlots: Array<{ start: Date; end: Date; eve
 }
 
 
+
+/**
+ * Ask user about conflicting internal tasks with simplified approach
+ */
+async function askUserAboutConflictingTasks(
+  user: User,
+  incomingTask: Task,
+  conflictingTasks: Task[],
+  userOffset: string
+): Promise<void> {
+  console.log(`[CONFLICT_RESOLUTION] Asking user about ${conflictingTasks.length} conflicting tasks`);
+  
+  if (!user.slackUserId) {
+    console.log(`[CONFLICT_RESOLUTION] No Slack user ID found for user ${user.id}`);
+    return;
+  }
+
+  // Build conflict summary
+  const conflictList = conflictingTasks.map(task => {
+    const deadlineStr = task.dueDate ? formatDateWithOffset(new Date(task.dueDate), userOffset) : 'No deadline';
+    return `• **${task.title}** (${task.priority} priority) - Deadline: ${deadlineStr}`;
+  }).join('\n');
+
+  // Update incoming task status to prevent duplicate processing
+  await storage.updateTaskStatus(incomingTask.id, "pending_conflict_resolution");
+
+  // Send simplified conflict resolution message
+  await sendInteractiveMessage(user.slackUserId, {
+    text: `📅 Scheduling Conflict with Your Tasks`,
+    blocks: [
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `📅 **Scheduling Conflict**\n\nYour new task **"${incomingTask.title}"** conflicts with these existing tasks:\n\n${conflictList}\n\nWhat would you like to do?`
+        }
+      },
+      {
+        type: 'actions',
+        elements: [
+          {
+            type: 'button',
+            text: { type: 'plain_text', text: 'Bump Existing Tasks' },
+            style: 'primary',
+            action_id: 'bump_existing_tasks',
+            value: JSON.stringify({
+              taskId: incomingTask.id,
+              action: 'bump_existing_tasks',
+              conflictingTaskIds: conflictingTasks.map(t => t.id)
+            })
+          },
+          {
+            type: 'button',
+            text: { type: 'plain_text', text: 'Schedule This Later' },
+            action_id: 'schedule_later',
+            value: JSON.stringify({
+              taskId: incomingTask.id,
+              action: 'schedule_later'
+            })
+          }
+        ]
+      }
+    ]
+  });
+
+  console.log(`[CONFLICT_RESOLUTION] Sent simplified conflict resolution message for task ${incomingTask.id}`);
+}
 
 /**
  * Propose bumping a lower priority task via Slack
