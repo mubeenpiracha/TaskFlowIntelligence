@@ -134,6 +134,8 @@ async function sendConflictResolutionMessage(
     return;
   }
 
+  console.log(`[CONFLICT_RESOLVER] User timezone: ${user.timezone}, offset: ${user.timezoneOffset}`);
+
   // Import Slack web API
   const { WebClient } = await import('@slack/web-api');
   const slack = new WebClient(process.env.SLACK_BOT_TOKEN);
@@ -141,9 +143,23 @@ async function sendConflictResolutionMessage(
   // Convert event times to user's timezone for display
   const eventList = conflictingEvents
     .map(event => {
-      const userStart = convertToUserTimezone(event.originalStart, user.timezoneOffset || '+00:00');
-      const userEnd = convertToUserTimezone(event.originalEnd, user.timezoneOffset || '+00:00');
-      return `• ${event.summary} (${formatTimeRangeInUserTimezone(userStart, userEnd)})`;
+      // Use proper timezone formatting with user's timezone
+      const startTime = event.originalStart.toLocaleTimeString("en-US", {
+        timeZone: user.timezone || "UTC",
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+      });
+      const endTime = event.originalEnd.toLocaleTimeString("en-US", {
+        timeZone: user.timezone || "UTC", 
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+      });
+      
+      console.log(`[CONFLICT_RESOLVER] Event ${event.summary}: UTC ${event.originalStart.toISOString()} -> User TZ ${startTime} - ${endTime}`);
+      
+      return `• ${event.summary} (${startTime} - ${endTime})`;
     })
     .join('\n');
 
@@ -305,6 +321,7 @@ async function bumpConflictingEvents(
   }
 
   // Send detailed feedback to user
+  console.log(`[CONFLICT_RESOLVER] Sending detailed bump results message with ${bumpResults.length} results`);
   await sendBumpResultsMessage(user, task, bumpResults);
 
   // Only schedule the original task if at least some events were successfully moved
@@ -524,7 +541,12 @@ async function sendBumpResultsMessage(
     errorMessage?: string;
   }>
 ): Promise<void> {
-  if (!user.slackUserId) return;
+  console.log(`[CONFLICT_RESOLVER] sendBumpResultsMessage called for user ${user.slackUserId} with ${bumpResults.length} results`);
+  
+  if (!user.slackUserId) {
+    console.warn(`[CONFLICT_RESOLVER] No slackUserId found for user ${user.id}`);
+    return;
+  }
 
   const { WebClient } = await import('@slack/web-api');
   const slack = new WebClient(process.env.SLACK_BOT_TOKEN);
@@ -562,9 +584,19 @@ async function sendBumpResultsMessage(
 
     if (successfulBumps.length > 0) {
       const movedEventsList = successfulBumps.map(result => {
-        const userNewStart = convertToUserTimezone(result.newStartTime!, user.timezoneOffset || '+00:00');
-        const userNewEnd = convertToUserTimezone(result.newEndTime!, user.timezoneOffset || '+00:00');
-        return `• *${result.event.summary}* → ${formatTimeRangeInUserTimezone(userNewStart, userNewEnd)}`;
+        const newStartTime = result.newStartTime!.toLocaleTimeString("en-US", {
+          timeZone: user.timezone || "UTC",
+          hour: '2-digit',
+          minute: '2-digit',
+          hour12: false
+        });
+        const newEndTime = result.newEndTime!.toLocaleTimeString("en-US", {
+          timeZone: user.timezone || "UTC",
+          hour: '2-digit', 
+          minute: '2-digit',
+          hour12: false
+        });
+        return `• *${result.event.summary}* → ${newStartTime} - ${newEndTime}`;
       }).join('\n');
 
       messageBlocks.push({
@@ -637,6 +669,8 @@ async function sendBumpResultsMessage(
  * Convert UTC time to user's timezone
  */
 function convertToUserTimezone(utcDate: Date, timezoneOffset: string): Date {
+  // The timezone offset format is like "+04:00" for GMT+4
+  // We need to ADD the offset to UTC to get local time
   const sign = timezoneOffset.startsWith('-') ? -1 : 1;
   const [hours, minutes] = timezoneOffset.slice(1).split(':').map(Number);
   const offsetMinutes = sign * (hours * 60 + minutes);
