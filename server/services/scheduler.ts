@@ -507,7 +507,7 @@ async function scheduleTaskWithEventData(user: User, task: Task, data: any) {
 }
 
 /**
- * Advanced conflict resolution system that handles scheduling conflicts intelligently
+ * Simplified conflict resolution system
  */
 async function handleSchedulingConflicts(
   user: User, 
@@ -518,45 +518,39 @@ async function handleSchedulingConflicts(
   durationMs: number,
   userOffset: string
 ): Promise<boolean | 'handled'> {
-  console.log(`[CONFLICT_RESOLUTION] Starting conflict resolution for task ${incomingTask.id}`);
+  console.log(`[CONFLICT_RESOLUTION] Starting simplified conflict resolution for task ${incomingTask.id}`);
   
-  const incomingPriority = getPriorityValue(incomingTask.priority ?? "medium");
-  const desiredWindow = { start: now, end: deadline };
+  // Get all scheduled internal tasks that might conflict
+  const allScheduledTasks = await storage.getTasksByStatus(user.id, 'scheduled');
+  const conflictingTasks: Task[] = [];
   
-  // Get overlapping busy slots in the desired window
-  const overlappingSlots = busySlots.filter(slot => 
-    slot.start < deadline && slot.end > now
-  );
-  
-  if (!overlappingSlots.length) {
-    console.log(`[CONFLICT_RESOLUTION] No overlapping slots found, proceed with normal scheduling`);
-    return true; // No conflicts - schedule normally
+  // Check each scheduled task for time overlap
+  for (const scheduledTask of allScheduledTasks) {
+    if (!scheduledTask.scheduledStart || !scheduledTask.scheduledEnd) continue;
+    
+    const taskStart = new Date(scheduledTask.scheduledStart);
+    const taskEnd = new Date(scheduledTask.scheduledEnd);
+    
+    // Check if this would overlap with the desired scheduling window
+    const wouldOverlap = (now < taskEnd && deadline > taskStart);
+    
+    if (wouldOverlap) {
+      conflictingTasks.push(scheduledTask);
+    }
   }
   
-  // Partition slots into system tasks vs external events
-  const { systemTasks, externalEvents } = await partitionBusySlots(overlappingSlots, user);
+  console.log(`[CONFLICT_RESOLUTION] Found ${conflictingTasks.length} conflicting internal tasks`);
   
-  console.log(`[CONFLICT_RESOLUTION] System tasks in conflict:`, systemTasks.map(t => ({ id: t.id, title: t.title, priority: t.priority })));
-  console.log(`[CONFLICT_RESOLUTION] External events in conflict:`, externalEvents.length);
-  
-  console.log(`[CONFLICT_RESOLUTION] Found ${systemTasks.length} system tasks and ${externalEvents.length} external events in conflict`);
-  
-  // Handle system task conflicts with simplified approach
-  if (systemTasks.length > 0) {
-    console.log(`[CONFLICT_RESOLUTION] Found ${systemTasks.length} conflicting internal tasks, asking user for decision`);
-    await askUserAboutConflictingTasks(user, incomingTask, systemTasks, userOffset);
+  // If there are conflicting internal tasks, ask user what to do
+  if (conflictingTasks.length > 0) {
+    console.log(`[CONFLICT_RESOLUTION] Asking user about conflicting tasks:`, conflictingTasks.map(t => t.title));
+    await askUserAboutConflictingTasks(user, incomingTask, conflictingTasks, userOffset);
     return 'handled'; // User will decide via Slack interaction
   }
   
-  // Handle external event conflicts
-  if (externalEvents.length > 0) {
-    await offerOverlapScheduling(user, incomingTask, externalEvents);
-    return true; // User can decide via Slack interaction
-  }
-  
-  // If we reach here, send conflict summary
-  await sendConflictSummary(user, incomingTask, [...systemTasks, ...externalEvents]);
-  return false;
+  // No internal task conflicts - proceed with normal scheduling
+  console.log(`[CONFLICT_RESOLUTION] No internal task conflicts found, proceeding with normal scheduling`);
+  return true;
 }
 
 /**
