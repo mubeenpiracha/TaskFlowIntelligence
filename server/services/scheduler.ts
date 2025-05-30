@@ -11,7 +11,6 @@ import {
   formatDateWithOffset,
   convertToUserTimezone,
 } from "../utils/offsetUtils";
-import { sendMessage, sendInteractiveMessage } from "./slack";
 
 // Run interval in milliseconds (check every 30 seconds)
 const SCHEDULE_INTERVAL = 30 * 1000;
@@ -41,21 +40,13 @@ async function scheduleUnscheduledTasks() {
     if (!user?.googleRefreshToken) return;
 
     const tasks = await storage.getTasksByStatus(user.id, "accepted");
-    // Filter out tasks that are waiting for conflict resolution to prevent duplicate messages
-    const tasksToProcess = tasks.filter(
-      (task) => task.status !== "pending_conflict_resolution",
-    );
-
     console.log(
       `[SCHEDULER] Found ${tasks.length} unscheduled tasks for user ${user.id}`,
     );
-    console.log(
-      `[SCHEDULER] Processing ${tasksToProcess.length} tasks (${tasks.length - tasksToProcess.length} waiting for conflict resolution)`,
-    );
 
-    if (tasksToProcess.length) {
+    if (tasks.length) {
       try {
-        await scheduleTasksForUser(user, tasksToProcess);
+        await scheduleTasksForUser(user, tasks);
       } catch (err: any) {
         if (err.message.includes("No available slots")) {
           console.error("[SCHEDULER] Out of slots:", err.message);
@@ -107,19 +98,17 @@ async function scheduleTasksForUser(user: User, tasks: Task[]) {
       console.log(`[SCHEDULER DEBUG] Computed deadline: ${deadline}`);
 
       // Convert dates to user's timezone for calendar queries
-      const userNow = now;
-      const userDeadline = deadline;
+      const userNow = convertToUserTimezone(now, userOffset);
+      const userDeadline = convertToUserTimezone(deadline, userOffset);
 
       // Extend busy query window to catch events that started before now
       const queryStart = new Date(userNow.getTime() - durationMs);
       const queryEnd = userDeadline;
 
       console.log(
-        `[SCHEDULER DEBUG] Query start (now - duration): ${queryStart.toISOString()}`,
+        `[SCHEDULER DEBUG] Query start (now - duration): ${queryStart}`,
       );
-      console.log(
-        `[SCHEDULER DEBUG] Query end (deadline): ${queryEnd.toISOString()}`,
-      );
+      console.log(`[SCHEDULER DEBUG] Query end (deadline): ${queryEnd}`);
       console.log(
         `[SCHEDULER DEBUG] Query range is ${(queryEnd.getTime() - queryStart.getTime()) / (1000 * 60 * 60 * 24)} days`,
       );
@@ -141,60 +130,6 @@ async function scheduleTasksForUser(user: User, tasks: Task[]) {
       console.log(`[SCHEDULER DEBUG] - durationMs: ${durationMs}`);
       console.log(`[SCHEDULER DEBUG] - userId: ${user.id}`);
 
-      // Check for conflicts with existing scheduled tasks using simplified approach
-      console.log(
-        `[SCHEDULER] Checking for conflicts with existing scheduled tasks for task ${task.id}`,
-      );
-
-      // Get all scheduled tasks for this user
-      const existingTasks = await storage.getTasksByStatus(
-        user.id,
-        "scheduled",
-      );
-      console.log(
-        `[SCHEDULER] Found ${existingTasks.length} existing scheduled tasks to check for conflicts`,
-      );
-
-      const conflictingTasks: Task[] = [];
-
-      // Check each scheduled task for time overlap with the desired scheduling window
-      for (const existingTask of existingTasks) {
-        if (!existingTask.scheduledStart || !existingTask.scheduledEnd)
-          continue;
-
-        const existingStart = new Date(existingTask.scheduledStart);
-        const existingEnd = new Date(existingTask.scheduledEnd);
-
-        // Check if this would overlap with the desired scheduling window
-        const wouldOverlap =
-          userNow < existingEnd && userDeadline > existingStart;
-
-        if (wouldOverlap) {
-          conflictingTasks.push(existingTask);
-          console.log(
-            `[SCHEDULER] ⚠️ Conflict detected with task ${existingTask.id} "${existingTask.title}" (${existingStart.toISOString()} - ${existingEnd.toISOString()})`,
-          );
-        }
-      }
-
-      // If there are conflicting tasks, ask user what to do
-      if (conflictingTasks.length > 0) {
-        console.log(
-          `[SCHEDULER] Found ${conflictingTasks.length} conflicting tasks, asking user for decision`,
-        );
-        await askUserAboutConflictingTasks(
-          user,
-          task,
-          conflictingTasks,
-          userOffset,
-        );
-        return; // User will decide via Slack interaction
-      }
-
-      console.log(
-        `[SCHEDULER] No conflicting tasks found, proceeding with normal scheduling`,
-      );
-
       const available = await findAvailableSlots(
         now,
         deadline,
@@ -206,57 +141,25 @@ async function scheduleTasksForUser(user: User, tasks: Task[]) {
       console.log(`[SCHEDULER] Found ${available.length} available slots`);
       console.log(available);
 
-      // Check if any available slots are actually adequate for the task duration
-      const adequateSlots = available.filter((slot) => {
-        const slotDuration = slot.end.getTime() - slot.start.getTime();
-        return slotDuration >= durationMs;
-      });
-
-      console.log(
-        `[SCHEDULER] Found ${adequateSlots.length} adequate slots (duration needed: ${durationMs / 1000 / 60} minutes)`,
-      );
-
-      if (adequateSlots.length === 0) {
+      if (available.length === 0) {
         console.log(
-          `[SCHEDULER] No adequate contiguous slots found! Available slots too small for task duration.`,
+          `[SCHEDULER DEBUG] No available slots found! Checking date range...`,
         );
         console.log(`[SCHEDULER DEBUG] Time range: ${now} to ${deadline}`);
         console.log(
           `[SCHEDULER DEBUG] Range duration: ${(deadline.getTime() - now.getTime()) / (1000 * 60 * 60)} hours`,
         );
-
-        if (available.length > 0) {
+        if (deadline <= now) {
           console.log(
-            `[SCHEDULER DEBUG] Found ${available.length} slots but all are too small:`,
-          );
-          available.forEach((slot, i) => {
-            const duration =
-              (slot.end.getTime() - slot.start.getTime()) / (1000 * 60);
-            console.log(
-              `[SCHEDULER DEBUG] Slot ${i + 1}: ${duration} minutes (need ${durationMs / 1000 / 60})`,
-            );
-          });
-        }
-
-        console.log(
-          `[SCHEDULER] Initiating conflict resolution due to insufficient contiguous time for task ${task.id}`,
-        );
-        const resolved = await handleSchedulingConflicts(
-          user,
-          task,
-          userNow,
-          userDeadline,
-          userOffset,
-        );
-        if (!resolved) {
-          throw new Error(
-            `No adequate slots for task ${task.id} after conflict resolution`,
+            `[SCHEDULER DEBUG] ⚠️ PROBLEM: Deadline is in the past or equal to now!`,
           );
         }
-        continue; // Skip to next task since this one was handled by conflict resolution
       }
+
+      if (!available.length)
+        throw new Error(`No available slots for task ${task.id}`);
       const slot = selectOptimalSlot(
-        adequateSlots,
+        available,
         task.priority ?? "medium",
         userDeadline,
         userNow,
@@ -348,9 +251,7 @@ function computeDeadline(task: Task, now: Date, userOffset?: string): Date {
   return dl;
 }
 
-export function parseBusySlots(
-  ev: any,
-): Array<{ start: Date; end: Date; eventId?: string; title?: string }> {
+function parseBusySlots(ev: any): Array<{ start: Date; end: Date }> {
   // prefer the dateTime field if present, else date
   const startStr = ev.start?.dateTime ?? ev.start?.date;
   const endStr = ev.end?.dateTime ?? ev.end?.date;
@@ -360,8 +261,6 @@ export function parseBusySlots(
     {
       start: new Date(startStr),
       end: new Date(endStr),
-      eventId: ev.id, // Store Google Calendar event ID for proper conflict resolution
-      title: ev.summary || ev.title || "Untitled Event", // Include event title for conflict summaries
     },
   ];
 }
@@ -372,7 +271,7 @@ export function parseBusySlots(
 /**
  * Find free slots between now and end, avoiding busy slots and respecting working hours
  */
-export async function findAvailableSlots(
+async function findAvailableSlots(
   now: Date,
   end: Date,
   busy: Array<{ start: Date; end: Date }>,
@@ -551,583 +450,4 @@ async function scheduleTaskWithEventData(user: User, task: Task, data: any) {
     status: "scheduled",
   });
   console.log(`[SCHEDULER] Task ${task.id} scheduled as event ${ev.id}`);
-}
-
-/**
- * Handle scheduling conflicts for a task
- */
-async function handleSchedulingConflicts(
-  user: User,
-  incomingTask: Task,
-  now: Date,
-  deadline: Date,
-  userOffset: string,
-): Promise<boolean> {
-  console.log(
-    `[CONFLICT_RESOLUTION] Starting conflict resolution for task ${incomingTask.id}`,
-  );
-
-  // Get all scheduled tasks
-  const scheduledTasks = await storage.getTasksByStatus(user.id, "scheduled");
-
-  // Get external events
-  const externalEvents = await getCalendarEvents(user, now, deadline);
-
-  // Find conflicts
-  const { internalConflicts, externalConflicts } = await findConflicts(
-    user,
-    incomingTask,
-    now,
-    deadline,
-    scheduledTasks,
-    externalEvents,
-    userOffset,
-  );
-
-  // If no conflicts found, proceed with normal scheduling
-  if (internalConflicts.length === 0 && externalConflicts.length === 0) {
-    console.log(
-      `[CONFLICT_RESOLUTION] No conflicts found for task ${incomingTask.id}`,
-    );
-    return true;
-  }
-
-  // Update task status to pending conflict resolution
-  await storage.updateTaskStatus(
-    incomingTask.id,
-    "pending_conflict_resolution",
-  );
-
-  // Send enhanced conflict resolution message
-  await sendEnhancedConflictResolutionMessage(
-    user,
-    incomingTask,
-    internalConflicts,
-    externalConflicts,
-    userOffset,
-  );
-
-  return false;
-}
-
-/**
- * Send enhanced conflict resolution message with detailed options
- */
-async function sendEnhancedConflictResolutionMessage(
-  user: User,
-  incomingTask: Task,
-  internalConflicts: Array<{
-    type: "internal";
-    task?: Task;
-    conflictType: "time" | "priority" | "dependency";
-    start: Date;
-    end: Date;
-  }>,
-  externalConflicts: Array<{
-    type: "external";
-    event?: { start: Date; end: Date; title?: string; eventId?: string };
-    conflictType: "time" | "priority" | "dependency";
-    start: Date;
-    end: Date;
-  }>,
-  userOffset: string,
-): Promise<void> {
-  if (!user.slackUserId) {
-    console.log(
-      `[CONFLICT_RESOLUTION] No Slack user ID found for user ${user.id}`,
-    );
-    return;
-  }
-
-  const blocks = [
-    {
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text: `📅 **Scheduling Conflict**\n\nYour new task **"${incomingTask.title}"** conflicts with:`,
-      },
-    },
-  ];
-
-  // Add internal conflicts
-  if (internalConflicts.length > 0) {
-    blocks.push({
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text: "*Internal Tasks:*",
-      },
-    });
-
-    for (const conflict of internalConflicts) {
-      if (!conflict.task) continue;
-
-      const startTime = formatDateWithOffset(conflict.start, userOffset);
-      const endTime = formatDateWithOffset(conflict.end, userOffset);
-
-      blocks.push({
-        type: "section",
-        text: {
-          type: "mrkdwn",
-          text:
-            `• **${conflict.task.title}**\n` +
-            `  - Time: ${startTime} - ${endTime}\n` +
-            `  - Priority: ${conflict.task.priority}\n` +
-            `  - Conflict: ${conflict.conflictType}`,
-        },
-      });
-    }
-  }
-
-  // Add external conflicts
-  if (externalConflicts.length > 0) {
-    blocks.push({
-      type: "section",
-      text: {
-        type: "mrkdwn",
-        text: "*External Events:*",
-      },
-    });
-
-    for (const conflict of externalConflicts) {
-      if (!conflict.event) continue;
-
-      const startTime = formatDateWithOffset(conflict.start, userOffset);
-      const endTime = formatDateWithOffset(conflict.end, userOffset);
-
-      blocks.push({
-        type: "section",
-        text: {
-          type: "mrkdwn",
-          text:
-            `• **${conflict.event.title || "Untitled Event"}**\n` +
-            `  - Time: ${startTime} - ${endTime}`,
-        },
-      });
-    }
-  }
-
-  // Add action buttons
-  blocks.push({
-    type: "actions",
-    elements: [
-      {
-        type: "button",
-        text: { type: "plain_text", text: "Bump Selected Tasks" },
-        style: "primary",
-        action_id: "bump_selected_tasks",
-        value: JSON.stringify({
-          taskId: incomingTask.id,
-          action: "bump_selected_tasks",
-          internalConflicts: internalConflicts
-            .map((c) => c.task?.id)
-            .filter(Boolean),
-          externalConflicts: externalConflicts
-            .map((c) => c.event?.eventId)
-            .filter(Boolean),
-        }),
-      },
-      {
-        type: "button",
-        text: { type: "plain_text", text: "Schedule at Earliest Available" },
-        action_id: "schedule_earliest",
-        value: JSON.stringify({
-          taskId: incomingTask.id,
-          action: "schedule_earliest",
-        }),
-      },
-    ],
-  });
-
-  // Add timeout warning
-  blocks.push({
-    type: "context",
-    elements: [
-      {
-        type: "mrkdwn",
-        text: "⚠️ If no action is taken within 30 minutes, the task will be automatically scheduled at the earliest available time.",
-      },
-    ],
-  });
-
-  await sendInteractiveMessage(user.slackUserId, { blocks });
-
-  // Set timeout for automatic resolution
-  setTimeout(
-    async () => {
-      const task = await storage.getTask(incomingTask.id);
-      if (task?.status === "pending_conflict_resolution") {
-        await scheduleAtEarliestAvailable(user, incomingTask, userOffset);
-        await sendMessage(
-          user.slackUserId!,
-          "Task automatically scheduled at earliest available time due to no response",
-        );
-      }
-    },
-    30 * 60 * 1000,
-  ); // 30 minutes timeout
-}
-
-/**
- * Bump selected tasks to new slots
- */
-async function bumpSelectedTasks(
-  user: User,
-  incomingTask: Task,
-  taskIdsToBump: number[],
-  userOffset: string,
-): Promise<boolean> {
-  const tasksToBump = await Promise.all(
-    taskIdsToBump.map((id) => storage.getTask(id)),
-  );
-
-  // Sort tasks by priority and dependencies
-  const sortedTasks = tasksToBump
-    .filter((task): task is Task => task !== null)
-    .sort((a: Task, b: Task) => {
-      const priorityA = getPriorityValue(a.priority || "medium");
-      const priorityB = getPriorityValue(b.priority || "medium");
-      return priorityA - priorityB;
-    });
-
-  // Try to bump each task
-  for (const task of sortedTasks) {
-    const duration = parseDuration(task.timeRequired) ?? 3600000;
-    const deadline = computeDeadline(task, new Date(), userOffset);
-
-    const newSlot = await findNextAvailableSlot(
-      duration,
-      { start: new Date(), end: deadline },
-      user,
-      userOffset,
-    );
-
-    if (!newSlot) {
-      // If we can't find a slot, roll back all changes
-      await rollbackBumping(user, sortedTasks);
-      return false;
-    }
-
-    // Verify slot is still available
-    if (!(await isSlotAvailable(newSlot, user))) {
-      await rollbackBumping(user, sortedTasks);
-      return false;
-    }
-
-    await storage.updateTask(task.id, {
-      scheduledStart: newSlot.start.toISOString(),
-      scheduledEnd: newSlot.end.toISOString(),
-    });
-  }
-
-  return true;
-}
-
-/**
- * Check if a slot is still available
- */
-async function isSlotAvailable(
-  slot: { start: Date; end: Date },
-  user: User,
-): Promise<boolean> {
-  const events = await getCalendarEvents(user, slot.start, slot.end);
-  return events.length === 0;
-}
-
-/**
- * Roll back bumped tasks to their original slots
- */
-async function rollbackBumping(user: User, tasks: Task[]): Promise<void> {
-  for (const task of tasks) {
-    if (task.scheduledStart && task.scheduledEnd) {
-      await storage.updateTask(task.id, {
-        scheduledStart: task.scheduledStart,
-        scheduledEnd: task.scheduledEnd,
-      });
-    }
-  }
-}
-
-/**
- * Convert priority string to numeric value for comparison
- */
-function getPriorityValue(priority: string): number {
-  switch (priority.toLowerCase()) {
-    case "high":
-      return 3;
-    case "medium":
-      return 2;
-    case "low":
-      return 1;
-    default:
-      return 2;
-  }
-}
-
-/**
- * Find all conflicts for a task
- */
-async function findConflicts(
-  user: User,
-  incomingTask: Task,
-  now: Date,
-  deadline: Date,
-  scheduledTasks: Task[],
-  externalEvents: Array<{
-    start: Date;
-    end: Date;
-    title?: string;
-    eventId?: string;
-  }>,
-  userOffset: string,
-): Promise<{
-  internalConflicts: Array<{
-    type: "internal";
-    task?: Task;
-    conflictType: "time" | "priority" | "dependency";
-    start: Date;
-    end: Date;
-  }>;
-  externalConflicts: Array<{
-    type: "external";
-    event?: { start: Date; end: Date; title?: string; eventId?: string };
-    conflictType: "time" | "priority" | "dependency";
-    start: Date;
-    end: Date;
-  }>;
-}> {
-  const internalConflicts: Array<{
-    type: "internal";
-    task?: Task;
-    conflictType: "time" | "priority" | "dependency";
-    start: Date;
-    end: Date;
-  }> = [];
-
-  const externalConflicts: Array<{
-    type: "external";
-    event?: { start: Date; end: Date; title?: string; eventId?: string };
-    conflictType: "time" | "priority" | "dependency";
-    start: Date;
-    end: Date;
-  }> = [];
-
-  // Check internal task conflicts
-  for (const task of scheduledTasks) {
-    if (!task.scheduledStart || !task.scheduledEnd) continue;
-
-    const taskStart = new Date(task.scheduledStart);
-    const taskEnd = new Date(task.scheduledEnd);
-
-    // Check time overlap
-    if (now < taskEnd && deadline > taskStart) {
-      internalConflicts.push({
-        type: "internal",
-        task,
-        conflictType: "time",
-        start: taskStart,
-        end: taskEnd,
-      });
-    }
-
-    // Check priority conflicts
-    const taskPriority = getPriorityValue(task.priority || "medium");
-    const incomingPriority = getPriorityValue(
-      incomingTask.priority || "medium",
-    );
-    if (taskPriority < incomingPriority) {
-      internalConflicts.push({
-        type: "internal",
-        task,
-        conflictType: "priority",
-        start: taskStart,
-        end: taskEnd,
-      });
-    }
-  }
-
-  // Check external event conflicts
-  for (const event of externalEvents) {
-    if (now < event.end && deadline > event.start) {
-      externalConflicts.push({
-        type: "external",
-        event,
-        conflictType: "time",
-        start: event.start,
-        end: event.end,
-      });
-    }
-  }
-
-  return { internalConflicts, externalConflicts };
-}
-
-/**
- * Schedule task at earliest available time
- */
-async function scheduleAtEarliestAvailable(
-  user: User,
-  task: Task,
-  userOffset: string,
-): Promise<void> {
-  const duration = parseDuration(task.timeRequired) ?? 3600000;
-  const deadline = computeDeadline(task, new Date(), userOffset);
-
-  // Find next available slot
-  const slot = await findNextAvailableSlot(
-    duration,
-    { start: new Date(), end: deadline },
-    user,
-    userOffset,
-  );
-
-  if (slot) {
-    await scheduleTaskInSlot(user, task, slot, userOffset);
-    await sendMessage(
-      user.slackUserId!,
-      `Task "${task.title}" has been scheduled at ${formatDateWithOffset(slot.start, userOffset)}`,
-    );
-  } else {
-    await sendMessage(
-      user.slackUserId!,
-      `Could not find an available slot for task "${task.title}" before its deadline. Please schedule manually.`,
-    );
-  }
-}
-
-/**
- * Schedule a task in a specific time slot
- */
-export async function scheduleTaskInSlot(
-  user: User,
-  task: Task,
-  slot: { start: Date; end: Date },
-  userOffset: string,
-): Promise<void> {
-  console.log(
-    `[CONFLICT_RESOLUTION] Scheduling task ${task.id} in slot ${slot.start} - ${slot.end}`,
-  );
-
-  const startIso = formatDateWithOffset(slot.start, userOffset);
-  const endIso = formatDateWithOffset(slot.end, userOffset);
-
-  const eventData = {
-    summary: task.title,
-    description: task.description,
-    start: { dateTime: startIso },
-    end: { dateTime: endIso },
-  };
-
-  await scheduleTaskWithEventData(user, task, eventData);
-}
-
-/**
- * Find next available slot - simplified version for conflict resolution
- */
-async function findNextAvailableSlot(
-  duration: number,
-  window: { start: Date; end: Date },
-  user: User,
-  userOffset: string,
-): Promise<{ start: Date; end: Date } | null> {
-  try {
-    // Get fresh busy slots
-    const events = await getCalendarEvents(user, window.start, window.end);
-    const busySlots = events.flatMap((ev) => parseBusySlots(ev));
-
-    // Find available slots
-    const available = await findAvailableSlots(
-      window.start,
-      window.end,
-      busySlots,
-      duration,
-      user.id,
-      userOffset,
-    );
-
-    return available.length > 0 ? available[0] : null;
-  } catch (error) {
-    console.error(`[CONFLICT_RESOLUTION] Error finding available slot:`, error);
-    return null;
-  }
-}
-
-/**
- * Ask user about conflicting internal tasks with simplified approach
- */
-async function askUserAboutConflictingTasks(
-  user: User,
-  incomingTask: Task,
-  conflictingTasks: Task[],
-  userOffset: string,
-): Promise<void> {
-  console.log(
-    `[CONFLICT_RESOLUTION] Asking user about ${conflictingTasks.length} conflicting tasks`,
-  );
-
-  if (!user.slackUserId) {
-    console.log(
-      `[CONFLICT_RESOLUTION] No Slack user ID found for user ${user.id}`,
-    );
-    return;
-  }
-
-  // Build conflict summary
-  const conflictList = conflictingTasks
-    .map((task) => {
-      const deadlineStr = task.dueDate
-        ? formatDateWithOffset(new Date(task.dueDate), userOffset)
-        : "No deadline";
-      return `• **${task.title}** (${task.priority} priority) - Deadline: ${deadlineStr}`;
-    })
-    .join("\n");
-
-  // Update incoming task status to prevent duplicate processing
-  await storage.updateTaskStatus(
-    incomingTask.id,
-    "pending_conflict_resolution",
-  );
-
-  // Send simplified conflict resolution message
-  await sendInteractiveMessage(user.slackUserId, {
-    text: `📅 Scheduling Conflict with Your Tasks`,
-    blocks: [
-      {
-        type: "section",
-        text: {
-          type: "mrkdwn",
-          text: `📅 **Scheduling Conflict**\n\nYour new task **"${incomingTask.title}"** conflicts with these existing tasks:\n\n${conflictList}\n\nWhat would you like to do?`,
-        },
-      },
-      {
-        type: "actions",
-        elements: [
-          {
-            type: "button",
-            text: { type: "plain_text", text: "Bump Existing Tasks" },
-            style: "primary",
-            action_id: "bump_existing_tasks",
-            value: JSON.stringify({
-              taskId: incomingTask.id,
-              action: "bump_existing_tasks",
-              conflictingTaskIds: conflictingTasks.map((t) => t.id),
-            }),
-          },
-          {
-            type: "button",
-            text: { type: "plain_text", text: "Schedule This Later" },
-            action_id: "schedule_later",
-            value: JSON.stringify({
-              taskId: incomingTask.id,
-              action: "schedule_later",
-            }),
-          },
-        ],
-      },
-    ],
-  });
-
-  console.log(
-    `[CONFLICT_RESOLUTION] Sent simplified conflict resolution message for task ${incomingTask.id}`,
-  );
 }

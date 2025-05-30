@@ -1194,41 +1194,6 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const action = actions[0];
       console.log('Processing action:', action.action_id);
       
-      // Handle conflict resolution actions
-      if (['schedule_anyway', 'find_alternative', 'skip_task', 'bump_existing_tasks', 'schedule_later'].includes(action.action_id) || action.action_id.startsWith('schedule_at_time_')) {
-        console.log(`[CONFLICT_RESOLUTION] Processing action: ${action.action_id}`);
-        console.log(`[CONFLICT_RESOLUTION] Action value: ${action.value}`);
-        
-        try {
-          const actionData = JSON.parse(action.value);
-          const { taskId, action: conflictAction } = actionData;
-          
-          console.log(`[CONFLICT_RESOLUTION] Handling ${conflictAction} for task ${taskId}`);
-          console.log(`[CONFLICT_RESOLUTION] Full action data:`, actionData);
-          
-          // Immediately return response to prevent timeout
-          res.status(200).json({ status: 'processing' });
-          
-          // Process conflict resolution in the background
-          setTimeout(async () => {
-            try {
-              const { handleConflictResolution } = await import('./services/conflictHandler');
-              await handleConflictResolution(user.id, taskId, conflictAction, payload);
-            } catch (asyncError) {
-              console.error('[CONFLICT_RESOLUTION] Background processing error:', asyncError);
-            }
-          }, 0);
-          
-          return;
-        } catch (parseError) {
-          console.error('[CONFLICT_RESOLUTION] Error parsing action data:', parseError);
-          if (!res.headersSent) {
-            return res.status(400).send('Invalid action data');
-          }
-          return;
-        }
-      }
-      
       // Additional sanity checks
       if (!action || !action.action_id) {
         console.error('Invalid action data:', action);
