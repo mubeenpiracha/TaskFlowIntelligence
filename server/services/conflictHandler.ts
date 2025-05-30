@@ -1,5 +1,6 @@
 import { storage } from '../storage';
 import { sendInteractiveMessage } from './slack';
+import axios from 'axios';
 
 /**
  * Handle user responses to conflict resolution messages
@@ -48,6 +49,28 @@ export async function handleConflictResolution(
 }
 
 /**
+ * Send a response to the original Slack message using response_url
+ */
+async function sendSlackResponse(responseUrl: string, message: string, blocks?: any[]) {
+  try {
+    await axios.post(responseUrl, {
+      text: message,
+      blocks: blocks || [
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: message
+          }
+        }
+      ]
+    });
+  } catch (error) {
+    console.error('[CONFLICT_HANDLER] Error sending Slack response:', error);
+  }
+}
+
+/**
  * Force schedule the task despite conflicts
  */
 async function handleForceSchedule(user: any, task: any, payload: any) {
@@ -73,19 +96,16 @@ async function handleForceSchedule(user: any, task: any, payload: any) {
       const slot = slots[0];
       await scheduleTaskInSlot(user, task, slot, user.timezoneOffset || '+00:00');
       
-      // Send success message
-      await sendInteractiveMessage(user.slackUserId, {
-        text: `✅ Task "${task.title}" scheduled successfully!`,
-        blocks: [
-          {
-            type: 'section',
-            text: {
-              type: 'mrkdwn',
-              text: `✅ *Task scheduled despite conflicts*\n\n**"${task.title}"** has been added to your calendar at ${slot.start.toLocaleString()}.\n\n*Note: This may overlap with existing events.*`
-            }
+      // Send success message using response_url
+      await sendSlackResponse(payload.response_url, `✅ Task "${task.title}" scheduled successfully!`, [
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `✅ *Task scheduled despite conflicts*\n\n**"${task.title}"** has been added to your calendar at ${slot.start.toLocaleString()}.\n\n*Note: This may overlap with existing events.*`
           }
-        ]
-      });
+        }
+      ]);
     } else {
       throw new Error('No available slots found');
     }
@@ -95,19 +115,16 @@ async function handleForceSchedule(user: any, task: any, payload: any) {
   } catch (error) {
     console.error(`[CONFLICT_HANDLER] Error force scheduling task:`, error);
     
-    // Send error message
-    await sendInteractiveMessage(user.slackUserId, {
-      text: `❌ Failed to schedule task "${task.title}"`,
-      blocks: [
-        {
-          type: 'section',
-          text: {
-            type: 'mrkdwn',
-            text: `❌ *Scheduling failed*\n\nSorry, I couldn't schedule "${task.title}" right now. Please try again later or schedule it manually in your calendar.`
-          }
+    // Send error message using response_url
+    await sendSlackResponse(payload.response_url, `❌ Failed to schedule task "${task.title}"`, [
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `❌ *Scheduling failed*\n\nSorry, I couldn't schedule "${task.title}" right now. Please try again later or schedule it manually in your calendar.`
         }
-      ]
-    });
+      }
+    ]);
   }
 }
 
@@ -187,36 +204,33 @@ async function handleBumpExistingTasks(user: any, task: any, payload: any) {
     if (finalAvailableSlots.length > 0) {
       await scheduleTaskInSlot(user, task, finalAvailableSlots[0], userOffset);
       
-      // Send success message
-      await sendInteractiveMessage(user.slackUserId, {
-        text: `✅ Tasks rescheduled successfully!`,
-        blocks: [
-          {
-            type: 'section',
-            text: {
-              type: 'mrkdwn',
-              text: `✅ **Tasks rescheduled successfully!**\n\nI've moved your conflicting tasks to later times and scheduled **"${task.title}"** in the freed slot.\n\nCheck your calendar for the updated schedule.`
-            }
-          }
-        ]
-      });
-    }
-    
-  } catch (error) {
-    console.error(`[CONFLICT_HANDLER] Error bumping existing tasks:`, error);
-    
-    await sendInteractiveMessage(user.slackUserId, {
-      text: `❌ Error rescheduling tasks`,
-      blocks: [
+      // Send success message using response_url
+      await sendSlackResponse(payload.response_url, `✅ Tasks rescheduled successfully!`, [
         {
           type: 'section',
           text: {
             type: 'mrkdwn',
-            text: `❌ **Error rescheduling tasks**\n\nSorry, I encountered an error while trying to reschedule your tasks. Please try again or schedule manually.`
+            text: `✅ **Tasks rescheduled successfully!**\n\nI've moved your conflicting tasks to later times and scheduled **"${task.title}"** in the freed slot.\n\nCheck your calendar for the updated schedule.`
           }
         }
-      ]
-    });
+      ]);
+    } else {
+      throw new Error('No available slots found after rescheduling');
+    }
+    
+  } catch (error) {
+    console.error(`[CONFLICT_HANDLER] Error bumping tasks:`, error);
+    
+    // Send error message using response_url
+    await sendSlackResponse(payload.response_url, `❌ Failed to reschedule tasks`, [
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `❌ *Rescheduling failed*\n\nSorry, I couldn't reschedule the tasks right now. Please try again later or schedule them manually in your calendar.`
+        }
+      }
+    ]);
   }
 }
 
@@ -257,33 +271,27 @@ async function handleScheduleLater(user: any, task: any, payload: any) {
     if (availableSlots.length > 0) {
       await scheduleTaskInSlot(user, task, availableSlots[0], userOffset);
       
-      // Send success message
-      await sendInteractiveMessage(user.slackUserId, {
-        text: `✅ Task scheduled for later!`,
-        blocks: [
-          {
-            type: 'section',
-            text: {
-              type: 'mrkdwn',
-              text: `✅ **Task scheduled for later!**\n\n**"${task.title}"** has been scheduled for ${availableSlots[0].start.toLocaleString()} to avoid conflicts with your existing tasks.`
-            }
+      // Send success message using response_url
+      await sendSlackResponse(payload.response_url, `✅ Task scheduled for later!`, [
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `✅ **Task scheduled for later!**\n\n**"${task.title}"** has been scheduled for ${availableSlots[0].start.toLocaleString()} to avoid conflicts with your existing tasks.`
           }
-        ]
-      });
+        }
+      ]);
     } else {
       // No available slots found
-      await sendInteractiveMessage(user.slackUserId, {
-        text: `📅 No available time slots found`,
-        blocks: [
-          {
-            type: 'section',
-            text: {
-              type: 'mrkdwn',
-              text: `📅 **No available time slots found**\n\nI couldn't find any free time in the next 7 days for **"${task.title}"**. Please provide a specific time slot or manually schedule this task.`
-            }
+      await sendSlackResponse(payload.response_url, `📅 No available time slots found`, [
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `📅 **No available time slots found**\n\nI couldn't find any free time in the next 7 days for **"${task.title}"**. Please provide a specific time slot or manually schedule this task.`
           }
-        ]
-      });
+        }
+      ]);
       
       // Reset task status for manual handling
       await storage.updateTaskStatus(task.id, 'accepted');
@@ -292,18 +300,15 @@ async function handleScheduleLater(user: any, task: any, payload: any) {
   } catch (error) {
     console.error(`[CONFLICT_HANDLER] Error scheduling task later:`, error);
     
-    await sendInteractiveMessage(user.slackUserId, {
-      text: `❌ Error scheduling task`,
-      blocks: [
-        {
-          type: 'section',
-          text: {
-            type: 'mrkdwn',
-            text: `❌ **Error scheduling task**\n\nSorry, I encountered an error while trying to schedule **"${task.title}"**. Please try again or schedule manually.`
-          }
+    await sendSlackResponse(payload.response_url, `❌ Error scheduling task`, [
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `❌ **Error scheduling task**\n\nSorry, I encountered an error while trying to schedule **"${task.title}"**. Please try again or schedule manually.`
         }
-      ]
-    });
+      }
+    ]);
   }
 }
 
@@ -333,18 +338,15 @@ async function handleFindAlternative(user: any, task: any, payload: any) {
     
     if (availableSlots.length === 0) {
       // No alternatives found
-      await sendInteractiveMessage(user.slackUserId, {
-        text: `📅 No alternative times found for "${task.title}"`,
-        blocks: [
-          {
-            type: 'section',
-            text: {
-              type: 'mrkdwn',
-              text: `📅 *No alternative times available*\n\nI couldn't find any free slots for "${task.title}" in the next 7 days that don't conflict with your calendar.\n\nYou can try:\n• Scheduling it manually\n• Force scheduling despite conflicts\n• Skipping this task for now`
-            }
+      await sendSlackResponse(payload.response_url, `📅 No alternative times found for "${task.title}"`, [
+        {
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `📅 *No alternative times available*\n\nI couldn't find any free slots for "${task.title}" in the next 7 days that don't conflict with your calendar.\n\nYou can try:\n• Scheduling it manually\n• Force scheduling despite conflicts\n• Skipping this task for now`
           }
-        ]
-      });
+        }
+      ]);
       
       // Reset task status for later processing
       await storage.updateTaskStatus(task.id, 'accepted');
@@ -373,54 +375,51 @@ async function handleFindAlternative(user: any, task: any, payload: any) {
     }));
     
     // Send alternative time options
-    await sendInteractiveMessage(user.slackUserId, {
-      text: `📅 Alternative times for "${task.title}"`,
-      blocks: [
-        {
-          type: 'section',
-          text: {
-            type: 'mrkdwn',
-            text: `📅 *Alternative times for "${task.title}"*\n\nHere are the next available time slots that don't conflict with your calendar:`
-          }
-        },
-        {
-          type: 'actions',
-          elements: elements
-        },
-        {
-          type: 'section',
-          text: {
-            type: 'mrkdwn',
-            text: `Or choose one of these options:`
-          }
-        },
-        {
-          type: 'actions',
-          elements: [
-            {
-              type: 'button',
-              text: { type: 'plain_text', text: 'Schedule Anyway (Override)' },
-              style: 'primary',
-              action_id: 'schedule_anyway',
-              value: JSON.stringify({
-                taskId: task.id,
-                action: 'force_schedule'
-              })
-            },
-            {
-              type: 'button',
-              text: { type: 'plain_text', text: 'Skip for Now' },
-              style: 'danger',
-              action_id: 'skip_task',
-              value: JSON.stringify({
-                taskId: task.id,
-                action: 'skip'
-              })
-            }
-          ]
+    await sendSlackResponse(payload.response_url, `📅 Alternative times for "${task.title}"`, [
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `�� *Alternative times for "${task.title}"*\n\nHere are the next available time slots that don't conflict with your calendar:`
         }
-      ]
-    });
+      },
+      {
+        type: 'actions',
+        elements: elements
+      },
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `Or choose one of these options:`
+        }
+      },
+      {
+        type: 'actions',
+        elements: [
+          {
+            type: 'button',
+            text: { type: 'plain_text', text: 'Schedule Anyway (Override)' },
+            style: 'primary',
+            action_id: 'schedule_anyway',
+            value: JSON.stringify({
+              taskId: task.id,
+              action: 'force_schedule'
+            })
+          },
+          {
+            type: 'button',
+            text: { type: 'plain_text', text: 'Skip for Now' },
+            style: 'danger',
+            action_id: 'skip_task',
+            value: JSON.stringify({
+              taskId: task.id,
+              action: 'skip'
+            })
+          }
+        ]
+      }
+    ]);
     
     console.log(`[CONFLICT_HANDLER] Sent ${topSlots.length} alternative time suggestions for task ${task.id}`);
     
@@ -428,18 +427,15 @@ async function handleFindAlternative(user: any, task: any, payload: any) {
     console.error(`[CONFLICT_HANDLER] Error finding alternatives:`, error);
     
     // Send error message and reset task status
-    await sendInteractiveMessage(user.slackUserId, {
-      text: `❌ Error finding alternative times`,
-      blocks: [
-        {
-          type: 'section',
-          text: {
-            type: 'mrkdwn',
-            text: `❌ *Error finding alternatives*\n\nSorry, I encountered an error while looking for alternative times for "${task.title}". Please try again later.`
-          }
+    await sendSlackResponse(payload.response_url, `❌ Error finding alternative times`, [
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `❌ *Error finding alternatives*\n\nSorry, I encountered an error while looking for alternative times for "${task.title}". Please try again later.`
         }
-      ]
-    });
+      }
+    ]);
     
     // Reset task status for later processing
     await storage.updateTaskStatus(task.id, 'accepted');
@@ -457,18 +453,15 @@ async function handleSkipTask(user: any, task: any, payload: any) {
     await storage.updateTaskStatus(task.id, 'skipped');
     
     // Send confirmation message
-    await sendInteractiveMessage(user.slackUserId, {
-      text: `⏭️ Task "${task.title}" skipped`,
-      blocks: [
-        {
-          type: 'section',
-          text: {
-            type: 'mrkdwn',
-            text: `⏭️ *Task skipped*\n\n"${task.title}" has been skipped for now. You can reschedule it manually later from the TaskFlow dashboard.`
-          }
+    await sendSlackResponse(payload.response_url, `⏭️ Task "${task.title}" skipped`, [
+      {
+        type: 'section',
+        text: {
+          type: 'mrkdwn',
+          text: `⏭️ *Task skipped*\n\n"${task.title}" has been skipped for now. You can reschedule it manually later from the TaskFlow dashboard.`
         }
-      ]
-    });
+      }
+    ]);
     
     console.log(`[CONFLICT_HANDLER] Successfully skipped task ${task.id}`);
     
