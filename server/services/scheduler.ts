@@ -35,25 +35,31 @@ async function scheduleUnscheduledTasks() {
   try {
     console.log("[SCHEDULER] Checking for unscheduled tasks...");
 
-    // Using a single user with ID 1 for now
-    const user = await storage.getUser(1);
-    if (!user?.googleRefreshToken) return;
+    // Get all users and process their tasks
+    const allUsers = await storage.getAllUsers();
+    console.log(`[SCHEDULER] Processing tasks for ${allUsers.length} users`);
 
-    const tasks = await storage.getTasksByStatus(user.id, "accepted");
-    console.log(
-      `[SCHEDULER] Found ${tasks.length} unscheduled tasks for user ${user.id}`,
-    );
+    for (const user of allUsers) {
+      // Skip users without Google Calendar integration
+      if (!user.googleRefreshToken || user.googleRefreshToken.trim() === '') {
+        console.log(`[SCHEDULER] Skipping user ${user.id} - no Google Calendar integration`);
+        continue;
+      }
 
-    if (tasks.length) {
       try {
-        await scheduleTasksForUser(user, tasks);
-      } catch (err: any) {
-        if (err.message.includes("No available slots")) {
-          console.error("[SCHEDULER] Out of slots:", err.message);
-          // TODO: mark for manual scheduling
-        } else {
-          throw err;
+        const tasks = await storage.getTasksByStatus(user.id, "accepted");
+        console.log(
+          `[SCHEDULER] Found ${tasks.length} unscheduled tasks for user ${user.id}`,
+        );
+
+        if (tasks.length) {
+          console.log(`[SCHEDULER] Processing ${tasks.length} tasks for user ${user.id}`);
+          await scheduleTasksForUser(user, tasks);
         }
+      } catch (userError: any) {
+        console.error(`[SCHEDULER] Error processing tasks for user ${user.id}:`, userError.message);
+        // Continue with other users even if one fails
+        continue;
       }
     }
   } catch (error) {
