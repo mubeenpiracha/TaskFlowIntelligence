@@ -119,9 +119,15 @@ async function handleBumpExistingTasks(user: any, task: any, payload: any) {
   
   try {
     // Extract conflictingTaskIds from the button's action value
+    console.log(`[CONFLICT_HANDLER] Full payload:`, JSON.stringify(payload, null, 2));
     const actionData = JSON.parse(payload.actions[0].value);
+    console.log(`[CONFLICT_HANDLER] Action data:`, actionData);
     const { conflictingTaskIds } = actionData;
     console.log(`[CONFLICT_HANDLER] Conflicting task IDs:`, conflictingTaskIds);
+    
+    if (!conflictingTaskIds || !Array.isArray(conflictingTaskIds)) {
+      throw new Error(`Invalid conflictingTaskIds: ${JSON.stringify(conflictingTaskIds)}`);
+    }
     const { findAvailableSlots, scheduleTaskInSlot } = await import('./scheduler');
     const { getCalendarEvents } = await import('./calendarService');
     
