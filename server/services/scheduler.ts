@@ -98,8 +98,8 @@ async function scheduleTasksForUser(user: User, tasks: Task[]) {
       console.log(`[SCHEDULER DEBUG] Computed deadline: ${deadline}`);
 
       // Convert dates to user's timezone for calendar queries
-      const userNow = convertToUserTimezone(now, userOffset);
-      const userDeadline = convertToUserTimezone(deadline, userOffset);
+      const userNow = now;
+      const userDeadline = deadline;
 
       // Extend busy query window to catch events that started before now
       const queryStart = new Date(userNow.getTime() - durationMs);
@@ -157,31 +157,39 @@ async function scheduleTasksForUser(user: User, tasks: Task[]) {
       }
 
       if (!available.length) {
-        console.log(`[SCHEDULER] No available slots found for task ${task.id}, initiating conflict resolution`);
-        
+        console.log(
+          `[SCHEDULER] No available slots found for task ${task.id}, initiating conflict resolution`,
+        );
+
         // Calculate required start time (deadline - task duration)
         const requiredStartTime = new Date(deadline.getTime() - durationMs);
-        
+
         // Try conflict resolution
-        const { handleSchedulingConflict } = await import('./conflictResolver');
+        const { handleSchedulingConflict } = await import("./conflictResolver");
         const conflictHandled = await handleSchedulingConflict(
           user,
           task,
           requiredStartTime,
           deadline,
-          durationMs
+          durationMs,
         );
-        
+
         if (conflictHandled) {
-          console.log(`[SCHEDULER] Conflict resolution initiated for task ${task.id}`);
+          console.log(
+            `[SCHEDULER] Conflict resolution initiated for task ${task.id}`,
+          );
           continue; // Skip to next task, this one will be handled by conflict resolution
         } else {
-          console.log(`[SCHEDULER] Conflict resolution failed for task ${task.id}, marking for manual scheduling`);
-          await storage.updateTask(task.id, { status: 'pending_manual_schedule' });
+          console.log(
+            `[SCHEDULER] Conflict resolution failed for task ${task.id}, marking for manual scheduling`,
+          );
+          await storage.updateTask(task.id, {
+            status: "pending_manual_schedule",
+          });
           continue;
         }
       }
-      
+
       const slot = selectOptimalSlot(
         available,
         task.priority ?? "medium",

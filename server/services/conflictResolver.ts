@@ -138,8 +138,13 @@ async function sendConflictResolutionMessage(
   const { WebClient } = await import('@slack/web-api');
   const slack = new WebClient(process.env.SLACK_BOT_TOKEN);
 
+  // Convert event times to user's timezone for display
   const eventList = conflictingEvents
-    .map(event => `• ${event.summary} (${formatTimeRange(event.originalStart, event.originalEnd)})`)
+    .map(event => {
+      const userStart = convertToUserTimezone(event.originalStart, user.timezoneOffset || '+00:00');
+      const userEnd = convertToUserTimezone(event.originalEnd, user.timezoneOffset || '+00:00');
+      return `• ${event.summary} (${formatTimeRangeInUserTimezone(userStart, userEnd)})`;
+    })
     .join('\n');
 
   const message = {
@@ -246,6 +251,14 @@ async function bumpConflictingEvents(
 ): Promise<void> {
   console.log(`[CONFLICT_RESOLVER] Bumping ${conflict.conflictingEvents.length} conflicting events`);
 
+  const bumpResults: Array<{
+    event: ConflictingEvent;
+    success: boolean;
+    newStartTime?: Date;
+    newEndTime?: Date;
+    errorMessage?: string;
+  }> = [];
+
   // Find next available slots for each conflicting event
   for (const event of conflict.conflictingEvents) {
     const eventDuration = event.originalEnd.getTime() - event.originalStart.getTime();
@@ -256,23 +269,52 @@ async function bumpConflictingEvents(
     );
 
     if (nextSlot) {
-      // Update the calendar event
-      const startIso = formatDateForGoogleCalendar(nextSlot.start, user.timezone);
-      const endIso = formatDateForGoogleCalendar(nextSlot.end, user.timezone);
-      
-      await updateEvent(user, event.id, {
-        start: { dateTime: startIso, timeZone: user.timezone },
-        end: { dateTime: endIso, timeZone: user.timezone }
-      });
+      try {
+        // Update the calendar event
+        const startIso = formatDateForGoogleCalendar(nextSlot.start, user.timezone);
+        const endIso = formatDateForGoogleCalendar(nextSlot.end, user.timezone);
+        
+        await updateEvent(user, event.id, {
+          start: { dateTime: startIso, timeZone: user.timezone },
+          end: { dateTime: endIso, timeZone: user.timezone }
+        });
 
-      console.log(`[CONFLICT_RESOLVER] Moved event "${event.summary}" to ${nextSlot.start.toISOString()}`);
+        console.log(`[CONFLICT_RESOLVER] Moved event "${event.summary}" to ${nextSlot.start.toISOString()}`);
+        bumpResults.push({
+          event,
+          success: true,
+          newStartTime: nextSlot.start,
+          newEndTime: nextSlot.end
+        });
+      } catch (error) {
+        console.error(`[CONFLICT_RESOLVER] Failed to move event "${event.summary}":`, error);
+        bumpResults.push({
+          event,
+          success: false,
+          errorMessage: error instanceof Error ? error.message : 'Unknown error'
+        });
+      }
     } else {
       console.warn(`[CONFLICT_RESOLVER] Could not find slot for event "${event.summary}"`);
+      bumpResults.push({
+        event,
+        success: false,
+        errorMessage: 'No available time slot found'
+      });
     }
   }
 
-  // Now schedule the original task in the cleared slot
-  await scheduleTaskInSlot(user, task, conflict.requiredStartTime, conflict.taskDuration);
+  // Send detailed feedback to user
+  await sendBumpResultsMessage(user, task, bumpResults);
+
+  // Only schedule the original task if at least some events were successfully moved
+  const successfulBumps = bumpResults.filter(result => result.success);
+  if (successfulBumps.length > 0) {
+    await scheduleTaskInSlot(user, task, conflict.requiredStartTime, conflict.taskDuration);
+  } else {
+    console.error(`[CONFLICT_RESOLVER] No events could be moved, cannot schedule task ${task.id}`);
+    await storage.updateTask(task.id, { status: 'pending_manual_schedule' });
+  }
 }
 
 /**
@@ -466,6 +508,151 @@ function findFirstAvailableSlot(
   }
   
   return null;
+}
+
+/**
+ * Send detailed results of the bump operation to the user
+ */
+async function sendBumpResultsMessage(
+  user: User,
+  task: Task,
+  bumpResults: Array<{
+    event: ConflictingEvent;
+    success: boolean;
+    newStartTime?: Date;
+    newEndTime?: Date;
+    errorMessage?: string;
+  }>
+): Promise<void> {
+  if (!user.slackUserId) return;
+
+  const { WebClient } = await import('@slack/web-api');
+  const slack = new WebClient(process.env.SLACK_BOT_TOKEN);
+
+  const successfulBumps = bumpResults.filter(result => result.success);
+  const failedBumps = bumpResults.filter(result => !result.success);
+
+  let messageText = '';
+  let messageBlocks = [];
+
+  if (successfulBumps.length > 0) {
+    messageText = `✅ Successfully scheduled "${task.title}"! `;
+    
+    if (successfulBumps.length === bumpResults.length) {
+      messageText += `All ${successfulBumps.length} conflicting events were moved to new times.`;
+    } else {
+      messageText += `${successfulBumps.length} of ${bumpResults.length} conflicting events were moved.`;
+    }
+
+    messageBlocks.push({
+      type: "header",
+      text: {
+        type: "plain_text",
+        text: "✅ Task Scheduled Successfully"
+      }
+    });
+
+    messageBlocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `Your task "*${task.title}*" has been scheduled successfully!`
+      }
+    });
+
+    if (successfulBumps.length > 0) {
+      const movedEventsList = successfulBumps.map(result => {
+        const userNewStart = convertToUserTimezone(result.newStartTime!, user.timezoneOffset || '+00:00');
+        const userNewEnd = convertToUserTimezone(result.newEndTime!, user.timezoneOffset || '+00:00');
+        return `• *${result.event.summary}* → ${formatTimeRangeInUserTimezone(userNewStart, userNewEnd)}`;
+      }).join('\n');
+
+      messageBlocks.push({
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `*Events moved to new times:*\n${movedEventsList}`
+        }
+      });
+    }
+
+    if (failedBumps.length > 0) {
+      const failedEventsList = failedBumps.map(result => {
+        return `• *${result.event.summary}* - ${result.errorMessage}`;
+      }).join('\n');
+
+      messageBlocks.push({
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `*⚠️ Events that couldn't be moved:*\n${failedEventsList}\n\n_These events may be owned by others or have restrictions._`
+        }
+      });
+    }
+  } else {
+    messageText = `❌ Unable to schedule "${task.title}"`;
+    
+    messageBlocks.push({
+      type: "header",
+      text: {
+        type: "plain_text",
+        text: "❌ Scheduling Failed"
+      }
+    });
+
+    messageBlocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `I couldn't move any of the conflicting events for "*${task.title}*". The task has been marked for manual scheduling.`
+      }
+    });
+
+    const failedEventsList = failedBumps.map(result => {
+      return `• *${result.event.summary}* - ${result.errorMessage}`;
+    }).join('\n');
+
+    messageBlocks.push({
+      type: "section",
+      text: {
+        type: "mrkdwn",
+        text: `*Events that couldn't be moved:*\n${failedEventsList}`
+      }
+    });
+  }
+
+  try {
+    await slack.chat.postMessage({
+      channel: user.slackUserId,
+      text: messageText,
+      blocks: messageBlocks
+    });
+    console.log(`[CONFLICT_RESOLVER] Sent bump results message to user ${user.slackUserId}`);
+  } catch (error) {
+    console.error(`[CONFLICT_RESOLVER] Failed to send bump results message:`, error);
+  }
+}
+
+/**
+ * Convert UTC time to user's timezone
+ */
+function convertToUserTimezone(utcDate: Date, timezoneOffset: string): Date {
+  const sign = timezoneOffset.startsWith('-') ? -1 : 1;
+  const [hours, minutes] = timezoneOffset.slice(1).split(':').map(Number);
+  const offsetMinutes = sign * (hours * 60 + minutes);
+  return new Date(utcDate.getTime() + offsetMinutes * 60 * 1000);
+}
+
+/**
+ * Format time range in user's timezone
+ */
+function formatTimeRangeInUserTimezone(start: Date, end: Date): string {
+  const options: Intl.DateTimeFormatOptions = { 
+    hour: '2-digit', 
+    minute: '2-digit',
+    hour12: false
+  };
+  return `${start.toLocaleTimeString([], options)} - ${end.toLocaleTimeString([], options)}`;
 }
 
 function formatTimeRange(start: Date, end: Date): string {

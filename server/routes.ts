@@ -2385,20 +2385,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
           const { handleConflictResolution } = await import('./services/conflictResolver');
           const success = await handleConflictResolution(action.value, 'bump_events');
           
-          if (success) {
-            await sendMessage(
-              user.id,
-              '✅ I\'ve moved the conflicting events and scheduled your task successfully!',
-              undefined,
-              dbUserQuery.slackAccessToken || undefined
-            );
-          } else {
-            await sendMessage(
-              user.id,
-              '❌ There was an issue resolving the conflict. Please try manual scheduling.',
-              undefined,
-              dbUserQuery.slackAccessToken || undefined
-            );
+          // The detailed feedback is now sent by the conflict resolver itself
+          // No need to send additional messages here as sendBumpResultsMessage handles it
+          if (!success) {
+            console.log('Conflict resolution failed for bump_events action');
           }
         } catch (error) {
           console.error('Error handling bump events action:', error);
