@@ -291,8 +291,7 @@ async function bumpConflictingEvents(
   for (const event of sortedEvents) {
     const eventDuration = event.originalEnd.getTime() - event.originalStart.getTime();
     
-    // Always start searching from the task end time or current time, whichever is later
-    // This allows proper working hours validation for each event independently
+    // Start searching from the task end time but ensure we don't bypass working hours validation
     const earliestSearchTime = new Date(Math.max(taskEndTime.getTime(), Date.now()));
     
     const nextSlot = await findNextAvailableSlot(
@@ -462,7 +461,7 @@ async function findNextAvailableSlot(
 
   const workingHours = await storage.getWorkingHours(user.id) ?? defaultWorkingHours(user.id);
   
-  return findFirstAvailableSlot(searchFrom, searchEnd, allBusySlots, duration, workingHours);
+  return findFirstAvailableSlot(searchFrom, searchEnd, allBusySlots, duration, workingHours, user.timezone || 'UTC');
 }
 
 /**
@@ -540,15 +539,21 @@ function findFirstAvailableSlot(
   searchEnd: Date,
   busySlots: Array<{ start: Date; end: Date }>,
   duration: number,
-  workingHours: any
+  workingHours: any,
+  userTimezone: string = 'UTC'
 ): { start: Date; end: Date } | null {
   const [startHour, startMin] = workingHours.startTime.split(':').map(Number);
   const [endHour, endMin] = workingHours.endTime.split(':').map(Number);
   
+  console.log(`[CONFLICT_RESOLVER] Finding slot with working hours: ${startHour}:${startMin.toString().padStart(2, '0')} - ${endHour}:${endMin.toString().padStart(2, '0')} in timezone ${userTimezone}`);
+  
   let current = new Date(searchFrom);
+  console.log(`[CONFLICT_RESOLVER] Starting search from: ${current.toISOString()} (${current.toLocaleString()})`);
   
   while (current < searchEnd) {
-    const dayOfWeek = current.getDay();
+    // Convert current time to user's timezone for working hours validation
+    const userTime = new Date(current.toLocaleString("en-US", { timeZone: userTimezone }));
+    const dayOfWeek = userTime.getDay();
     const workingDays = [
       workingHours.sunday,
       workingHours.monday,
@@ -567,16 +572,20 @@ function findFirstAvailableSlot(
       continue;
     }
     
-    // Check if within working hours
-    const currentHour = current.getHours();
-    const currentMin = current.getMinutes();
+    // Check if within working hours (in user's timezone)
+    const currentHour = userTime.getHours();
+    const currentMin = userTime.getMinutes();
+    
+    console.log(`[CONFLICT_RESOLVER] Checking slot at ${current.toISOString()}: ${currentHour}:${currentMin.toString().padStart(2, '0')} in ${userTimezone}`);
     
     if (currentHour < startHour || (currentHour === startHour && currentMin < startMin)) {
+      console.log(`[CONFLICT_RESOLVER] Before working hours, moving to ${startHour}:${startMin.toString().padStart(2, '0')}`);
       current.setHours(startHour, startMin, 0, 0);
       continue;
     }
     
     if (currentHour > endHour || (currentHour === endHour && currentMin >= endMin)) {
+      console.log(`[CONFLICT_RESOLVER] After working hours, moving to next day`);
       // Move to next day
       current = new Date(current);
       current.setDate(current.getDate() + 1);
@@ -585,12 +594,16 @@ function findFirstAvailableSlot(
     }
     
     const slotEnd = new Date(current.getTime() + duration);
+    const slotEndUserTime = new Date(slotEnd.toLocaleString("en-US", { timeZone: userTimezone }));
     
-    // Check if slot fits within working hours
-    const slotEndHour = slotEnd.getHours();
-    const slotEndMin = slotEnd.getMinutes();
+    // Check if slot fits within working hours (in user's timezone)
+    const slotEndHour = slotEndUserTime.getHours();
+    const slotEndMin = slotEndUserTime.getMinutes();
+    
+    console.log(`[CONFLICT_RESOLVER] Slot would end at ${slotEnd.toISOString()}: ${slotEndHour}:${slotEndMin.toString().padStart(2, '0')} in ${userTimezone}`);
     
     if (slotEndHour > endHour || (slotEndHour === endHour && slotEndMin > endMin)) {
+      console.log(`[CONFLICT_RESOLVER] Slot end exceeds working hours, moving to next day`);
       // Move to next day
       current = new Date(current);
       current.setDate(current.getDate() + 1);
