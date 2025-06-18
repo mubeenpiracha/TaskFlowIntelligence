@@ -11,6 +11,7 @@ import { getCalendarEvents, updateEvent, deleteEvent } from "./calendarService";
 import { User, Task } from "@shared/schema";
 import { addMinutes } from "date-fns";
 import { formatDateForGoogleCalendar } from "../utils/dateUtils";
+import { sendMessage } from "./slack";
 
 interface ConflictingEvent {
   id: string;
@@ -366,10 +367,52 @@ async function rescheduleTask(
   if (nextSlot) {
     await scheduleTaskInSlot(user, task, nextSlot.start, conflict.taskDuration);
     console.log(`[CONFLICT_RESOLVER] Rescheduled task "${task.title}" to ${nextSlot.start.toISOString()}`);
+    
+    // Send success message to user
+    if (user.slackUserId) {
+      const startTimeFormatted = nextSlot.start.toLocaleString("en-US", {
+        timeZone: user.timezone || "UTC",
+        weekday: 'short',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+      });
+
+      const endTimeFormatted = nextSlot.end.toLocaleString("en-US", {
+        timeZone: user.timezone || "UTC",
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: true
+      });
+
+      const successBlocks = [
+        {
+          type: "header",
+          text: {
+            type: "plain_text",
+            text: "✅ Task Rescheduled Successfully"
+          }
+        },
+        {
+          type: "section",
+          text: {
+            type: "mrkdwn",
+            text: `I've found a new time slot and scheduled your task successfully!\n\n*"${task.title}"*\n📅 ${startTimeFormatted} - ${endTimeFormatted}`
+          }
+        }
+      ];
+
+      await sendMessage(user.slackUserId, "✅ Task rescheduled successfully", successBlocks);
+    }
   } else {
     console.error(`[CONFLICT_RESOLVER] Could not find available slot for task "${task.title}"`);
     // Mark task for manual scheduling
     await storage.updateTask(task.id, { status: 'pending_manual_schedule' });
+    
+    // Send failure message to user
+    await sendRescheduleFailureMessage(user, task);
   }
 }
 
@@ -538,6 +581,132 @@ function findFirstAvailableSlot(
   }
   
   return null;
+}
+
+/**
+ * Send success message when task is successfully rescheduled
+ */
+async function sendRescheduleSuccessMessage(
+  user: User,
+  task: Task,
+  newStartTime: Date,
+  newEndTime: Date
+): Promise<void> {
+  if (!user.slackUserId) {
+    console.warn(`[CONFLICT_RESOLVER] User ${user.id} has no Slack ID, cannot send reschedule success message`);
+    return;
+  }
+
+  const { WebClient } = await import('@slack/web-api');
+  const slack = new WebClient(process.env.SLACK_BOT_TOKEN);
+
+  // Format the new time in user's timezone
+  const startTimeFormatted = newStartTime.toLocaleString("en-US", {
+    timeZone: user.timezone || "UTC",
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true
+  });
+
+  const endTimeFormatted = newEndTime.toLocaleString("en-US", {
+    timeZone: user.timezone || "UTC",
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: true
+  });
+
+  const message = {
+    channel: user.slackUserId,
+    text: `✅ Task rescheduled successfully`,
+    blocks: [
+      {
+        type: "header",
+        text: {
+          type: "plain_text",
+          text: "✅ Task Rescheduled Successfully"
+        }
+      },
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `I've found a new time slot and scheduled your task successfully!\n\n*"${task.title}"*\n📅 ${startTimeFormatted} - ${endTimeFormatted}`
+        }
+      },
+      {
+        type: "context",
+        elements: [
+          {
+            type: "mrkdwn",
+            text: "Your task has been added to your calendar at the new time."
+          }
+        ]
+      }
+    ]
+  };
+
+  try {
+    await slack.chat.postMessage(message);
+    console.log(`[CONFLICT_RESOLVER] Sent reschedule success message to user ${user.slackUserId}`);
+  } catch (error) {
+    console.error(`[CONFLICT_RESOLVER] Failed to send reschedule success message:`, error);
+  }
+}
+
+/**
+ * Send failure message when task cannot be rescheduled
+ */
+async function sendRescheduleFailureMessage(
+  user: User,
+  task: Task
+): Promise<void> {
+  if (!user.slackUserId) {
+    console.warn(`[CONFLICT_RESOLVER] User ${user.id} has no Slack ID, cannot send reschedule failure message`);
+    return;
+  }
+
+  const { WebClient } = await import('@slack/web-api');
+  const slack = new WebClient(process.env.SLACK_BOT_TOKEN);
+
+  const message = {
+    channel: user.slackUserId,
+    text: `⚠️ Unable to reschedule task`,
+    blocks: [
+      {
+        type: "header",
+        text: {
+          type: "plain_text",
+          text: "⚠️ Scheduling Challenge"
+        }
+      },
+      {
+        type: "section",
+        text: {
+          type: "mrkdwn",
+          text: `I couldn't find an available time slot to reschedule "*${task.title}*" within the next two weeks.\n\nThe task has been marked for manual scheduling. You can reschedule it manually in your calendar or adjust your availability.`
+        }
+      },
+      {
+        type: "context",
+        elements: [
+          {
+            type: "mrkdwn",
+            text: "Consider adjusting your working hours or freeing up time in your calendar."
+          }
+        ]
+      }
+    ]
+  };
+
+  try {
+    await slack.chat.postMessage(message);
+    console.log(`[CONFLICT_RESOLVER] Sent reschedule failure message to user ${user.slackUserId}`);
+  } catch (error) {
+    console.error(`[CONFLICT_RESOLVER] Failed to send reschedule failure message:`, error);
+  }
 }
 
 /**
