@@ -107,7 +107,7 @@ async function findConflictingEvents(
     // Check if event overlaps with required time window
     if (eventStart < requiredEnd && eventEnd > requiredStart) {
       conflictingEvents.push({
-        id: event.id,
+        id: event.id || '',
         summary: event.summary || 'Untitled Event',
         start: event.start,
         end: event.end,
@@ -276,11 +276,21 @@ async function bumpConflictingEvents(
   }> = [];
 
   // Find next available slots for each conflicting event
-  for (const event of conflict.conflictingEvents) {
+  // Search should start immediately after the new task ends
+  const taskEndTime = new Date(conflict.requiredStartTime.getTime() + conflict.taskDuration);
+  
+  // Sort events by original start time to maintain chronological order
+  const sortedEvents = [...conflict.conflictingEvents].sort((a, b) => 
+    a.originalStart.getTime() - b.originalStart.getTime()
+  );
+  
+  let searchFromTime = taskEndTime;
+  
+  for (const event of sortedEvents) {
     const eventDuration = event.originalEnd.getTime() - event.originalStart.getTime();
     const nextSlot = await findNextAvailableSlot(
       user,
-      new Date(conflict.requiredStartTime.getTime() + conflict.taskDuration),
+      searchFromTime, // Start searching from the last placed event
       eventDuration
     );
 
@@ -302,6 +312,9 @@ async function bumpConflictingEvents(
           newStartTime: nextSlot.start,
           newEndTime: nextSlot.end
         });
+        
+        // Update search time for next event to start after this one
+        searchFromTime = nextSlot.end;
       } catch (error) {
         console.error(`[CONFLICT_RESOLVER] Failed to move event "${event.summary}":`, error);
         bumpResults.push({
@@ -394,7 +407,7 @@ async function scheduleTaskInSlot(
   
   const eventData = {
     summary: task.title,
-    description: task.description,
+    description: task.description || undefined,
     start: { dateTime: startIso, timeZone: user.timezone },
     end: { dateTime: endIso, timeZone: user.timezone }
   };
