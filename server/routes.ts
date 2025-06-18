@@ -43,7 +43,6 @@ async function verifyPassword(password: string, hashedPassword: string): Promise
   return key === derivedKey.toString('hex');
 }
 import { detectTasks, sendMessage, listUserChannels, sendTaskDetectionDM, testDirectMessage, getUserTimezone, getChannelName, formatDateForSlack, type SlackChannel, type SlackMessage } from "./services/slack";
-import { requireSlackSignature } from './utils/slackSecurity';
 import { analyzeMessageForTask, type TaskAnalysisResponse } from "./services/openaiService";
 import axios from "axios";
 import { slack } from "./services/slack";
@@ -108,6 +107,7 @@ import {
   clearProcessedMessages
 } from './services/slackMonitor';
 import { requireSlackSignature } from './utils/slackSecurity';
+import { generalRateLimit, slackWebhookRateLimit, authRateLimit } from './utils/rateLimiter';
 import { SESSION_SECRET } from './config';
 
 // Create a store for sessions
@@ -158,7 +158,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   };
 
   // Auth routes
-  app.post('/api/auth/register', async (req, res) => {
+  app.post('/api/auth/register', authRateLimit.middleware(), async (req, res) => {
     try {
       // Parse the user data
       let userData = insertUserSchema.parse(req.body);
@@ -208,7 +208,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
-  app.post('/api/auth/login', async (req, res) => {
+  app.post('/api/auth/login', authRateLimit.middleware(), async (req, res) => {
     try {
       const { username, password } = z.object({
         username: z.string(),
@@ -499,8 +499,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Slack Events API endpoint for event subscriptions - secured with signature verification
-  app.post('/slack/events', express.raw({ type: '*/*' }), requireSlackSignature, async (req, res) => {
+  // Slack Events API endpoint for event subscriptions - secured with signature verification and rate limiting
+  app.post('/slack/events', slackWebhookRateLimit.middleware(), express.raw({ type: '*/*' }), requireSlackSignature, async (req, res) => {
     let body;
     try {
       // If it's a string (raw body), try to parse it as JSON
@@ -1039,8 +1039,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
   
-  // Root endpoint for Slack interactions
-  app.post('/slack/interactions', express.raw({ type: '*/*' }), requireSlackSignature, express.json(), express.urlencoded({ extended: true }), async (req, res) => {
+  // Root endpoint for Slack interactions - secured with rate limiting and signature verification
+  app.post('/slack/interactions', slackWebhookRateLimit.middleware(), express.raw({ type: '*/*' }), requireSlackSignature, express.json(), express.urlencoded({ extended: true }), async (req, res) => {
     try {
       console.log('[SLACK INTERACTION] Body keys:', Object.keys(req.body));
       console.log('[SLACK INTERACTION] Content-Type:', req.headers['content-type']);
