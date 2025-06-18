@@ -277,7 +277,7 @@ async function bumpConflictingEvents(
   }> = [];
 
   // Find next available slots for each conflicting event
-  // Search should start immediately after the new task ends
+  // Start searching from the earliest reasonable time (beginning of next working period)
   const taskEndTime = new Date(conflict.requiredStartTime.getTime() + conflict.taskDuration);
   
   // Sort events by original start time to maintain chronological order
@@ -285,14 +285,21 @@ async function bumpConflictingEvents(
     a.originalStart.getTime() - b.originalStart.getTime()
   );
   
-  let searchFromTime = taskEndTime;
+  // Track all newly scheduled slots to avoid overlaps
+  const newlyScheduledSlots: Array<{ start: Date; end: Date }> = [];
   
   for (const event of sortedEvents) {
     const eventDuration = event.originalEnd.getTime() - event.originalStart.getTime();
+    
+    // Always start searching from the task end time or current time, whichever is later
+    // This allows proper working hours validation for each event independently
+    const earliestSearchTime = new Date(Math.max(taskEndTime.getTime(), Date.now()));
+    
     const nextSlot = await findNextAvailableSlot(
       user,
-      searchFromTime, // Start searching from the last placed event
-      eventDuration
+      earliestSearchTime,
+      eventDuration,
+      newlyScheduledSlots // Pass existing scheduled slots to avoid conflicts
     );
 
     if (nextSlot) {
@@ -314,8 +321,8 @@ async function bumpConflictingEvents(
           newEndTime: nextSlot.end
         });
         
-        // Update search time for next event to start after this one
-        searchFromTime = nextSlot.end;
+        // Add this slot to the list of newly scheduled slots
+        newlyScheduledSlots.push({ start: nextSlot.start, end: nextSlot.end });
       } catch (error) {
         console.error(`[CONFLICT_RESOLVER] Failed to move event "${event.summary}":`, error);
         bumpResults.push({
@@ -361,7 +368,8 @@ async function rescheduleTask(
   const nextSlot = await findNextAvailableSlot(
     user,
     new Date(conflict.requiredStartTime.getTime() + conflict.taskDuration),
-    conflict.taskDuration
+    conflict.taskDuration,
+    [] // No additional busy slots for reschedule
   );
 
   if (nextSlot) {
@@ -441,16 +449,20 @@ async function rescheduleTask(
 async function findNextAvailableSlot(
   user: User,
   searchFrom: Date,
-  duration: number
+  duration: number,
+  additionalBusySlots: Array<{ start: Date; end: Date }> = []
 ): Promise<{ start: Date; end: Date } | null> {
   const searchEnd = new Date(searchFrom.getTime() + (14 * 24 * 60 * 60 * 1000)); // Search 2 weeks ahead
   
   const events = await getCalendarEvents(user, searchFrom, searchEnd);
-  const busySlots = events.flatMap((ev: any) => normalizeEventSlot(ev));
+  const existingBusySlots = events.flatMap((ev: any) => normalizeEventSlot(ev));
+  
+  // Combine existing calendar events with newly scheduled slots to avoid conflicts
+  const allBusySlots = [...existingBusySlots, ...additionalBusySlots];
 
   const workingHours = await storage.getWorkingHours(user.id) ?? defaultWorkingHours(user.id);
   
-  return findFirstAvailableSlot(searchFrom, searchEnd, busySlots, duration, workingHours);
+  return findFirstAvailableSlot(searchFrom, searchEnd, allBusySlots, duration, workingHours);
 }
 
 /**
