@@ -132,6 +132,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.status(404).send('Not Found');
   });
 
+  // Apply general rate limiting to all routes
+  app.use(generalRateLimit.middleware());
+
+  // Security headers middleware
+  app.use((req, res, next) => {
+    if (process.env.NODE_ENV === 'production') {
+      res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      res.setHeader('X-Frame-Options', 'DENY');
+      res.setHeader('X-XSS-Protection', '1; mode=block');
+    }
+    next();
+  });
+
   // Session middleware with secure configuration
   app.use(session({
     secret: SESSION_SECRET,
@@ -1042,8 +1056,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Root endpoint for Slack interactions - secured with rate limiting and signature verification
   app.post('/slack/interactions', slackWebhookRateLimit.middleware(), express.raw({ type: '*/*' }), requireSlackSignature, express.json(), express.urlencoded({ extended: true }), async (req, res) => {
     try {
-      console.log('[SLACK INTERACTION] Body keys:', Object.keys(req.body));
-      console.log('[SLACK INTERACTION] Content-Type:', req.headers['content-type']);
+
       
       // Handle Slack URL verification challenge (happens when setting up interactive components)
       if (req.body.type === 'url_verification') {
