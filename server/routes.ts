@@ -43,6 +43,7 @@ async function verifyPassword(password: string, hashedPassword: string): Promise
   return key === derivedKey.toString('hex');
 }
 import { detectTasks, sendMessage, listUserChannels, sendTaskDetectionDM, testDirectMessage, getUserTimezone, getChannelName, formatDateForSlack, type SlackChannel, type SlackMessage } from "./services/slack";
+import { requireSlackSignature } from './utils/slackSecurity';
 import { analyzeMessageForTask, type TaskAnalysisResponse } from "./services/openaiService";
 import axios from "axios";
 import { slack } from "./services/slack";
@@ -131,15 +132,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.status(404).send('Not Found');
   });
 
-  // Session middleware
+  // Session middleware with secure configuration
   app.use(session({
-    secret: process.env.SESSION_SECRET || 'taskflow-secret-key',
+    secret: SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
-    cookie: { secure: process.env.NODE_ENV === 'production', maxAge: 86400000 }, // 1 day
+    cookie: { 
+      secure: process.env.NODE_ENV === 'production',
+      httpOnly: true,
+      sameSite: 'strict',
+      maxAge: 86400000 // 1 day
+    },
     store: new MemoryStore({
       checkPeriod: 86400000 // prune expired entries every 24h
-    })
+    }),
+    name: 'taskflow.sid' // Change default session name
   }));
 
   // Auth middleware
@@ -492,17 +499,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Slack Events API endpoint for event subscriptions - with enhanced logging
-  app.post('/slack/events', express.raw({ type: '*/*' }), async (req, res) => {
-    console.log('=== RECEIVED SLACK EVENTS API REQUEST ===');
-    console.log('Headers:', JSON.stringify(req.headers));
-    
+  // Slack Events API endpoint for event subscriptions - secured with signature verification
+  app.post('/slack/events', express.raw({ type: '*/*' }), requireSlackSignature, async (req, res) => {
     let body;
     try {
       // If it's a string (raw body), try to parse it as JSON
       if (typeof req.body === 'string' || Buffer.isBuffer(req.body)) {
         const rawBody = req.body.toString();
-        console.log('Raw body (first 500 chars):', rawBody.substring(0, 500));
+
         
         try {
           body = JSON.parse(rawBody);
@@ -1036,7 +1040,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
   
   // Root endpoint for Slack interactions
-  app.post('/slack/interactions', express.json(), express.urlencoded({ extended: true }), async (req, res) => {
+  app.post('/slack/interactions', express.raw({ type: '*/*' }), requireSlackSignature, express.json(), express.urlencoded({ extended: true }), async (req, res) => {
     try {
       console.log('[SLACK INTERACTION] Body keys:', Object.keys(req.body));
       console.log('[SLACK INTERACTION] Content-Type:', req.headers['content-type']);
