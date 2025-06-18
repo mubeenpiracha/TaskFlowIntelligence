@@ -2,6 +2,7 @@ import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import { startScheduler } from "./services/scheduler";
+import { validateConfig } from "./config";
 
 const app = express();
 app.use(express.json());
@@ -62,6 +63,14 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Validate configuration before starting
+  try {
+    validateConfig();
+  } catch (error) {
+    console.error('[STARTUP] Configuration validation failed:', error);
+    process.exit(1);
+  }
+
   const server = await registerRoutes(app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {

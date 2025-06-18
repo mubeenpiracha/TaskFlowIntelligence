@@ -106,6 +106,8 @@ import {
   getMonitoringStatus,
   clearProcessedMessages
 } from './services/slackMonitor';
+import { requireSlackSignature } from './utils/slackSecurity';
+import { SESSION_SECRET } from './config';
 
 // Create a store for sessions
 import createMemoryStore from 'memorystore';
