@@ -1,11 +1,12 @@
 import { eq, and } from 'drizzle-orm';
 import { db } from './db';
 import { 
-  users, workingHours, tasks, workspaces,
+  users, workingHours, tasks, workspaces, processedMessages,
   type User, type InsertUser, 
   type WorkingHours, type InsertWorkingHours,
   type Task, type InsertTask,
-  type Workspace, type InsertWorkspace
+  type Workspace, type InsertWorkspace,
+  type ProcessedMessage, type InsertProcessedMessage
 } from '@shared/schema';
 import type { IStorage } from './storage';
 import pkg from 'pg';
@@ -377,5 +378,49 @@ export class PgStorage implements IStorage {
       .where(and(eq(tasks.userId, userId), eq(tasks.displayed, true)))
       .returning();
     return result.length;
+  }
+
+  // Processed messages operations
+  async isMessageProcessed(slackMessageId: string, slackChannelId: string): Promise<boolean> {
+    try {
+      const result = await db
+        .select()
+        .from(processedMessages)
+        .where(
+          and(
+            eq(processedMessages.slackMessageId, slackMessageId),
+            eq(processedMessages.slackChannelId, slackChannelId)
+          )
+        )
+        .limit(1);
+      return result.length > 0;
+    } catch (error) {
+      console.error('[DB] Error checking if message is processed:', error);
+      return false;
+    }
+  }
+
+  async markMessageProcessed(message: InsertProcessedMessage): Promise<ProcessedMessage> {
+    const result = await db
+      .insert(processedMessages)
+      .values(message)
+      .returning();
+    return result[0];
+  }
+
+  async cleanupOldProcessedMessages(olderThanDays: number): Promise<number> {
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - olderThanDays);
+    
+    try {
+      const result = await db
+        .delete(processedMessages)
+        .where(eq(processedMessages.processedAt, cutoffDate))
+        .returning();
+      return result.length;
+    } catch (error) {
+      console.error('[DB] Error cleaning up old processed messages:', error);
+      return 0;
+    }
   }
 }

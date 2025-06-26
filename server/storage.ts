@@ -456,7 +456,11 @@ export class MemStorage implements IStorage {
   async markMessageProcessed(message: InsertProcessedMessage): Promise<ProcessedMessage> {
     const processedMessage: ProcessedMessage = {
       id: this.currentProcessedMessageId++,
-      ...message,
+      workspaceId: message.workspaceId,
+      slackMessageId: message.slackMessageId,
+      slackChannelId: message.slackChannelId,
+      userId: message.userId ?? null,
+      processingResult: message.processingResult ?? null,
       processedAt: new Date()
     };
     
