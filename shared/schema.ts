@@ -189,6 +189,14 @@ export const insertTaskSchema = createInsertSchema(tasks).pick({
   displayed: true,
 });
 
+export const insertProcessedMessageSchema = createInsertSchema(processedMessages).pick({
+  slackMessageId: true,
+  slackChannelId: true,
+  workspaceId: true,
+  userId: true,
+  processingResult: true,
+});
+
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 
@@ -198,7 +206,8 @@ export type WorkingHours = typeof workingHours.$inferSelect;
 export type InsertTask = z.infer<typeof insertTaskSchema>;
 export type Task = typeof tasks.$inferSelect;
 
-
+export type InsertProcessedMessage = z.infer<typeof insertProcessedMessageSchema>;
+export type ProcessedMessage = typeof processedMessages.$inferSelect;
 
 export type InsertWorkspace = z.infer<typeof insertWorkspaceSchema>;
 export type Workspace = typeof workspaces.$inferSelect;

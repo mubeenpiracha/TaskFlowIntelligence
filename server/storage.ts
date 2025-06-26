@@ -2,11 +2,12 @@ import {
   users, type User, type InsertUser, 
   workingHours, type WorkingHours, type InsertWorkingHours,
   tasks, type Task, type InsertTask,
-  workspaces, type Workspace, type InsertWorkspace
+  workspaces, type Workspace, type InsertWorkspace,
+  processedMessages, type ProcessedMessage, type InsertProcessedMessage
 } from "@shared/schema";
 
 // Re-export the types for external use
-export type { User, InsertUser, WorkingHours, InsertWorkingHours, Task, InsertTask, Workspace, InsertWorkspace };
+export type { User, InsertUser, WorkingHours, InsertWorkingHours, Task, InsertTask, Workspace, InsertWorkspace, ProcessedMessage, InsertProcessedMessage };
 
 export interface IStorage {
   // Workspace operations
@@ -54,6 +55,11 @@ export interface IStorage {
   getUndisplayedTasks(userId: number): Promise<Task[]>;
   markTaskDisplayed(id: number, displayed: boolean): Promise<Task | undefined>;
   resetAllTaskDisplayStatus(userId: number): Promise<number>;
+  
+  // Processed messages operations
+  isMessageProcessed(slackMessageId: string, slackChannelId: string): Promise<boolean>;
+  markMessageProcessed(message: InsertProcessedMessage): Promise<ProcessedMessage>;
+  cleanupOldProcessedMessages(olderThanDays: number): Promise<number>;
 }
 
 export class MemStorage implements IStorage {
@@ -61,20 +67,24 @@ export class MemStorage implements IStorage {
   private workingHours: Map<number, WorkingHours>;
   private tasks: Map<number, Task>;
   private workspaces: Map<number, Workspace>;
+  private processedMessages: Map<string, ProcessedMessage>;
   private currentUserId: number;
   private currentWorkingHoursId: number;
   private currentTaskId: number;
   private currentWorkspaceId: number;
+  private currentProcessedMessageId: number;
 
   constructor() {
     this.users = new Map();
     this.workingHours = new Map();
     this.tasks = new Map();
     this.workspaces = new Map();
+    this.processedMessages = new Map();
     this.currentUserId = 1;
     this.currentWorkingHoursId = 1;
     this.currentTaskId = 1;
     this.currentWorkspaceId = 1;
+    this.currentProcessedMessageId = 1;
   }
   
   // Workspace operations
@@ -431,6 +441,38 @@ export class MemStorage implements IStorage {
     for (const [id, task] of this.tasks.entries()) {
       if (task.userId === userId && task.displayed === true) {
         this.tasks.set(id, { ...task, displayed: false });
+        count++;
+      }
+    }
+    return count;
+  }
+
+  // Processed messages operations
+  async isMessageProcessed(slackMessageId: string, slackChannelId: string): Promise<boolean> {
+    const key = `${slackMessageId}-${slackChannelId}`;
+    return this.processedMessages.has(key);
+  }
+
+  async markMessageProcessed(message: InsertProcessedMessage): Promise<ProcessedMessage> {
+    const processedMessage: ProcessedMessage = {
+      id: this.currentProcessedMessageId++,
+      ...message,
+      processedAt: new Date()
+    };
+    
+    const key = `${message.slackMessageId}-${message.slackChannelId}`;
+    this.processedMessages.set(key, processedMessage);
+    return processedMessage;
+  }
+
+  async cleanupOldProcessedMessages(olderThanDays: number): Promise<number> {
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - olderThanDays);
+    
+    let count = 0;
+    for (const [key, message] of this.processedMessages) {
+      if (message.processedAt < cutoffDate) {
+        this.processedMessages.delete(key);
         count++;
       }
     }
