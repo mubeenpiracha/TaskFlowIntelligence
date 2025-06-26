@@ -172,7 +172,9 @@ export class MemStorage implements IStorage {
       googleRefreshToken: insertUser.googleRefreshToken ?? null,
       workspaceId: insertUser.workspaceId ?? null,
       slackWorkspace: insertUser.slackWorkspace ?? null,
-      slackChannelPreferences: insertUser.slackChannelPreferences ?? null
+      slackChannelPreferences: insertUser.slackChannelPreferences ?? null,
+      timezone: insertUser.timezone || "UTC",
+      timezoneOffset: "+00:00"
     };
     this.users.set(id, user);
     return user;
@@ -423,7 +425,7 @@ export class MemStorage implements IStorage {
   // Task display operations
   async getUndisplayedTasks(userId: number): Promise<Task[]> {
     return Array.from(this.tasks.values()).filter(
-      (task) => task.userId === userId && (!task.displayed || task.displayed === false)
+      (task) => task.userId === userId && task.displayed === false
     );
   }
 
@@ -438,7 +440,8 @@ export class MemStorage implements IStorage {
 
   async resetAllTaskDisplayStatus(userId: number): Promise<number> {
     let count = 0;
-    for (const [id, task] of this.tasks.entries()) {
+    const entries = Array.from(this.tasks.entries());
+    for (const [id, task] of entries) {
       if (task.userId === userId && task.displayed === true) {
         this.tasks.set(id, { ...task, displayed: false });
         count++;
@@ -474,12 +477,21 @@ export class MemStorage implements IStorage {
     cutoffDate.setDate(cutoffDate.getDate() - olderThanDays);
     
     let count = 0;
-    for (const [key, message] of this.processedMessages) {
+    const keysToDelete: string[] = [];
+    
+    // Collect keys to delete to avoid modifying map during iteration
+    this.processedMessages.forEach((message, key) => {
       if (message.processedAt < cutoffDate) {
-        this.processedMessages.delete(key);
-        count++;
+        keysToDelete.push(key);
       }
-    }
+    });
+    
+    // Delete collected keys
+    keysToDelete.forEach(key => {
+      this.processedMessages.delete(key);
+      count++;
+    });
+    
     return count;
   }
 }
