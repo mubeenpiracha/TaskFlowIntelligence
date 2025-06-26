@@ -105,6 +105,24 @@ export const tasks = pgTable("tasks", {
   };
 });
 
+// Add processed messages table to track handled Slack messages and prevent duplicates
+export const processedMessages = pgTable("processed_messages", {
+  id: serial("id").primaryKey(),
+  slackMessageId: text("slack_message_id").notNull(),
+  slackChannelId: text("slack_channel_id").notNull(),
+  workspaceId: integer("workspace_id").notNull(),
+  userId: integer("user_id"),
+  processedAt: timestamp("processed_at").notNull().defaultNow(),
+  processingResult: text("processing_result"), // "task_created", "no_task_detected", "user_declined", etc.
+  // Auto-cleanup: messages older than 30 days can be removed
+}, (table) => {
+  return {
+    messageIdIdx: uniqueIndex("processed_message_id_idx").on(table.slackMessageId, table.slackChannelId),
+    workspaceIdIdx: index("processed_message_workspace_id_idx").on(table.workspaceId),
+    processedAtIdx: index("processed_message_date_idx").on(table.processedAt),
+  };
+});
+
 export const insertWorkspaceSchema = createInsertSchema(workspaces).pick({
   slackWorkspaceId: true,
   slackWorkspaceName: true,
